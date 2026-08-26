@@ -1,15 +1,15 @@
 {
   "creators": [
     {
-      "creatorId": "creator_shala",
-      "displayName": "Shala",
+      "creatorId": "creator_example",
+      "displayName": "Example Creator",
       "active": true,
-      "sourceAliases": ["06_Shala"],
+      "sourceAliases": ["01_ExampleCreator"],
       "accounts": [
         {
-          "accountId": "shala_instagram_primary",
+          "accountId": "example_instagram_primary",
           "platform": "instagram",
-          "browserIdentityId": "browser_shala_instagram_primary",
+          "browserIdentityId": "browser_example_instagram_primary",
           "active": true
         }
       ]
