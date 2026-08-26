@@ -18,6 +18,7 @@
 - AI may diagnose and propose code patches; AI must not free-form click production accounts or bypass platform controls.
 - Browser session data, cookies, credentials, customer media and evidence artifacts are never committed to git.
 - Video bytes are immutable in the publishing system unless a future explicit content-processing contract says otherwise.
+- Re-observing the same source object with a changed media fingerprint is a conflict and must fail closed; never silently replace accepted content.
 - `Europe/Vienna` is the business scheduling timezone.
 - Production customer accounts are forbidden until all gates in `docs/06-GO-LIVE-GATES.md` are satisfied.
 

@@ -1,7 +1,7 @@
 # HANDOFF — current repository state
 
 ## Current phase
-W1 — durable control plane **complete under local verification**. W2 is next.
+W2 — pluggable ingress/source acknowledgement **complete under local verification**. W3 is next.
 
 ## Implemented
 - W0 architecture graph and reverse-trace model,
@@ -16,7 +16,14 @@ W1 — durable control plane **complete under local verification**. W2 is next.
 - worker leases and expiry/reacquisition,
 - restart recovery split at irreversible publish boundary,
 - admin read model/CLI,
-- 21 automated tests passing.
+- W2 durable SourceObservation/ContentItem/SourceDisposition persistence,
+- read-only recursive Google Drive discovery + pagination,
+- configurable current creator/week/day interpreter,
+- second metadata-driven interpreter proving ingress replacement,
+- duplicate/mutated-source protection,
+- noop/webhook/Drive-appProperties/composite disposition adapters,
+- durable source acknowledgement semantics,
+- 33 automated tests passing.
 
 ## Safety correction made in W1
 `PUBLISH_UNCERTAIN -> READY` was removed. An uncertain irreversible outcome must reconcile through `VERIFYING` before any retry path exists.
@@ -25,17 +32,16 @@ W1 — durable control plane **complete under local verification**. W2 is next.
 The current isolated SQLite adapter uses Node 22.16 `node:sqlite`, which emits an ExperimentalWarning in the build environment. Close this driver/runtime decision before customer canary; it does not require a domain redesign. See `docs/10-W1-DURABLE-CONTROL-PLANE.md`.
 
 ## Intentionally not implemented yet
-- Google Drive live adapter,
-- source mutation/acknowledgement in Drive/bot,
+- real Google Drive credential/bootstrap and live folder scan,
+- exact current bot/checkmark receiver integration,
 - real Playwright platform adapters,
 - browser-account profiles/sessions,
-- current bot integration,
 - final-publish capability on any real account.
 
 These remain blocked by wave order.
 
 ## Next implementation order
-W2 ingress/disposition -> W3 browser identities -> W4 PREPARE_ONLY adapters -> W5 verification.
+W3 browser identities -> W4 PREPARE_ONLY adapters -> W5 verification -> W6 operations/bot integration.
 
 ## Safety
 Do not enable customer publishing during W0–W8. Follow `docs/06-GO-LIVE-GATES.md`.

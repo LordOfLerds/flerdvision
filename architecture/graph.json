@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "nodes": [
     {
       "id": "external_source",
@@ -145,6 +145,66 @@
       "id": "admin_read_model",
       "kind": "application",
       "label": "ControlPlaneAdminReadModel"
+    },
+    {
+      "id": "content_ingress_port",
+      "kind": "port",
+      "label": "ContentIngressPort"
+    },
+    {
+      "id": "ingress_interpreter_port",
+      "kind": "port",
+      "label": "IngressInterpreterPort"
+    },
+    {
+      "id": "ingress_store_port",
+      "kind": "port",
+      "label": "IngressStorePort"
+    },
+    {
+      "id": "content_ingress_service",
+      "kind": "application",
+      "label": "ContentIngressService"
+    },
+    {
+      "id": "google_drive_ingress",
+      "kind": "adapter",
+      "label": "GoogleDriveFolderIngressAdapter"
+    },
+    {
+      "id": "fixture_ingress",
+      "kind": "adapter",
+      "label": "FixtureIngressAdapter"
+    },
+    {
+      "id": "current_path_interpreter",
+      "kind": "adapter",
+      "label": "CurrentCreatorWeekDayPathInterpreter"
+    },
+    {
+      "id": "metadata_interpreter",
+      "kind": "adapter",
+      "label": "MetadataFieldIngressInterpreter"
+    },
+    {
+      "id": "source_ack_service",
+      "kind": "application",
+      "label": "SourceAcknowledgementService"
+    },
+    {
+      "id": "webhook_disposition",
+      "kind": "adapter",
+      "label": "WebhookSourceDispositionAdapter"
+    },
+    {
+      "id": "drive_properties_disposition",
+      "kind": "adapter",
+      "label": "GoogleDriveAppPropertiesDispositionAdapter"
+    },
+    {
+      "id": "source_disposition_record",
+      "kind": "domain",
+      "label": "SourceDispositionRecord"
     }
   ],
   "edges": [
@@ -312,6 +372,106 @@
       "from": "admin_read_model",
       "to": "control_plane_store",
       "rel": "reads"
+    },
+    {
+      "from": "external_source",
+      "to": "content_ingress_port",
+      "rel": "observed_through"
+    },
+    {
+      "from": "google_drive_ingress",
+      "to": "content_ingress_port",
+      "rel": "implements"
+    },
+    {
+      "from": "fixture_ingress",
+      "to": "content_ingress_port",
+      "rel": "implements"
+    },
+    {
+      "from": "content_ingress_port",
+      "to": "source_observation",
+      "rel": "emits"
+    },
+    {
+      "from": "source_observation",
+      "to": "ingress_interpreter_port",
+      "rel": "interpreted_by"
+    },
+    {
+      "from": "current_path_interpreter",
+      "to": "ingress_interpreter_port",
+      "rel": "implements"
+    },
+    {
+      "from": "metadata_interpreter",
+      "to": "ingress_interpreter_port",
+      "rel": "implements"
+    },
+    {
+      "from": "content_ingress_service",
+      "to": "content_ingress_port",
+      "rel": "orchestrates"
+    },
+    {
+      "from": "content_ingress_service",
+      "to": "ingress_interpreter_port",
+      "rel": "orchestrates"
+    },
+    {
+      "from": "content_ingress_service",
+      "to": "ingress_store_port",
+      "rel": "persists_through"
+    },
+    {
+      "from": "source_observation",
+      "to": "ingress_store_port",
+      "rel": "persisted_through"
+    },
+    {
+      "from": "content_item",
+      "to": "ingress_store_port",
+      "rel": "persisted_through"
+    },
+    {
+      "from": "sqlite_control_plane",
+      "to": "ingress_store_port",
+      "rel": "implements"
+    },
+    {
+      "from": "source_ack_service",
+      "to": "source_disposition",
+      "rel": "invokes"
+    },
+    {
+      "from": "source_ack_service",
+      "to": "ingress_store_port",
+      "rel": "records_through"
+    },
+    {
+      "from": "source_disposition_record",
+      "to": "ingress_store_port",
+      "rel": "persisted_through"
+    },
+    {
+      "from": "webhook_disposition",
+      "to": "source_disposition",
+      "rel": "implements"
+    },
+    {
+      "from": "drive_properties_disposition",
+      "to": "source_disposition",
+      "rel": "implements"
+    },
+    {
+      "from": "verified_publication",
+      "to": "source_ack_service",
+      "rel": "may_complete_after_all_required_targets_verified"
+    },
+    {
+      "from": "source_disposition",
+      "to": "source_disposition_record",
+      "rel": "recorded_as"
     }
   ],
   "invariants": [

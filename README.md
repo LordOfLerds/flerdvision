@@ -2,11 +2,12 @@
 
 - W0 canonical architecture: **done**
 - W1 durable control plane: **done under local verification**
-- Automated tests: **21 passed / 0 failed**
-- W2 pluggable ingress/disposition: **next**
+- W2 pluggable ingress/disposition: **done under local verification**
+- Automated tests: **33 passed / 0 failed**
+- W3 browser identity subsystem: **next**
 - Real social-account publishing: **not implemented and intentionally blocked**
 
-See `docs/10-PROGRESS.md` and `docs/10-W1-DURABLE-CONTROL-PLANE.md`.
+See `docs/10-PROGRESS.md`, `docs/10-W1-DURABLE-CONTROL-PLANE.md`, and `docs/11-W2-PLUGGABLE-INGRESS.md`.
 
 # Flerdvision
 
@@ -38,7 +39,7 @@ Every node is traceable backward to its source and forward to its targets.
 
 ## Current code
 
-The first commit contains the canonical domain contracts and a tested state machine. Platform and Drive implementations are intentionally not yet allowed to perform irreversible actions.
+The repository now contains the durable control plane plus replaceable ingress/disposition adapters. Google Drive discovery code is read-only by default; optional acknowledgement writers are not wired. Social platform/browser implementations are still absent, so no irreversible social action is currently possible.
 
 ```bash
 npm run check

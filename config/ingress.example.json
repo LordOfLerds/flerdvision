@@ -1,14 +1,30 @@
 {
-  "sourceId": "current_google_drive",
-  "adapter": "google_drive_folder",
+  "source": {
+    "sourceId": "current_google_drive",
+    "adapter": "google_drive_folder",
+    "rootFolderId": "SET_AT_DEPLOYMENT",
+    "readOnly": true,
+    "acceptedMimePrefixes": ["video/"],
+    "acceptedExtensions": [".mp4", ".mov", ".m4v", ".webm"]
+  },
   "interpreter": {
-    "kind": "path_rules_v1",
-    "creatorSegment": 1,
-    "daySegmentPattern": "^(?<dayNumber>0[1-7])_(?<dayName>.+)$",
-    "unknownFolderPolicy": "block"
+    "kind": "creator_week_day_path",
+    "creatorAliases": {
+      "01_ExampleCreator": "creator_example"
+    },
+    "daySegmentPattern": "^(0[1-7])_(.+)$",
+    "unknownCreatorPolicy": "block",
+    "weekStartBySegment": {},
+    "formatFolderHints": {
+      "reels": ["reel"],
+      "trial reels": ["trial_reel"],
+      "tiktok": ["tiktok"],
+      "shorts": ["short"]
+    }
   },
   "disposition": {
     "adapter": "noop",
-    "note": "Keep today's confirmation/write-back behavior replaceable until exact SOP is locked."
+    "availableAdapters": ["noop", "webhook", "google_drive_app_properties", "composite"],
+    "note": "Keep today's completion/checkmark behavior outside the core until the exact receiver contract is locked."
   }
 }

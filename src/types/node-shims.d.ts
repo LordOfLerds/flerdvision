@@ -23,3 +23,11 @@ declare const process: {
   env: Record<string, string | undefined>;
   exitCode?: number;
 };
+
+declare module "node:crypto" {
+  export interface Hash {
+    update(data: string): Hash;
+    digest(encoding: "hex"): string;
+  }
+  export function createHash(algorithm: "sha256"): Hash;
+}

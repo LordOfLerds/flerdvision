@@ -8,9 +8,13 @@ Domain port: `ContentIngressPort`
 
 It returns `SourceObservation[]` and nothing more. Mapping today's Drive layout to creator/date/type is handled by an `IngressInterpreter`.
 
-Initial adapters:
-- `GoogleDriveFolderIngressAdapter` — reads existing creator/week/day schema.
+Implemented adapters:
+- `GoogleDriveFolderIngressAdapter` — read-only recursive discovery of the existing creator/week/day source tree; path semantics stay out of the adapter.
 - `FixtureIngressAdapter` — deterministic test fixtures.
+
+Implemented interpreters:
+- `CurrentCreatorWeekDayPathInterpreter` — configurable creator aliases + numbered day folders, with explicit week/date inputs only.
+- `MetadataFieldIngressInterpreter` — proves a future non-path source can plug in without changing the core.
 
 Future adapters without domain changes:
 - different Drive layout,
@@ -27,12 +31,13 @@ Future adapters without domain changes:
 
 Domain port: `SourceDispositionPort`.
 
-Possible adapters:
-- move/tag Drive file,
-- write a status file,
-- react/confirm in the existing bot/channel,
-- update an external tracker,
-- no-op.
+Implemented/available adapters:
+- `NoopSourceDispositionAdapter` — safe default,
+- `WebhookSourceDispositionAdapter` — generic bridge for the existing/future bot receiver with deterministic idempotency key,
+- `GoogleDriveAppPropertiesDispositionAdapter` — optional non-moving Drive status properties,
+- `CompositeSourceDispositionAdapter` — fan-out.
+
+Future adapters can still move/tag files, update trackers or use a different bot without core changes.
 
 The core emits `ContentCompleted` / `ContentBlocked`; an adapter decides how today's human workflow is updated.
 

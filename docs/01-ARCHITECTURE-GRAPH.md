@@ -4,7 +4,9 @@ The graph is the source of architectural reasoning. Every forward edge should ha
 
 ```text
 ExternalSource
+  -> ContentIngressPort
   -> SourceObservation
+  -> IngressInterpreterPort
   -> ContentItem
   -> DistributionPlan
   -> PublicationIntent
@@ -32,7 +34,7 @@ SourceDisposition <- VerifiedPublication / BlockedOutcome
 An immutable observation that an external source contains a candidate artifact. It carries external IDs/path hints but no publishing assumptions.
 
 ### ContentItem
-The canonical accepted media item. It references source provenance and a cryptographic content fingerprint. It does **not** encode a Drive folder path as business truth.
+The canonical accepted media item. It references source provenance and a stable source-media fingerprint. Drive discovery uses the provider checksum when available; later materialization must compute/verify a local SHA-256 before upload. It does **not** encode a Drive folder path as business truth.
 
 ### DistributionPlan
 The deterministic interpretation of "where this content should go". Built from creator/account/policy configuration and explicit source metadata.
@@ -72,3 +74,5 @@ Given a `SourceObservation`, operators must be able to answer:
 - No `PublicationIntent` without accepted `ContentItem` provenance.
 - One intent has one stable idempotency key independent of retries.
 - A source acknowledgement may lag publication; it never leads it.
+- Re-observing the same external object with a different media fingerprint is a conflict, never an implicit content update.
+- Source acknowledgement/disposition is not publication verification.

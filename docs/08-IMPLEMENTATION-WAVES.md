@@ -24,7 +24,7 @@ Exit: architecture can be handed to another engineer/agent without oral context.
 
 Exit: simulated jobs survive process/server restarts exactly once at the intent level.
 
-## W2 — Pluggable ingress & source acknowledgement [NEXT]
+## W2 — Pluggable ingress & source acknowledgement [DONE — LOCAL VERIFICATION]
 - Drive read-only discovery adapter,
 - configurable path interpreter for current creator/week/day schema,
 - fixture source,
@@ -34,7 +34,7 @@ Exit: simulated jobs survive process/server restarts exactly once at the intent 
 
 Exit: today's source schema works, but tests prove a second fake schema can plug in without core changes.
 
-## W3 — Browser identity subsystem
+## W3 — Browser identity subsystem [NEXT]
 - persistent profiles per account,
 - account registry,
 - headed bootstrap flow,

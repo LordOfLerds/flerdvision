@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import type { PublicationIntent, Instant } from "../../domain/model.js";
+import type { ContentItem, PublicationIntent, SourceObservation, Instant } from "../../domain/model.js";
 import type { PublicationState } from "../../domain/states.js";
 import { transition as assertTransition } from "../../domain/states.js";
 import type {
@@ -12,6 +12,15 @@ import type {
   WorkerLease
 } from "../../domain/control-plane.js";
 import type { ControlPlaneStorePort } from "../../domain/control-plane-ports.js";
+import type { IngressStorePort } from "../../domain/ingress-ports.js";
+import type {
+  CreateContentResult,
+  ObserveSourceResult,
+  SourceDispositionRecord,
+  SourceObservationState,
+  StoredContentItem,
+  StoredSourceObservation
+} from "../../domain/ingress.js";
 
 const ALL_STATES: readonly PublicationState[] = [
   "PLANNED",
@@ -77,9 +86,47 @@ interface EventRow {
   payload_json: string;
 }
 
+interface SourceObservationRow {
+  observation_id: string;
+  source_id: string;
+  external_object_id: string;
+  observed_at: string;
+  locator: string;
+  media_fingerprint: string | null;
+  metadata_json: string;
+  state: SourceObservationState;
+  first_observed_at: string;
+  last_observed_at: string;
+  seen_count: number;
+  content_id: string | null;
+  reason: string | null;
+}
+
+interface ContentItemRow {
+  content_id: string;
+  accepted_from_observation_id: string;
+  creator_id: string;
+  media_fingerprint: string;
+  immutable_media_ref: string;
+  scheduled_business_date: string | null;
+  metadata_json: string;
+  created_at: string;
+}
+
+interface SourceDispositionRow {
+  source_observation_id: string;
+  state: SourceDispositionRecord["state"];
+  publication_ids_json: string;
+  reason: string | null;
+  updated_at: string;
+}
+
 export class IdempotencyConflictError extends Error {}
 export class ScheduleConflictError extends Error {}
 export class IntentNotFoundError extends Error {}
+export class SourceObservationNotFoundError extends Error {}
+export class SourceDecisionConflictError extends Error {}
+export class ContentConflictError extends Error {}
 
 function asIso(instant: Instant): Instant {
   const date = new Date(instant);
@@ -155,6 +202,57 @@ function eventFromRow(row: EventRow): AuditEvent {
   return event;
 }
 
+function sourceObservationFromRow(row: SourceObservationRow): StoredSourceObservation {
+  const observation: SourceObservation = {
+    observationId: row.observation_id,
+    sourceId: row.source_id,
+    externalObjectId: row.external_object_id,
+    observedAt: row.observed_at,
+    locator: row.locator,
+    metadata: JSON.parse(row.metadata_json) as Record<string, string>
+  };
+  if (row.media_fingerprint !== null) Object.assign(observation, { mediaFingerprint: row.media_fingerprint });
+
+  const record: StoredSourceObservation = {
+    observation,
+    state: row.state,
+    firstObservedAt: row.first_observed_at,
+    lastObservedAt: row.last_observed_at,
+    seenCount: row.seen_count
+  };
+  if (row.content_id !== null) Object.assign(record, { contentId: row.content_id });
+  if (row.reason !== null) Object.assign(record, { reason: row.reason });
+  return record;
+}
+
+function contentItemFromRow(row: ContentItemRow): StoredContentItem {
+  const item: ContentItem = {
+    contentId: row.content_id,
+    acceptedFromObservationId: row.accepted_from_observation_id,
+    creatorId: row.creator_id,
+    mediaFingerprint: row.media_fingerprint,
+    immutableMediaRef: row.immutable_media_ref,
+    metadata: JSON.parse(row.metadata_json) as Record<string, string>
+  };
+  if (row.scheduled_business_date !== null) Object.assign(item, { scheduledBusinessDate: row.scheduled_business_date });
+  return { item, createdAt: row.created_at };
+}
+
+function sourceDispositionFromRow(row: SourceDispositionRow): SourceDispositionRecord {
+  const record: SourceDispositionRecord = {
+    sourceObservationId: row.source_observation_id,
+    state: row.state,
+    publicationIds: JSON.parse(row.publication_ids_json) as string[],
+    updatedAt: row.updated_at
+  };
+  if (row.reason !== null) Object.assign(record, { reason: row.reason });
+  return record;
+}
+
+function stableMetadata(metadata: Readonly<Record<string, string>>): string {
+  return JSON.stringify(Object.fromEntries(Object.entries(metadata).sort(([a], [b]) => a.localeCompare(b))));
+}
+
 function sameIntentPayload(existing: PublicationIntent, candidate: PublicationIntent): boolean {
   return (
     existing.contentId === candidate.contentId &&
@@ -167,7 +265,7 @@ function sameIntentPayload(existing: PublicationIntent, candidate: PublicationIn
   );
 }
 
-export class SqliteControlPlaneStore implements ControlPlaneStorePort {
+export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressStorePort {
   private readonly db: DatabaseSync;
 
   constructor(databasePath: string) {
@@ -193,87 +291,137 @@ export class SqliteControlPlaneStore implements ControlPlaneStorePort {
     `);
 
     const migrationOne = this.db.prepare("SELECT version FROM schema_migrations WHERE version = 1").get();
-    if (migrationOne) return;
+    if (!migrationOne) {
+      this.transaction(() => {
+        this.db.exec(`
+          CREATE TABLE publication_intents (
+            intent_id TEXT PRIMARY KEY,
+            content_id TEXT NOT NULL,
+            creator_id TEXT NOT NULL,
+            platform TEXT NOT NULL,
+            account_id TEXT NOT NULL,
+            format TEXT NOT NULL,
+            copy_version_id TEXT NOT NULL,
+            scheduled_for TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            state TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          );
 
-    this.transaction(() => {
-      this.db.exec(`
-        CREATE TABLE publication_intents (
-          intent_id TEXT PRIMARY KEY,
-          content_id TEXT NOT NULL,
-          creator_id TEXT NOT NULL,
-          platform TEXT NOT NULL,
-          account_id TEXT NOT NULL,
-          format TEXT NOT NULL,
-          copy_version_id TEXT NOT NULL,
-          scheduled_for TEXT NOT NULL,
-          idempotency_key TEXT NOT NULL UNIQUE,
-          state TEXT NOT NULL,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL
-        );
+          CREATE INDEX idx_publication_intents_state ON publication_intents(state);
+          CREATE INDEX idx_publication_intents_account_schedule ON publication_intents(account_id, scheduled_for);
 
-        CREATE INDEX idx_publication_intents_state ON publication_intents(state);
-        CREATE INDEX idx_publication_intents_account_schedule ON publication_intents(account_id, scheduled_for);
+          CREATE TABLE schedule_reservations (
+            reservation_id TEXT PRIMARY KEY,
+            intent_id TEXT NOT NULL UNIQUE REFERENCES publication_intents(intent_id) ON DELETE RESTRICT,
+            account_id TEXT NOT NULL,
+            platform TEXT NOT NULL,
+            business_date TEXT NOT NULL,
+            slot_key TEXT NOT NULL,
+            target_at TEXT NOT NULL,
+            window_start_at TEXT NOT NULL,
+            window_end_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(account_id, target_at)
+          );
 
-        CREATE TABLE schedule_reservations (
-          reservation_id TEXT PRIMARY KEY,
-          intent_id TEXT NOT NULL UNIQUE REFERENCES publication_intents(intent_id) ON DELETE RESTRICT,
-          account_id TEXT NOT NULL,
-          platform TEXT NOT NULL,
-          business_date TEXT NOT NULL,
-          slot_key TEXT NOT NULL,
-          target_at TEXT NOT NULL,
-          window_start_at TEXT NOT NULL,
-          window_end_at TEXT NOT NULL,
-          created_at TEXT NOT NULL,
-          UNIQUE(account_id, target_at)
-        );
+          CREATE INDEX idx_schedule_due ON schedule_reservations(window_start_at, window_end_at);
+          CREATE INDEX idx_schedule_account_date ON schedule_reservations(account_id, business_date);
 
-        CREATE INDEX idx_schedule_due ON schedule_reservations(window_start_at, window_end_at);
-        CREATE INDEX idx_schedule_account_date ON schedule_reservations(account_id, business_date);
+          CREATE TABLE worker_leases (
+            resource_key TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            acquired_at TEXT NOT NULL,
+            heartbeat_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL
+          );
 
-        CREATE TABLE worker_leases (
-          resource_key TEXT PRIMARY KEY,
-          owner_id TEXT NOT NULL,
-          acquired_at TEXT NOT NULL,
-          heartbeat_at TEXT NOT NULL,
-          expires_at TEXT NOT NULL
-        );
+          CREATE INDEX idx_worker_leases_expiry ON worker_leases(expires_at);
 
-        CREATE INDEX idx_worker_leases_expiry ON worker_leases(expires_at);
+          CREATE TABLE event_log (
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id TEXT NOT NULL UNIQUE,
+            aggregate_type TEXT NOT NULL,
+            aggregate_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            occurred_at TEXT NOT NULL,
+            actor_type TEXT NOT NULL,
+            actor_id TEXT NOT NULL,
+            from_state TEXT,
+            to_state TEXT,
+            payload_json TEXT NOT NULL
+          );
 
-        CREATE TABLE event_log (
-          sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-          event_id TEXT NOT NULL UNIQUE,
-          aggregate_type TEXT NOT NULL,
-          aggregate_id TEXT NOT NULL,
-          event_type TEXT NOT NULL,
-          occurred_at TEXT NOT NULL,
-          actor_type TEXT NOT NULL,
-          actor_id TEXT NOT NULL,
-          from_state TEXT,
-          to_state TEXT,
-          payload_json TEXT NOT NULL
-        );
+          CREATE INDEX idx_event_aggregate ON event_log(aggregate_type, aggregate_id, sequence);
+          CREATE INDEX idx_event_time ON event_log(occurred_at);
 
-        CREATE INDEX idx_event_aggregate ON event_log(aggregate_type, aggregate_id, sequence);
-        CREATE INDEX idx_event_time ON event_log(occurred_at);
+          CREATE TRIGGER event_log_no_update
+          BEFORE UPDATE ON event_log
+          BEGIN
+            SELECT RAISE(ABORT, 'event_log is append-only');
+          END;
 
-        CREATE TRIGGER event_log_no_update
-        BEFORE UPDATE ON event_log
-        BEGIN
-          SELECT RAISE(ABORT, 'event_log is append-only');
-        END;
+          CREATE TRIGGER event_log_no_delete
+          BEFORE DELETE ON event_log
+          BEGIN
+            SELECT RAISE(ABORT, 'event_log is append-only');
+          END;
+        `);
+        this.db.prepare("INSERT INTO schema_migrations(version, name, applied_at) VALUES (?, ?, ?)")
+          .run(1, "initial durable control plane", new Date().toISOString());
+      });
+    }
 
-        CREATE TRIGGER event_log_no_delete
-        BEFORE DELETE ON event_log
-        BEGIN
-          SELECT RAISE(ABORT, 'event_log is append-only');
-        END;
-      `);
-      this.db.prepare("INSERT INTO schema_migrations(version, name, applied_at) VALUES (?, ?, ?)")
-        .run(1, "initial durable control plane", new Date().toISOString());
-    });
+    const migrationTwo = this.db.prepare("SELECT version FROM schema_migrations WHERE version = 2").get();
+    if (!migrationTwo) {
+      this.transaction(() => {
+        this.db.exec(`
+          CREATE TABLE source_observations (
+            observation_id TEXT PRIMARY KEY,
+            source_id TEXT NOT NULL,
+            external_object_id TEXT NOT NULL,
+            observed_at TEXT NOT NULL,
+            locator TEXT NOT NULL,
+            media_fingerprint TEXT,
+            metadata_json TEXT NOT NULL,
+            state TEXT NOT NULL,
+            first_observed_at TEXT NOT NULL,
+            last_observed_at TEXT NOT NULL,
+            seen_count INTEGER NOT NULL,
+            content_id TEXT,
+            reason TEXT,
+            UNIQUE(source_id, external_object_id)
+          );
+
+          CREATE INDEX idx_source_observation_state ON source_observations(state);
+          CREATE INDEX idx_source_observation_external ON source_observations(source_id, external_object_id);
+
+          CREATE TABLE content_items (
+            content_id TEXT PRIMARY KEY,
+            accepted_from_observation_id TEXT NOT NULL UNIQUE REFERENCES source_observations(observation_id) ON DELETE RESTRICT,
+            creator_id TEXT NOT NULL,
+            media_fingerprint TEXT NOT NULL,
+            immutable_media_ref TEXT NOT NULL,
+            scheduled_business_date TEXT,
+            metadata_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+          );
+
+          CREATE INDEX idx_content_creator_date ON content_items(creator_id, scheduled_business_date);
+
+          CREATE TABLE source_dispositions (
+            source_observation_id TEXT PRIMARY KEY REFERENCES source_observations(observation_id) ON DELETE RESTRICT,
+            state TEXT NOT NULL,
+            publication_ids_json TEXT NOT NULL,
+            reason TEXT,
+            updated_at TEXT NOT NULL
+          );
+        `);
+        this.db.prepare("INSERT INTO schema_migrations(version, name, applied_at) VALUES (?, ?, ?)")
+          .run(2, "pluggable ingress and source disposition", new Date().toISOString());
+      });
+    }
   }
 
   private transaction<T>(fn: () => T): T {
@@ -657,6 +805,285 @@ export class SqliteControlPlaneStore implements ControlPlaneStorePort {
     if (filters.length > 0) sql += ` WHERE ${filters.join(" AND ")}`;
     sql += " ORDER BY sequence";
     return (this.db.prepare(sql).all(...params) as EventRow[]).map(eventFromRow);
+  }
+
+  observeOrGetSource(observation: SourceObservation, now: Instant, actor: Actor): ObserveSourceResult {
+    return this.transaction(() => {
+      const timestamp = asIso(now);
+      const observedAt = asIso(observation.observedAt);
+      const existingRow = this.db.prepare(
+        "SELECT * FROM source_observations WHERE source_id = ? AND external_object_id = ?"
+      ).get(observation.sourceId, observation.externalObjectId) as SourceObservationRow | undefined;
+
+      if (existingRow) {
+        const existing = sourceObservationFromRow(existingRow);
+        if (existing.observation.observationId !== observation.observationId) {
+          const reason = `Observation identity mismatch for ${observation.sourceId}/${observation.externalObjectId}`;
+          this.appendEvent({
+            aggregateType: "source_observation",
+            aggregateId: existing.observation.observationId,
+            eventType: "source.conflict",
+            occurredAt: timestamp,
+            actor,
+            payload: { reason, candidateObservationId: observation.observationId }
+          });
+          return { status: "conflict", record: existing, reason };
+        }
+        if (
+          existing.observation.mediaFingerprint &&
+          observation.mediaFingerprint &&
+          existing.observation.mediaFingerprint !== observation.mediaFingerprint
+        ) {
+          const reason = `Source object changed media fingerprint after first observation`;
+          this.appendEvent({
+            aggregateType: "source_observation",
+            aggregateId: existing.observation.observationId,
+            eventType: "source.media_mutation_conflict",
+            occurredAt: timestamp,
+            actor,
+            payload: {
+              reason,
+              existingFingerprint: existing.observation.mediaFingerprint,
+              candidateFingerprint: observation.mediaFingerprint
+            }
+          });
+          return { status: "conflict", record: existing, reason };
+        }
+
+        this.db.prepare(
+          "UPDATE source_observations SET last_observed_at = ?, seen_count = seen_count + 1 WHERE observation_id = ?"
+        ).run(timestamp, existing.observation.observationId);
+        this.appendEvent({
+          aggregateType: "source_observation",
+          aggregateId: existing.observation.observationId,
+          eventType: "source.seen_again",
+          occurredAt: timestamp,
+          actor,
+          payload: { seenCount: existing.seenCount + 1 }
+        });
+        const updated = this.getSourceObservation(existing.observation.observationId);
+        if (!updated) throw new Error(`Failed to reload source observation ${existing.observation.observationId}`);
+        return { status: "duplicate", record: updated };
+      }
+
+      const byObservationId = this.db.prepare("SELECT * FROM source_observations WHERE observation_id = ?")
+        .get(observation.observationId) as SourceObservationRow | undefined;
+      if (byObservationId) {
+        const existing = sourceObservationFromRow(byObservationId);
+        const reason = `Observation id ${observation.observationId} already belongs to another source object`;
+        this.appendEvent({
+          aggregateType: "source_observation",
+          aggregateId: observation.observationId,
+          eventType: "source.conflict",
+          occurredAt: timestamp,
+          actor,
+          payload: { reason }
+        });
+        return { status: "conflict", record: existing, reason };
+      }
+
+      this.db.prepare(`
+        INSERT INTO source_observations(
+          observation_id, source_id, external_object_id, observed_at, locator, media_fingerprint, metadata_json,
+          state, first_observed_at, last_observed_at, seen_count, content_id, reason
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        observation.observationId,
+        observation.sourceId,
+        observation.externalObjectId,
+        observedAt,
+        observation.locator,
+        observation.mediaFingerprint ?? null,
+        stableMetadata(observation.metadata),
+        "OBSERVED",
+        timestamp,
+        timestamp,
+        1,
+        null,
+        null
+      );
+      this.appendEvent({
+        aggregateType: "source_observation",
+        aggregateId: observation.observationId,
+        eventType: "source.observed",
+        occurredAt: timestamp,
+        actor,
+        payload: { sourceId: observation.sourceId, externalObjectId: observation.externalObjectId }
+      });
+      const created = this.getSourceObservation(observation.observationId);
+      if (!created) throw new Error(`Failed to reload source observation ${observation.observationId}`);
+      return { status: "created", record: created };
+    });
+  }
+
+  getSourceObservation(observationId: string): StoredSourceObservation | null {
+    const row = this.db.prepare("SELECT * FROM source_observations WHERE observation_id = ?")
+      .get(observationId) as SourceObservationRow | undefined;
+    return row ? sourceObservationFromRow(row) : null;
+  }
+
+  listSourceObservations(states?: readonly SourceObservationState[]): readonly StoredSourceObservation[] {
+    if (!states || states.length === 0) {
+      return (this.db.prepare(
+        "SELECT * FROM source_observations ORDER BY first_observed_at, observation_id"
+      ).all() as SourceObservationRow[]).map(sourceObservationFromRow);
+    }
+    const placeholders = states.map(() => "?").join(",");
+    return (this.db.prepare(
+      `SELECT * FROM source_observations WHERE state IN (${placeholders}) ORDER BY first_observed_at, observation_id`
+    ).all(...states) as SourceObservationRow[]).map(sourceObservationFromRow);
+  }
+
+  decideSourceObservation(
+    observationId: string,
+    decision: Exclude<SourceObservationState, "OBSERVED">,
+    now: Instant,
+    actor: Actor,
+    options?: { contentId?: string; reason?: string }
+  ): StoredSourceObservation {
+    return this.transaction(() => {
+      const current = this.getSourceObservation(observationId);
+      if (!current) throw new SourceObservationNotFoundError(`Source observation not found: ${observationId}`);
+      if (current.state !== "OBSERVED") {
+        const same =
+          current.state === decision &&
+          (options?.contentId === undefined || current.contentId === options.contentId) &&
+          (options?.reason === undefined || current.reason === options.reason);
+        if (same) return current;
+        throw new SourceDecisionConflictError(
+          `Source observation ${observationId} already decided as ${current.state}`
+        );
+      }
+      if (decision === "ACCEPTED" && !options?.contentId) {
+        throw new SourceDecisionConflictError(`ACCEPTED source observation ${observationId} requires contentId`);
+      }
+      const timestamp = asIso(now);
+      const result = this.db.prepare(
+        "UPDATE source_observations SET state = ?, content_id = ?, reason = ? WHERE observation_id = ? AND state = 'OBSERVED'"
+      ).run(decision, options?.contentId ?? null, options?.reason ?? null, observationId);
+      if (result.changes !== 1) throw new SourceDecisionConflictError(`Concurrent source decision for ${observationId}`);
+      this.appendEvent({
+        aggregateType: "source_observation",
+        aggregateId: observationId,
+        eventType: `source.${decision.toLowerCase()}`,
+        occurredAt: timestamp,
+        actor,
+        payload: { ...(options?.contentId ? { contentId: options.contentId } : {}), ...(options?.reason ? { reason: options.reason } : {}) }
+      });
+      const updated = this.getSourceObservation(observationId);
+      if (!updated) throw new Error(`Failed to reload source observation ${observationId}`);
+      return updated;
+    });
+  }
+
+  createOrGetContent(item: ContentItem, now: Instant, actor: Actor): CreateContentResult {
+    return this.transaction(() => {
+      const byObservation = this.db.prepare(
+        "SELECT * FROM content_items WHERE accepted_from_observation_id = ?"
+      ).get(item.acceptedFromObservationId) as ContentItemRow | undefined;
+      if (byObservation) {
+        const existing = contentItemFromRow(byObservation);
+        const same =
+          existing.item.contentId === item.contentId &&
+          existing.item.creatorId === item.creatorId &&
+          existing.item.mediaFingerprint === item.mediaFingerprint &&
+          existing.item.immutableMediaRef === item.immutableMediaRef &&
+          existing.item.scheduledBusinessDate === item.scheduledBusinessDate &&
+          stableMetadata(existing.item.metadata) === stableMetadata(item.metadata);
+        if (!same) throw new ContentConflictError(
+          `Observation ${item.acceptedFromObservationId} already materialized as different content`
+        );
+        return { created: false, record: existing };
+      }
+
+      const byId = this.db.prepare("SELECT * FROM content_items WHERE content_id = ?")
+        .get(item.contentId) as ContentItemRow | undefined;
+      if (byId) throw new ContentConflictError(`Content id ${item.contentId} already exists`);
+
+      const timestamp = asIso(now);
+      this.db.prepare(`
+        INSERT INTO content_items(
+          content_id, accepted_from_observation_id, creator_id, media_fingerprint, immutable_media_ref,
+          scheduled_business_date, metadata_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        item.contentId,
+        item.acceptedFromObservationId,
+        item.creatorId,
+        item.mediaFingerprint,
+        item.immutableMediaRef,
+        item.scheduledBusinessDate ?? null,
+        stableMetadata(item.metadata),
+        timestamp
+      );
+      this.appendEvent({
+        aggregateType: "content_item",
+        aggregateId: item.contentId,
+        eventType: "content.created",
+        occurredAt: timestamp,
+        actor,
+        payload: { observationId: item.acceptedFromObservationId, creatorId: item.creatorId }
+      });
+      const created = this.getContentItem(item.contentId);
+      if (!created) throw new Error(`Failed to reload content item ${item.contentId}`);
+      return { created: true, record: created };
+    });
+  }
+
+  getContentItem(contentId: string): StoredContentItem | null {
+    const row = this.db.prepare("SELECT * FROM content_items WHERE content_id = ?")
+      .get(contentId) as ContentItemRow | undefined;
+    return row ? contentItemFromRow(row) : null;
+  }
+
+  listContentItems(): readonly StoredContentItem[] {
+    return (this.db.prepare("SELECT * FROM content_items ORDER BY created_at, content_id").all() as ContentItemRow[])
+      .map(contentItemFromRow);
+  }
+
+  getSourceDisposition(observationId: string): SourceDispositionRecord | null {
+    const row = this.db.prepare("SELECT * FROM source_dispositions WHERE source_observation_id = ?")
+      .get(observationId) as SourceDispositionRow | undefined;
+    return row ? sourceDispositionFromRow(row) : null;
+  }
+
+  recordSourceDisposition(record: SourceDispositionRecord, actor: Actor): SourceDispositionRecord {
+    return this.transaction(() => {
+      const existing = this.getSourceDisposition(record.sourceObservationId);
+      const normalizedPublications = [...record.publicationIds].sort();
+      if (existing) {
+        const same =
+          existing.state === record.state &&
+          JSON.stringify([...existing.publicationIds].sort()) === JSON.stringify(normalizedPublications) &&
+          existing.reason === record.reason;
+        if (same) return existing;
+        throw new SourceDecisionConflictError(
+          `Source disposition ${record.sourceObservationId} already recorded as ${existing.state}`
+        );
+      }
+      const timestamp = asIso(record.updatedAt);
+      this.db.prepare(`
+        INSERT INTO source_dispositions(source_observation_id, state, publication_ids_json, reason, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(
+        record.sourceObservationId,
+        record.state,
+        JSON.stringify(normalizedPublications),
+        record.reason ?? null,
+        timestamp
+      );
+      this.appendEvent({
+        aggregateType: "source_disposition",
+        aggregateId: record.sourceObservationId,
+        eventType: `source_disposition.${record.state.toLowerCase()}`,
+        occurredAt: timestamp,
+        actor,
+        payload: { publicationIds: normalizedPublications, ...(record.reason ? { reason: record.reason } : {}) }
+      });
+      const created = this.getSourceDisposition(record.sourceObservationId);
+      if (!created) throw new Error(`Failed to reload source disposition ${record.sourceObservationId}`);
+      return created;
+    });
   }
 
   summary(now: Instant): ControlPlaneSummary {
