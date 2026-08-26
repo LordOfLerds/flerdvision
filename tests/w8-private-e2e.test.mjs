@@ -16,6 +16,7 @@ import { LocalFileMediaMaterializer } from "../dist/adapters/publish/media-mater
 import { StaticPublicationPayloadResolver } from "../dist/adapters/publish/payload-resolver.js";
 import { PlatformPreparationCoordinator } from "../dist/application/platform-preparation.js";
 import { LiveE2EPreparationService, PrivateE2EFinalActionController, RetainedPreparedSessionRegistry, RetainedSessionFinalActionInvoker } from "../dist/application/private-e2e-live-publisher.js";
+import { resolveChromiumExecutablePath } from "../dist/adapters/browser/resolve-chromium.js";
 
 const actor = { type: "test", id: "w8" };
 
@@ -160,7 +161,7 @@ test("host preflight requires private dirs and final publish disabled by default
   const paths = tempRuntime(); const priorTZ = process.env.TZ; const priorFinal = process.env.ALLOW_FINAL_PUBLISH;
   process.env.TZ = "Europe/Vienna"; delete process.env.ALLOW_FINAL_PUBLISH;
   try {
-    const result = await new NodeHostPreflightAdapter({ chromiumExecutablePath: "/usr/bin/chromium", runtimeDir: paths.runtime, profilesDir: paths.profiles, evidenceDir: paths.evidence }).check("2026-08-26T16:30:00Z");
+    const result = await new NodeHostPreflightAdapter({ chromiumExecutablePath: resolveChromiumExecutablePath(), runtimeDir: paths.runtime, profilesDir: paths.profiles, evidenceDir: paths.evidence }).check("2026-08-26T16:30:00Z");
     assert.equal(result.ready, true);
   } finally { if (priorTZ === undefined) delete process.env.TZ; else process.env.TZ = priorTZ; if (priorFinal === undefined) delete process.env.ALLOW_FINAL_PUBLISH; else process.env.ALLOW_FINAL_PUBLISH = priorFinal; rmSync(paths.dir, { recursive: true, force: true }); }
 });

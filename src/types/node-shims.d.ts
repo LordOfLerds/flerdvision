@@ -21,6 +21,7 @@ declare module "node:sqlite" {
 declare const process: {
   argv: string[];
   env: Record<string, string | undefined>;
+  platform: string;
   versions: { node: string };
   cwd(): string;
   exitCode?: number;

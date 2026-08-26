@@ -9,6 +9,7 @@ import type {
   BrowserRuntimePort
 } from "../../domain/browser-identity-ports.js";
 import { BrowserProfileDirectoryResolver } from "./profile-lock.js";
+import { resolveChromiumExecutablePath } from "./resolve-chromium.js";
 
 interface CdpEnvelope {
   id?: number;
@@ -145,7 +146,7 @@ export class ChromiumCdpRuntimeAdapter implements BrowserRuntimePort {
 
   constructor(private readonly config: ChromiumCdpRuntimeConfig) {
     this.resolver = new BrowserProfileDirectoryResolver(config.profilesRoot);
-    this.executablePath = config.executablePath ?? "/usr/bin/chromium";
+    this.executablePath = config.executablePath ?? resolveChromiumExecutablePath();
     this.launchTimeoutMs = config.launchTimeoutMs ?? 15_000;
   }
 

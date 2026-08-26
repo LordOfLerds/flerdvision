@@ -5,6 +5,7 @@ import { ConfiguredDomSessionProbe } from "../adapters/browser/configured-dom-pr
 import { BrowserBootstrapService } from "../application/browser-bootstrap.js";
 import { AccountIdentityGuard, BrowserSessionHealthService } from "../application/browser-identity-service.js";
 import type { Platform } from "../domain/model.js";
+import { resolveChromiumExecutablePath } from "../adapters/browser/resolve-chromium.js";
 
 function usage(message?: string): never {
   if (message) console.error(message);
@@ -44,7 +45,7 @@ function profilesRoot(args: readonly string[]): string {
 }
 
 function chromiumPath(args: readonly string[]): string {
-  return flag(args, "--chromium") ?? process.env.CHROMIUM_EXECUTABLE_PATH ?? "/usr/bin/chromium";
+  return flag(args, "--chromium") ?? resolveChromiumExecutablePath();
 }
 
 function platform(value: string): Platform {

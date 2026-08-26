@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, copyFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -12,6 +12,7 @@ import {
 } from "../dist/adapters/ingress/interpreters.js";
 import { ContentIngressService, SourceAcknowledgementService } from "../dist/application/ingress-service.js";
 import { RecordingSourceDispositionAdapter } from "../dist/adapters/disposition/adapters.js";
+import { writeMigrationOneDatabase } from "./fixtures/make-w1-fixture.mjs";
 
 function tempDb() {
   const dir = mkdtempSync(join(tmpdir(), "flerdvision-w2-"));
@@ -194,10 +195,8 @@ test("source acknowledgement is durable and idempotent across repeated completio
 });
 
 test("existing W1 database upgrades in place to migration 2", () => {
-  const sourcePath = new URL("../runtime/admin-smoke.sqlite", import.meta.url).pathname;
   const dir = mkdtempSync(join(tmpdir(), "flerdvision-w1-upgrade-"));
-  const copied = join(dir, "upgrade.sqlite");
-  copyFileSync(sourcePath, copied);
+  const copied = writeMigrationOneDatabase(join(dir, "upgrade.sqlite"));
   const store = new SqliteControlPlaneStore(copied);
   try {
     assert.deepEqual(store.listSourceObservations(), []);

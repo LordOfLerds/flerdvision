@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { copyFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -21,6 +21,7 @@ import {
 import { StaticPublicationPayloadResolver } from "../dist/adapters/publish/payload-resolver.js";
 import { PrepareOnlyFinalActionError, PrepareOnlyPlatformPublisher } from "../dist/application/prepare-only-publisher.js";
 import { SqliteControlPlaneStore } from "../dist/adapters/storage/sqlite.js";
+import { writeMigrationOneDatabase } from "./fixtures/make-w1-fixture.mjs";
 
 function tempRuntime() {
   const dir = mkdtempSync(join(tmpdir(), "flerdvision-w4-"));
@@ -348,10 +349,8 @@ test("platform UI config refuses uncalibrated or placeholder specs before real e
 
 
 test("existing W1 database migrates through W4 capability storage without losing durable state", () => {
-  const sourcePath = new URL("../runtime/admin-smoke.sqlite", import.meta.url).pathname;
   const dir = mkdtempSync(join(tmpdir(), "flerdvision-w4-upgrade-"));
-  const copied = join(dir, "upgrade.sqlite");
-  copyFileSync(sourcePath, copied);
+  const copied = writeMigrationOneDatabase(join(dir, "upgrade.sqlite"));
   const store = new SqliteControlPlaneStore(copied);
   try {
     assert.ok(store.summary("2026-08-26T18:00:00Z"));

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -28,6 +28,10 @@ import {
   BrowserSessionHealthService,
   SessionNotReadyError
 } from "../dist/application/browser-identity-service.js";
+import { findChromiumExecutable } from "../dist/adapters/browser/resolve-chromium.js";
+
+// A real browser is optional: CI hosts and containers may have none, and its path differs per OS.
+const REAL_CHROMIUM = findChromiumExecutable();
 
 function tempRuntime() {
   const dir = mkdtempSync(join(tmpdir(), "flerdvision-w3-"));
@@ -207,13 +211,13 @@ test("health checks are append-only and guard rejects auth-required, mismatch an
   }
 });
 
-test("real Chromium persistent cookie survives a full browser restart", { skip: !existsSync("/usr/bin/chromium"), timeout: 45_000 }, async () => {
+test("real Chromium persistent cookie survives a full browser restart", { skip: REAL_CHROMIUM === undefined, timeout: 45_000 }, async () => {
   const runtimePaths = tempRuntime();
   const store = new SqliteControlPlaneStore(runtimePaths.db);
   register(store);
   const resolver = new BrowserProfileDirectoryResolver(runtimePaths.profiles);
   const locks = new FileBrowserProfileLockAdapter(resolver);
-  const chromium = new ChromiumCdpRuntimeAdapter({ profilesRoot: runtimePaths.profiles, executablePath: "/usr/bin/chromium" });
+  const chromium = new ChromiumCdpRuntimeAdapter({ profilesRoot: runtimePaths.profiles, executablePath: REAL_CHROMIUM });
   const bootstrap = new BrowserBootstrapService(store, chromium, locks);
   const cookieUrl = "https://session-persistence.invalid/";
   const expires = Math.floor(Date.now() / 1000) + 3600;
@@ -255,7 +259,7 @@ test("real Chromium persistent cookie survives a full browser restart", { skip: 
   }
 });
 
-test("real Chromium DOM probe classifies exact identity and auth marker without network access", { skip: !existsSync("/usr/bin/chromium"), timeout: 45_000 }, async () => {
+test("real Chromium DOM probe classifies exact identity and auth marker without network access", { skip: REAL_CHROMIUM === undefined, timeout: 45_000 }, async () => {
   const runtimePaths = tempRuntime();
   const store = new SqliteControlPlaneStore(runtimePaths.db);
   register(store);

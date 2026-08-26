@@ -1,6 +1,7 @@
 import { SqliteControlPlaneStore } from "../adapters/storage/sqlite.js";
 import { NodeHostPreflightAdapter } from "../adapters/e2e/host-preflight.js";
 import { E2EPublishPermitService, PrivateE2ERunService } from "../application/private-e2e.js";
+import { resolveChromiumExecutablePath } from "../adapters/browser/resolve-chromium.js";
 
 function arg(name: string): string | undefined { const i = process.argv.indexOf(name); return i >= 0 ? process.argv[i + 1] : undefined; }
 function required(name: string): string { const value = arg(name); if (!value) throw new Error(`Missing ${name}`); return value; }
@@ -14,7 +15,7 @@ const actor = { type: "operator" as const, id: operatorId };
 async function main(): Promise<void> {
   if (command === "preflight") {
     const result = await new NodeHostPreflightAdapter({
-      chromiumExecutablePath: process.env.CHROMIUM_EXECUTABLE_PATH ?? "/usr/bin/chromium",
+      chromiumExecutablePath: resolveChromiumExecutablePath(),
       runtimeDir: process.env.RUNTIME_DIR ?? "runtime",
       profilesDir: process.env.BROWSER_PROFILE_DIR ?? "profiles",
       evidenceDir: process.env.EVIDENCE_DIR ?? "artifacts/evidence"
