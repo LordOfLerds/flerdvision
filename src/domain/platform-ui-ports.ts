@@ -37,6 +37,7 @@ export interface PrepareArtifactSinkPort {
 
 export interface PlatformUiAdapterPort {
   readonly platform: PublicationIntent["platform"];
+  finalActionLocators(intent: PublicationIntent): readonly import("./platform-ui.js").UiLocator[];
   requiredCapabilities(intent: PublicationIntent): readonly import("./platform-ui.js").PlatformCapability[];
   probeCapabilities(
     session: BrowserPageSessionPort,

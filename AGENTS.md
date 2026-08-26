@@ -22,6 +22,11 @@
 - AI-proposed shell/test commands are never executed; only fixed repository-owned test commands may run.
 - AI repair patches run only in isolated repair branches/worktrees and cannot modify safety/verification/reconciliation/kill-switch/storage/runtime-secret surfaces through the automatic path.
 - W7 can create repair candidates only; production promotion remains false until later real-account gates.
+- W8 final-action authorization is test-only: it requires a short-lived one-shot permit bound to run + intent + account + release SHA and cannot authorize customer accounts.
+- A W8 real final action must operate on the exact retained prepared browser session; do not rebuild the upload after W5 irreversible-boundary entry.
+- W5 `DurableFinalActionService` must persist irreversible-boundary entry before any retained-session final click.
+- A W8 final click is action evidence only and never creates `VerifiedPublication`; W5 verification/reconciliation remains authoritative.
+- Never claim a zero-viewer E2E unless private account + zero approved followers + contacts sync off + cross-posting off + test-only media are explicitly attested.
 - Browser session data, cookies, credentials, customer media and evidence artifacts are never committed to git.
 - One browser profile belongs to exactly one BrowserIdentity; concurrent profile/identity use is forbidden.
 - A platform publisher must pass the exact-account `AccountIdentityGuard`; merely being logged in is insufficient.

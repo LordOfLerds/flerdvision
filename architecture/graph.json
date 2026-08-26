@@ -1,5 +1,5 @@
 {
-  "version": 8,
+  "version": 9,
   "nodes": [
     {
       "id": "external_source",
@@ -605,6 +605,86 @@
       "id": "repair_cli",
       "kind": "adapter",
       "label": "Repair CLI"
+    },
+    {
+      "id": "ai_provider_config",
+      "kind": "config",
+      "label": "AI Provider Config"
+    },
+    {
+      "id": "ai_provider_preflight",
+      "kind": "application",
+      "label": "AI Provider Preflight"
+    },
+    {
+      "id": "private_test_account",
+      "kind": "boundary",
+      "label": "Private Test Account"
+    },
+    {
+      "id": "private_e2e_run",
+      "kind": "domain",
+      "label": "PrivateE2ERun"
+    },
+    {
+      "id": "e2e_gate_result",
+      "kind": "domain",
+      "label": "E2EGateResult"
+    },
+    {
+      "id": "e2e_publish_permit",
+      "kind": "domain",
+      "label": "E2EPublishPermit"
+    },
+    {
+      "id": "e2e_permit_consumption",
+      "kind": "domain",
+      "label": "E2EPublishPermitConsumption"
+    },
+    {
+      "id": "host_preflight",
+      "kind": "adapter",
+      "label": "NodeHostPreflightAdapter"
+    },
+    {
+      "id": "platform_preparation_coordinator",
+      "kind": "application",
+      "label": "PlatformPreparationCoordinator"
+    },
+    {
+      "id": "prepared_platform_session",
+      "kind": "runtime",
+      "label": "PreparedPlatformSession"
+    },
+    {
+      "id": "retained_session_registry",
+      "kind": "runtime",
+      "label": "RetainedPreparedSessionRegistry"
+    },
+    {
+      "id": "live_e2e_preparation",
+      "kind": "application",
+      "label": "LiveE2EPreparationService"
+    },
+    {
+      "id": "e2e_permit_service",
+      "kind": "application",
+      "label": "E2EPublishPermitService"
+    },
+    {
+      "id": "retained_final_action_invoker",
+      "kind": "adapter",
+      "label": "RetainedSessionFinalActionInvoker"
+    },
+    {
+      "id": "private_e2e_final_action_controller",
+      "kind": "application",
+      "label": "PrivateE2EFinalActionController"
+    },
+    {
+      "id": "e2e_cli",
+      "kind": "adapter",
+      "label": "E2E Operator CLI"
     }
   ],
   "edges": [
@@ -1527,6 +1607,106 @@
       "from": "repair_proposal",
       "to": "release",
       "rel": "cannot_promote_directly"
+    },
+    {
+      "from": "ai_provider_config",
+      "to": "ai_provider_preflight",
+      "rel": "validated_by"
+    },
+    {
+      "from": "ai_provider_preflight",
+      "to": "ai_diagnosis_port",
+      "rel": "enables_provider_for"
+    },
+    {
+      "from": "private_test_account",
+      "to": "private_e2e_run",
+      "rel": "scopes"
+    },
+    {
+      "from": "private_e2e_run",
+      "to": "e2e_gate_result",
+      "rel": "collects"
+    },
+    {
+      "from": "host_preflight",
+      "to": "e2e_gate_result",
+      "rel": "produces"
+    },
+    {
+      "from": "private_e2e_run",
+      "to": "e2e_publish_permit",
+      "rel": "authorizes"
+    },
+    {
+      "from": "e2e_publish_permit",
+      "to": "e2e_permit_consumption",
+      "rel": "consumed_once_as"
+    },
+    {
+      "from": "platform_preparation_coordinator",
+      "to": "prepared_platform_session",
+      "rel": "produces"
+    },
+    {
+      "from": "prepare_only_publisher",
+      "to": "platform_preparation_coordinator",
+      "rel": "uses"
+    },
+    {
+      "from": "live_e2e_preparation",
+      "to": "platform_preparation_coordinator",
+      "rel": "uses"
+    },
+    {
+      "from": "live_e2e_preparation",
+      "to": "retained_session_registry",
+      "rel": "retains_in"
+    },
+    {
+      "from": "retained_session_registry",
+      "to": "prepared_platform_session",
+      "rel": "holds"
+    },
+    {
+      "from": "e2e_permit_service",
+      "to": "e2e_publish_permit",
+      "rel": "issues"
+    },
+    {
+      "from": "private_e2e_final_action_controller",
+      "to": "e2e_permit_service",
+      "rel": "requires"
+    },
+    {
+      "from": "private_e2e_final_action_controller",
+      "to": "durable_final_action_service",
+      "rel": "delegates_to"
+    },
+    {
+      "from": "retained_final_action_invoker",
+      "to": "retained_session_registry",
+      "rel": "uses"
+    },
+    {
+      "from": "retained_final_action_invoker",
+      "to": "prepared_platform_session",
+      "rel": "clicks_final_action_on_same"
+    },
+    {
+      "from": "private_e2e_final_action_controller",
+      "to": "retained_final_action_invoker",
+      "rel": "invokes_through"
+    },
+    {
+      "from": "e2e_cli",
+      "to": "private_e2e_run",
+      "rel": "operates"
+    },
+    {
+      "from": "e2e_cli",
+      "to": "e2e_publish_permit",
+      "rel": "issues_with_explicit_confirmation"
     }
   ],
   "invariants": [
@@ -1574,6 +1754,14 @@
     "AI patches are applied only in isolated Git worktrees/branches and never directly to the main worktree",
     "Protected safety, verification, reconciliation, operations kill-switch, storage, credential, and runtime paths cannot be modified by an AI repair patch",
     "AI repair patches cannot delete/rename files or include binary patches and must include regression tests when repair policy requires them",
-    "W7 never promotes an AI repair directly to production; regression/full-suite and prepare-only gates precede human review and W8 real-account calibration"
+    "W7 never promotes an AI repair directly to production; regression/full-suite and prepare-only gates precede human review and W8 real-account calibration",
+    "W8 final publish requires test_account mode, explicit account allowlist, final-publish hard gate, and a one-shot E2E permit",
+    "an E2E publish permit is bound to one run, one intent, one account, and one release SHA and can be consumed once only",
+    "zero-viewer E2E is allowed only when operator attests private account, zero approved followers, contacts sync off, cross-posting off, and test-only media",
+    "private E2E final action uses the same retained browser session that reached the calibrated final-action boundary",
+    "W5 durable irreversible-boundary persistence still occurs before the retained-session final click",
+    "W8 requires at least three successful real PREPARE_ONLY replays before a private final-action permit may be issued",
+    "customer accounts remain prohibited until W8 real-account acceptance is complete",
+    "AI provider authentication is isolated from social-account/browser credentials and may be disabled without disabling deterministic operations"
   ]
 }

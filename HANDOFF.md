@@ -1,7 +1,7 @@
 # HANDOFF — current repository state
 
 ## Current phase
-W7 — AI repair engineering loop **implemented under local/synthetic verification**. W8 private/test-account selector/final-action calibration and real E2E is next.
+W8 — private/test-account E2E **engineering harness implemented and locally/synthetically verified**. Real private test-host/account calibration, one permitted publish, verification, cleanup and failure campaign remain the current gate. W9 customer canary is still blocked.
 
 ## Implemented
 - W0 architecture graph and reverse-trace model,
@@ -62,7 +62,17 @@ W7 — AI repair engineering loop **implemented under local/synthetic verificati
 - isolated Git repair worktrees/branches + patch scope guards,
 - fixed regression/full-suite gates + PREPARE_ONLY replay contract,
 - command AI adapter with restricted environment and no inherited social secrets,
-- 99 automated tests passing at W7 full-suite checkpoint.
+- 99 automated tests passing at W7 full-suite checkpoint,
+- W8 migration 8 with private E2E runs, append-only gate results and one-shot publish permits,
+- strict zero-viewer privacy attestation contract,
+- one-shot permit bound to run + intent + account + release SHA with TTL/single-consumption enforcement,
+- shared platform preparation coordinator while preserving non-publishing W4 behavior,
+- retained prepared browser session for the W8-only final-action path,
+- W5 durable-boundary-before-click integration on the same retained session,
+- real installed Chromium synthetic final-click proof,
+- W8 host/provider preflight and operator CLI,
+- explicit AI provider modes separating subscription CLI pilot use from API/service production use,
+- 105 automated tests passing at current W8 engineering checkpoint.
 
 ## Safety correction made in W1
 `PUBLISH_UNCERTAIN -> READY` was removed. An uncertain irreversible outcome must reconcile through `VERIFYING` before any retry path exists.
@@ -74,13 +84,13 @@ The current isolated SQLite adapter uses Node 22.16 `node:sqlite`, which emits a
 - real Google Drive credential/bootstrap and live folder scan,
 - exact production bot/checkmark receiver URL/auth configuration,
 - calibrated real Instagram/TikTok/YouTube selectors and live prepare-only account run,
-- calibrated real final-action invoker and real private/test-account E2E (W8),
+- real private/test-account login/UI calibration, one permitted publish, verification, cleanup and failure campaign (remaining W8 acceptance),
 - final-publish capability on any customer account.
 
 These remain blocked by wave order.
 
 ## Next implementation order
-W8 private/test-account real selector/final-action calibration + E2E.
+Finish W8 on the intended private test host: human login/2FA -> exact identity -> real UI calibration -> three PREPARE_ONLY passes -> privacy attestation -> one short-lived permit -> one private publish -> W5 verification -> cleanup -> real-host failure campaign. Do not start W9 before all these gates are green.
 
 ## W3 environment note
 The build container applies a Chromium administrator navigation policy to some local/data URLs. No real social site was accessed. W4 uses real installed Chromium against synthetic DOM fixtures for native file input, form fields, screenshots and final-boundary safety. Real social-session bootstrap and selector calibration remain W8 operator-host acceptance steps.

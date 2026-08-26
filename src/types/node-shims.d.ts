@@ -21,6 +21,7 @@ declare module "node:sqlite" {
 declare const process: {
   argv: string[];
   env: Record<string, string | undefined>;
+  versions: { node: string };
   exitCode?: number;
   on(event: "SIGINT" | "SIGTERM", listener: () => void): void;
 };
@@ -31,6 +32,8 @@ declare module "node:crypto" {
     digest(encoding: "hex"): string;
   }
   export function createHash(algorithm: "sha256"): Hash;
+  export function randomBytes(size: number): { toString(encoding?: string): string };
+  export function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean;
 }
 
 declare module "node:fs" {
@@ -43,7 +46,9 @@ declare module "node:fs" {
   export function rmSync(path: string, options?: { force?: boolean; recursive?: boolean }): void;
   export function readSync(fd: number, buffer: Uint8Array, offset: number, length: number, position: number | null): number;
   export function renameSync(oldPath: string, newPath: string): void;
-  export function statSync(path: string): { size: number; isFile(): boolean };
+  export function statSync(path: string): { size: number; mode: number; isFile(): boolean };
+  export function accessSync(path: string, mode?: number): void;
+  export const constants: { X_OK: number };
   export function createWriteStream(path: string, options?: { mode?: number }): unknown;
   export function mkdtempSync(prefix: string): string;
   export function copyFileSync(source: string, destination: string): void;
@@ -51,6 +56,7 @@ declare module "node:fs" {
 
 declare module "node:path" {
   export const sep: string;
+  export const delimiter: string;
   export function resolve(...paths: string[]): string;
   export function join(...paths: string[]): string;
   export function dirname(path: string): string;
@@ -90,7 +96,7 @@ declare module "node:stream/promises" {
 }
 
 declare const Buffer: {
-  from(value: string, encoding?: string): { toString(encoding?: string): string };
+  from(value: string, encoding?: string): Uint8Array & { length: number; toString(encoding?: string): string };
 };
 
 declare module "node:http" {

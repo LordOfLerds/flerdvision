@@ -92,3 +92,36 @@ Given a `SourceObservation`, operators must be able to answer:
 
 ### IncidentEvidenceBundle / AiDiagnosis / RepairProposal
 W7 forms a separate engineering subgraph. Incident evidence is sanitized before model access; AI output is untrusted and must pass runtime schema + deterministic policy. Permitted patches are applied only in isolated Git worktrees and can never promote directly to production. `PUBLISH_UNCERTAIN` never enters this repair path.
+
+### W8 private E2E safety subgraph
+
+W8 does not change the definition of publication success. It adds a deliberately narrow test-only authorization path:
+
+```text
+PrivateE2ERun
+  -> E2EGateResult[]
+  -> E2EPublishPermit (one-shot, short-lived, test account only)
+  -> PrivateE2EFinalActionController
+  -> DurableFinalActionService
+  -> RetainedSessionFinalActionInvoker
+  -> same PreparedPlatformSession
+  -> VerificationEvidence / W5 reconciliation
+```
+
+`PlatformPreparationCoordinator` owns the reversible preparation sequence. W4 consumes it and closes the session at the boundary. W8 may retain the exact prepared session, but final action remains impossible until the one-shot permit is consumed and W5 has durably persisted irreversible-boundary entry.
+
+The final UI click is action evidence only; it can never create `VerifiedPublication` directly.
+
+### AI provider activation subgraph
+
+AI provider authentication is orthogonal to social authentication:
+
+```text
+Incident
+  -> sanitized W7 bundle
+  -> AiProviderPort / wrapper
+  -> Claude/Codex subscription CLI OR dedicated provider API credential
+  -> schema-validated diagnosis/proposal
+```
+
+The provider may be disabled without disabling deterministic publishing, verification, incident projection, human recovery or kill switches. Social browser profiles/cookies/passwords are never provider input.

@@ -47,6 +47,11 @@ export class DeclarativePlatformUiAdapter implements PlatformUiAdapterPort {
     this.platform = spec.platform;
   }
 
+  finalActionLocators(intent: PublicationIntent): readonly UiLocator[] {
+    if (intent.platform !== this.platform) throw new PlatformPreparationError(`Intent platform ${intent.platform} does not match ${this.platform} adapter`);
+    return this.spec.finalActionBoundary;
+  }
+
   requiredCapabilities(intent: PublicationIntent): readonly PlatformCapability[] {
     if (intent.platform !== this.platform) throw new PlatformPreparationError(`Intent platform ${intent.platform} does not match ${this.platform} adapter`);
     return this.spec.requiredCapabilities[intent.format] ?? [];

@@ -112,6 +112,19 @@ export class BrowserDomUiDriver {
     }
   }
 
+  async clickIrreversible(locators: readonly UiLocator[], timeoutMs = 10_000): Promise<string> {
+    const target = await this.locate(locators, timeoutMs, true);
+    const selector = `[data-flerdvision-node=${JSON.stringify(target.token)}]`;
+    const clicked = await this.session.evaluate<boolean>(`(() => {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return false;
+      el.click();
+      return true;
+    })()`);
+    if (!clicked) throw new UiActionExecutionError(`Final-action target disappeared before click: ${target.descriptor}`);
+    return target.descriptor;
+  }
+
   async click(locators: readonly UiLocator[], timeoutMs?: number, forbiddenLocators: readonly UiLocator[] = []): Promise<string> {
     const target = await this.locate(locators, timeoutMs ?? 10_000, true);
     if (forbiddenLocators.length > 0) {

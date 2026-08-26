@@ -77,7 +77,7 @@ Exit: synthetic and injected post-click failures never duplicate content.
 
 Exit: non-developer can understand and recover rehearsed incidents.
 
-## W7 — AI repair engineering loop
+## W7 — AI repair engineering loop [DONE — LOCAL/SYNTHETIC VERIFICATION]
 - incident bundle redaction,
 - Claude/Codex diagnostic prompt contract,
 - patch branch workflow,
@@ -86,12 +86,17 @@ Exit: non-developer can understand and recover rehearsed incidents.
 
 Exit: UI-change incident can be diagnosed and patched without AI access to production secrets.
 
-## W8 — E2E test-account release
-- prepare-only E2E,
-- private zero-viewer normal-post E2E where guarantee is valid,
-- verify + cleanup,
-- repeated runs,
-- failure-injection campaign.
+## W8 — E2E test-account release [IN PROGRESS — ENGINEERING HARNESS GREEN, REAL ACCOUNT PENDING]
+- [x] retained prepared-session lifecycle for a real final action on the same browser state,
+- [x] one-shot publish permit bound to run + intent + account + release SHA,
+- [x] strict zero-viewer privacy attestation contract,
+- [x] host/provider preflight + operator CLI,
+- [x] real Chromium synthetic proof that W5 durable boundary precedes final click,
+- [ ] real prepare-only E2E on intended private test host,
+- [ ] private zero-viewer normal-post E2E where guarantee is valid,
+- [ ] verify + cleanup,
+- [ ] repeated runs,
+- [ ] failure-injection campaign.
 
 Exit: all `docs/06-GO-LIVE-GATES.md` pre-customer items green.
 

@@ -20,7 +20,10 @@
     "test:w6": "npm run build && node --test tests/w6-*.test.mjs",
     "ops": "npm run build && node dist/cli/ops.js",
     "test:w7": "npm run build && node --test tests/w7-*.test.mjs",
-    "repair": "npm run build && node dist/cli/repair.js"
+    "repair": "npm run build && node dist/cli/repair.js",
+    "test:w8": "npm run build && node --test tests/w8-*.test.mjs",
+    "ai-provider": "npm run build && node dist/cli/ai-provider.js",
+    "e2e": "npm run build && node dist/cli/e2e.js"
   },
   "engines": {
     "node": ">=22"

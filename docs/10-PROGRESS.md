@@ -14,7 +14,7 @@ This file is the repository-local progress source of truth. Update it at every i
 | W5 | Verification + uncertainty reconciliation | DONE — local/synthetic verification |
 | W6 | Notifications + operations | DONE — local/synthetic verification |
 | W7 | AI repair engineering loop | DONE — local/synthetic verification; provider-specific invocation deferred to deployment/W8 |
-| W8 | Private/test-account E2E + failure campaign | NOT STARTED |
+| W8 | Private/test-account E2E + failure campaign | IN PROGRESS — engineering harness/local synthetic acceptance done; real private-account acceptance pending |
 | W9 | Customer canary | BLOCKED until W0–W8 green |
 | W10 | Metrics automation | NOT STARTED |
 
@@ -219,10 +219,6 @@ A missing post selector is not negative proof unless the profile surface first r
 ### Final UI action remains W8-calibrated
 W5 implements the durable final-action lifecycle and invoker port, but no real Instagram/TikTok/YouTube final-action invoker is wired. Real selectors/action are calibrated only on the private/test account in W8.
 
-## Next wave
-W6: notifications/operations, existing bot adapter, readiness/incident/completion reports, human resume/skip/waive controls, kill switch and minimal ops UI.
-
-
 ## W6 acceptance
 
 - [x] migration 6 for incidents, human actions, kill switches and notification outbox
@@ -312,3 +308,59 @@ The repository implements a structured command-wrapper adapter and does not assu
 
 ### AI-generated commands are never executed
 The model may return requested commands for audit/explanation, but test execution is controlled exclusively by fixed repository configuration.
+
+
+## W8 engineering-harness acceptance
+
+- [x] migration 8 for private E2E runs, append-only gate history and one-shot publish permits
+- [x] private E2E run/gate domain model
+- [x] host preflight with private runtime-directory checks and publish-disabled default
+- [x] strict zero-viewer privacy attestation policy
+- [x] one-shot permit bound to E2E run + intent + account + release SHA
+- [x] permit TTL 30–600 seconds and single-consumption enforcement
+- [x] minimum three successful PREPARE_ONLY replays before permit issuance
+- [x] shared `PlatformPreparationCoordinator` extracted from W4 reversible preparation
+- [x] W4 PREPARE_ONLY still closes/releases its session and has no final-action method
+- [x] W8 retained `PreparedPlatformSession` preserves the exact browser state at final-action boundary
+- [x] private final-action controller consumes one-shot permit then delegates to W5 durable boundary
+- [x] retained-session invoker clicks the calibrated final element only after W5 boundary persistence
+- [x] real installed Chromium retained-session final-click proof against synthetic UI
+- [x] AI-provider activation modes/preflight separated from social publishing
+- [x] W8 operator CLI for host preflight/run/status/privacy attestation/permit
+- [x] ADR for retained-session/one-shot irreversible private E2E path
+- [ ] intended private browser-worker host acceptance
+- [ ] dedicated private test-account human login + 2FA
+- [ ] exact real-account identity health proof
+- [ ] real Instagram UI/fingerprint/selectors calibrated
+- [ ] three real PREPARE_ONLY passes
+- [ ] zero-viewer privacy facts verified on real test account
+- [ ] exactly one permitted real private publish
+- [ ] real W5 profile verification
+- [ ] cleanup/delete and absence verification
+- [ ] real-host crash/network/session failure campaign
+
+## W8 automated evidence (engineering harness)
+
+- TypeScript build: PASS
+- W8-specific tests: **6 passed / 0 failed**
+- Full suite: **105 passed / 0 failed** at current W8 engineering checkpoint
+- Real installed Chromium retained-session final click: PASS against synthetic fixture UI
+- Durable W5 boundary before retained-session click: PASS
+- W4 PREPARE_ONLY regression after shared preparation refactor: PASS in full suite
+- Real social-account navigation/login: **not performed yet**
+- Real private/test-account publication: **not performed yet**
+- Customer publishing: **still blocked**
+
+## W8 plan changes / discoveries
+
+### Same-session final action
+W4 correctly closed the browser after PREPARE_ONLY. W8 discovered that a real final action must occur on the exact already-prepared browser state after W5 persists the irreversible boundary; rebuilding the upload after boundary entry would create a second ambiguous path. Preparation was therefore extracted into a shared coordinator with a retained-session lifecycle only for W8.
+
+### One-shot human permit added
+A live private E2E action is now gated by a short-lived one-use token bound to run, intent, account and release SHA. The DB stores only its SHA-256 hash. This is stricter than a global `ALLOW_FINAL_PUBLISH=true` flag and prevents an old test authorization being reused.
+
+### AI subscription and service modes separated
+W8 adds explicit provider activation modes. Subscription CLI authentication is suitable for operator-led pilot work; unattended shared production is modeled separately through dedicated provider/API credentials. The AI provider remains optional and cannot block deterministic publishing/verification/operations.
+
+## Current next gate
+Complete W8 on the intended private test host. W9 customer canary remains blocked until every real W8 acceptance item above is green.

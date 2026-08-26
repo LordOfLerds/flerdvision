@@ -17,7 +17,9 @@ import type { PlatformCapabilityStorePort } from "../../domain/platform-ui-ports
 import type { PublishAttemptStorePort, VerificationStorePort } from "../../domain/verification-ports.js";
 import type { OperationsStorePort } from "../../domain/operations-ports.js";
 import type { RepairStorePort } from "../../domain/repair-ports.js";
+import type { E2EStorePort } from "../../domain/e2e-ports.js";
 import type { AiDiagnosis, IncidentEvidenceBundle, RepairBranchRecord, RepairGateResult, RepairProposal } from "../../domain/repair.js";
+import type { E2EGateResult, E2EPublishPermit, E2EPublishPermitConsumption, PrivateE2ERun } from "../../domain/e2e.js";
 import type {
   HumanActionRecord,
   Incident,
@@ -338,6 +340,25 @@ interface RepairBranchRow {
   worktree_path: string; head_sha: string | null;
 }
 
+interface E2ERunRow {
+  run_id: string; account_id: string; platform: PrivateE2ERun["platform"]; release_sha: string; created_at: string; created_by: string;
+  status: PrivateE2ERun["status"]; test_media_only: number; zero_viewer_required: number; note: string | null; updated_at: string;
+}
+
+interface E2EGateRow {
+  sequence: number; gate_result_id: string; run_id: string; gate: E2EGateResult["gate"]; status: E2EGateResult["status"];
+  checked_at: string; checked_by: string; summary: string; artifact_refs_json: string; details_json: string;
+}
+
+interface E2EPermitRow {
+  permit_id: string; run_id: string; intent_id: string; account_id: string; release_sha: string; issued_at: string; expires_at: string;
+  issued_by: string; token_hash: string;
+}
+
+interface E2EPermitConsumptionRow {
+  sequence: number; permit_id: string; consumed_at: string; consumed_by: string;
+}
+
 export class IdempotencyConflictError extends Error {}
 export class ScheduleConflictError extends Error {}
 export class IntentNotFoundError extends Error {}
@@ -359,6 +380,9 @@ export class AiDiagnosisConflictError extends Error {}
 export class RepairProposalConflictError extends Error {}
 export class RepairGateConflictError extends Error {}
 export class RepairBranchConflictError extends Error {}
+export class E2ERunConflictError extends Error {}
+export class E2EGateConflictError extends Error {}
+export class E2EPermitConflictError extends Error {}
 
 function asIso(instant: Instant): Instant {
   const date = new Date(instant);
@@ -713,6 +737,35 @@ function repairBranchFromRow(row: RepairBranchRow): RepairBranchRecord {
   return record;
 }
 
+function e2eRunFromRow(row: E2ERunRow): PrivateE2ERun {
+  const run: PrivateE2ERun = {
+    runId: row.run_id, accountId: row.account_id, platform: row.platform, releaseSha: row.release_sha,
+    createdAt: row.created_at, createdBy: row.created_by, status: row.status, testMediaOnly: true,
+    zeroViewerRequired: row.zero_viewer_required === 1
+  };
+  if (row.note !== null) Object.assign(run, { note: row.note });
+  return run;
+}
+
+function e2eGateFromRow(row: E2EGateRow): E2EGateResult {
+  return {
+    gateResultId: row.gate_result_id, runId: row.run_id, gate: row.gate, status: row.status, checkedAt: row.checked_at,
+    checkedBy: row.checked_by, summary: row.summary, artifactRefs: JSON.parse(row.artifact_refs_json) as string[],
+    details: JSON.parse(row.details_json) as Record<string, unknown>
+  };
+}
+
+function e2ePermitFromRow(row: E2EPermitRow): E2EPublishPermit {
+  return {
+    permitId: row.permit_id, runId: row.run_id, intentId: row.intent_id, accountId: row.account_id, releaseSha: row.release_sha,
+    issuedAt: row.issued_at, expiresAt: row.expires_at, issuedBy: row.issued_by, tokenHash: row.token_hash
+  };
+}
+
+function e2ePermitConsumptionFromRow(row: E2EPermitConsumptionRow): E2EPublishPermitConsumption {
+  return { permitId: row.permit_id, consumedAt: row.consumed_at, consumedBy: row.consumed_by };
+}
+
 function sameSocialAccount(existing: SocialAccount, candidate: SocialAccount): boolean {
   return (existing.creatorId ?? null) === (candidate.creatorId ?? null) &&
     existing.platform === candidate.platform &&
@@ -782,7 +835,7 @@ function sameVerifiedPublication(existing: VerifiedPublication, candidate: Verif
     JSON.stringify([...existing.evidenceIds]) === JSON.stringify([...candidate.evidenceIds]);
 }
 
-export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressStorePort, BrowserIdentityStorePort, PlatformCapabilityStorePort, PublishAttemptStorePort, VerificationStorePort, OperationsStorePort, RepairStorePort {
+export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressStorePort, BrowserIdentityStorePort, PlatformCapabilityStorePort, PublishAttemptStorePort, VerificationStorePort, OperationsStorePort, RepairStorePort, E2EStorePort {
   private readonly db: DatabaseSync;
 
   constructor(databasePath: string) {
@@ -1332,6 +1385,71 @@ export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressSt
         `);
         this.db.prepare("INSERT INTO schema_migrations(version, name, applied_at) VALUES (?, ?, ?)")
           .run(7, "AI repair evidence diagnosis proposals and gates", new Date().toISOString());
+      });
+    }
+
+    const migrationEight = this.db.prepare("SELECT version FROM schema_migrations WHERE version = 8").get();
+    if (!migrationEight) {
+      this.transaction(() => {
+        this.db.exec(`
+          CREATE TABLE e2e_runs (
+            run_id TEXT PRIMARY KEY,
+            account_id TEXT NOT NULL REFERENCES social_accounts(account_id) ON DELETE RESTRICT,
+            platform TEXT NOT NULL,
+            release_sha TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            status TEXT NOT NULL,
+            test_media_only INTEGER NOT NULL CHECK(test_media_only = 1),
+            zero_viewer_required INTEGER NOT NULL CHECK(zero_viewer_required IN (0,1)),
+            note TEXT,
+            updated_at TEXT NOT NULL
+          );
+          CREATE INDEX idx_e2e_runs_account ON e2e_runs(account_id, created_at);
+
+          CREATE TABLE e2e_gate_results (
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+            gate_result_id TEXT NOT NULL UNIQUE,
+            run_id TEXT NOT NULL REFERENCES e2e_runs(run_id) ON DELETE RESTRICT,
+            gate TEXT NOT NULL,
+            status TEXT NOT NULL,
+            checked_at TEXT NOT NULL,
+            checked_by TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            artifact_refs_json TEXT NOT NULL,
+            details_json TEXT NOT NULL
+          );
+          CREATE INDEX idx_e2e_gate_run ON e2e_gate_results(run_id, checked_at, sequence);
+
+          CREATE TABLE e2e_publish_permits (
+            permit_id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL REFERENCES e2e_runs(run_id) ON DELETE RESTRICT,
+            intent_id TEXT NOT NULL REFERENCES publication_intents(intent_id) ON DELETE RESTRICT,
+            account_id TEXT NOT NULL,
+            release_sha TEXT NOT NULL,
+            issued_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            issued_by TEXT NOT NULL,
+            token_hash TEXT NOT NULL
+          );
+          CREATE INDEX idx_e2e_permit_run ON e2e_publish_permits(run_id, issued_at);
+
+          CREATE TABLE e2e_publish_permit_consumptions (
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+            permit_id TEXT NOT NULL UNIQUE REFERENCES e2e_publish_permits(permit_id) ON DELETE RESTRICT,
+            consumed_at TEXT NOT NULL,
+            consumed_by TEXT NOT NULL
+          );
+
+          CREATE TRIGGER e2e_gate_results_no_update BEFORE UPDATE ON e2e_gate_results BEGIN SELECT RAISE(ABORT, 'e2e_gate_results is append-only'); END;
+          CREATE TRIGGER e2e_gate_results_no_delete BEFORE DELETE ON e2e_gate_results BEGIN SELECT RAISE(ABORT, 'e2e_gate_results is append-only'); END;
+          CREATE TRIGGER e2e_publish_permits_no_update BEFORE UPDATE ON e2e_publish_permits BEGIN SELECT RAISE(ABORT, 'e2e_publish_permits is append-only'); END;
+          CREATE TRIGGER e2e_publish_permits_no_delete BEFORE DELETE ON e2e_publish_permits BEGIN SELECT RAISE(ABORT, 'e2e_publish_permits is append-only'); END;
+          CREATE TRIGGER e2e_publish_permit_consumptions_no_update BEFORE UPDATE ON e2e_publish_permit_consumptions BEGIN SELECT RAISE(ABORT, 'e2e_publish_permit_consumptions is append-only'); END;
+          CREATE TRIGGER e2e_publish_permit_consumptions_no_delete BEFORE DELETE ON e2e_publish_permit_consumptions BEGIN SELECT RAISE(ABORT, 'e2e_publish_permit_consumptions is append-only'); END;
+        `);
+        this.db.prepare("INSERT INTO schema_migrations(version, name, applied_at) VALUES (?, ?, ?)")
+          .run(8, "private live E2E runs gates and one-shot publish permits", new Date().toISOString());
       });
     }
   }
@@ -2838,5 +2956,125 @@ export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressSt
     return row ? repairBranchFromRow(row) : null;
   }
 
+
+  createOrGetE2ERun(run: PrivateE2ERun, actor: Actor): PrivateE2ERun {
+    return this.transaction(() => {
+      const account = this.getSocialAccount(run.accountId);
+      if (!account) throw new E2ERunConflictError(`Unknown social account: ${run.accountId}`);
+      if (account.account.platform !== run.platform) throw new E2ERunConflictError("E2E run platform/account mismatch");
+      if (!run.testMediaOnly) throw new E2ERunConflictError("E2E runs must be test-media-only");
+      const existing = this.db.prepare("SELECT * FROM e2e_runs WHERE run_id = ?").get(run.runId) as E2ERunRow | undefined;
+      if (existing) {
+        const stored = e2eRunFromRow(existing);
+        const comparable = { ...stored, note: stored.note ?? undefined };
+        const candidate = { ...run, createdAt: asIso(run.createdAt), note: run.note ?? undefined };
+        if (JSON.stringify(comparable) !== JSON.stringify(candidate)) throw new E2ERunConflictError(`E2E run ${run.runId} conflicts with existing record`);
+        return stored;
+      }
+      const createdAt = asIso(run.createdAt);
+      this.db.prepare(`INSERT INTO e2e_runs(run_id,account_id,platform,release_sha,created_at,created_by,status,test_media_only,zero_viewer_required,note,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`).run(
+        run.runId, run.accountId, run.platform, run.releaseSha, createdAt, run.createdBy, run.status, 1, run.zeroViewerRequired ? 1 : 0, run.note ?? null, createdAt
+      );
+      this.appendEvent({ aggregateType: "e2e_run", aggregateId: run.runId, eventType: "e2e_run.created", occurredAt: createdAt, actor, payload: { accountId: run.accountId, platform: run.platform, releaseSha: run.releaseSha, zeroViewerRequired: run.zeroViewerRequired } });
+      return this.getE2ERun(run.runId)!;
+    });
+  }
+
+  getE2ERun(runId: string): PrivateE2ERun | null {
+    const row = this.db.prepare("SELECT * FROM e2e_runs WHERE run_id = ?").get(runId) as E2ERunRow | undefined;
+    return row ? e2eRunFromRow(row) : null;
+  }
+
+  listE2ERuns(accountId?: string): readonly PrivateE2ERun[] {
+    const rows = accountId
+      ? this.db.prepare("SELECT * FROM e2e_runs WHERE account_id = ? ORDER BY created_at, run_id").all(accountId) as E2ERunRow[]
+      : this.db.prepare("SELECT * FROM e2e_runs ORDER BY created_at, run_id").all() as E2ERunRow[];
+    return rows.map(e2eRunFromRow);
+  }
+
+  setE2ERunStatus(runId: string, status: PrivateE2ERun["status"], at: string, actor: Actor, reason: string): PrivateE2ERun {
+    return this.transaction(() => {
+      const existing = this.getE2ERun(runId);
+      if (!existing) throw new E2ERunConflictError(`Unknown E2E run: ${runId}`);
+      const allowed: Readonly<Record<PrivateE2ERun["status"], readonly PrivateE2ERun["status"][]>> = {
+        PLANNED: ["ACTIVE", "ABORTED"], ACTIVE: ["BLOCKED", "PASSED", "ABORTED"], BLOCKED: ["ACTIVE", "ABORTED"], PASSED: [], ABORTED: []
+      };
+      if (existing.status === status) return existing;
+      if (!allowed[existing.status].includes(status)) throw new E2ERunConflictError(`Invalid E2E run transition ${existing.status} -> ${status}`);
+      const timestamp = asIso(at);
+      this.db.prepare("UPDATE e2e_runs SET status = ?, updated_at = ? WHERE run_id = ?").run(status, timestamp, runId);
+      this.appendEvent({ aggregateType: "e2e_run", aggregateId: runId, eventType: `e2e_run.${status.toLowerCase()}`, occurredAt: timestamp, actor, payload: { fromStatus: existing.status, toStatus: status, reason } });
+      return this.getE2ERun(runId)!;
+    });
+  }
+
+  recordE2EGateResult(result: E2EGateResult, actor: Actor): E2EGateResult {
+    return this.transaction(() => {
+      if (!this.getE2ERun(result.runId)) throw new E2EGateConflictError(`Unknown E2E run: ${result.runId}`);
+      const existing = this.db.prepare("SELECT * FROM e2e_gate_results WHERE gate_result_id = ?").get(result.gateResultId) as E2EGateRow | undefined;
+      if (existing) {
+        const stored = e2eGateFromRow(existing);
+        if (JSON.stringify(stored) !== JSON.stringify({ ...result, checkedAt: asIso(result.checkedAt) })) throw new E2EGateConflictError(`E2E gate ${result.gateResultId} conflicts`);
+        return stored;
+      }
+      this.db.prepare(`INSERT INTO e2e_gate_results(gate_result_id,run_id,gate,status,checked_at,checked_by,summary,artifact_refs_json,details_json) VALUES(?,?,?,?,?,?,?,?,?)`).run(
+        result.gateResultId, result.runId, result.gate, result.status, asIso(result.checkedAt), result.checkedBy, result.summary, JSON.stringify(result.artifactRefs), JSON.stringify(result.details)
+      );
+      this.appendEvent({ aggregateType: "e2e_gate", aggregateId: result.gateResultId, eventType: `e2e_gate.${result.gate.toLowerCase()}.${result.status.toLowerCase()}`, occurredAt: result.checkedAt, actor, payload: { runId: result.runId, summary: result.summary } });
+      return e2eGateFromRow(this.db.prepare("SELECT * FROM e2e_gate_results WHERE gate_result_id = ?").get(result.gateResultId) as E2EGateRow);
+    });
+  }
+
+  listE2EGateResults(runId: string): readonly E2EGateResult[] {
+    return (this.db.prepare("SELECT * FROM e2e_gate_results WHERE run_id = ? ORDER BY checked_at, sequence").all(runId) as E2EGateRow[]).map(e2eGateFromRow);
+  }
+
+  issueE2EPublishPermit(permit: E2EPublishPermit, actor: Actor): E2EPublishPermit {
+    return this.transaction(() => {
+      const run = this.getE2ERun(permit.runId);
+      if (!run) throw new E2EPermitConflictError(`Unknown E2E run: ${permit.runId}`);
+      const intent = this.getIntent(permit.intentId);
+      if (!intent) throw new E2EPermitConflictError(`Unknown publication intent: ${permit.intentId}`);
+      if (intent.intent.accountId !== permit.accountId || run.accountId !== permit.accountId) throw new E2EPermitConflictError("E2E permit account mismatch");
+      if (run.releaseSha !== permit.releaseSha) throw new E2EPermitConflictError("E2E permit release mismatch");
+      if (!/^[a-f0-9]{64}$/i.test(permit.tokenHash)) throw new E2EPermitConflictError("E2E permit token hash must be SHA-256 hex");
+      const existing = this.db.prepare("SELECT * FROM e2e_publish_permits WHERE permit_id = ?").get(permit.permitId) as E2EPermitRow | undefined;
+      if (existing) {
+        const stored = e2ePermitFromRow(existing);
+        if (JSON.stringify(stored) !== JSON.stringify({ ...permit, issuedAt: asIso(permit.issuedAt), expiresAt: asIso(permit.expiresAt) })) throw new E2EPermitConflictError(`E2E permit ${permit.permitId} conflicts`);
+        return stored;
+      }
+      this.db.prepare(`INSERT INTO e2e_publish_permits(permit_id,run_id,intent_id,account_id,release_sha,issued_at,expires_at,issued_by,token_hash) VALUES(?,?,?,?,?,?,?,?,?)`).run(
+        permit.permitId, permit.runId, permit.intentId, permit.accountId, permit.releaseSha, asIso(permit.issuedAt), asIso(permit.expiresAt), permit.issuedBy, permit.tokenHash
+      );
+      this.appendEvent({ aggregateType: "e2e_permit", aggregateId: permit.permitId, eventType: "e2e_permit.issued", occurredAt: permit.issuedAt, actor, payload: { runId: permit.runId, intentId: permit.intentId, accountId: permit.accountId, expiresAt: permit.expiresAt } });
+      return this.getE2EPublishPermit(permit.permitId)!;
+    });
+  }
+
+  getE2EPublishPermit(permitId: string): E2EPublishPermit | null {
+    const row = this.db.prepare("SELECT * FROM e2e_publish_permits WHERE permit_id = ?").get(permitId) as E2EPermitRow | undefined;
+    return row ? e2ePermitFromRow(row) : null;
+  }
+
+  consumeE2EPublishPermit(permitId: string, tokenHash: string, at: string, actor: Actor): E2EPublishPermitConsumption {
+    return this.transaction(() => {
+      const permit = this.getE2EPublishPermit(permitId);
+      if (!permit) throw new E2EPermitConflictError(`Unknown E2E permit: ${permitId}`);
+      if (permit.tokenHash !== tokenHash) throw new E2EPermitConflictError("E2E permit token hash mismatch");
+      if (new Date(asIso(at)).getTime() > new Date(permit.expiresAt).getTime()) throw new E2EPermitConflictError("E2E permit expired");
+      const existing = this.getE2EPublishPermitConsumption(permitId);
+      if (existing) throw new E2EPermitConflictError(`E2E permit ${permitId} was already consumed`);
+      const timestamp = asIso(at);
+      this.db.prepare("INSERT INTO e2e_publish_permit_consumptions(permit_id,consumed_at,consumed_by) VALUES(?,?,?)").run(permitId, timestamp, actor.id);
+      this.appendEvent({ aggregateType: "e2e_permit", aggregateId: permitId, eventType: "e2e_permit.consumed", occurredAt: timestamp, actor, payload: { runId: permit.runId, intentId: permit.intentId } });
+      return this.getE2EPublishPermitConsumption(permitId)!;
+    });
+  }
+
+  getE2EPublishPermitConsumption(permitId: string): E2EPublishPermitConsumption | null {
+    const row = this.db.prepare("SELECT * FROM e2e_publish_permit_consumptions WHERE permit_id = ?").get(permitId) as E2EPermitConsumptionRow | undefined;
+    return row ? e2ePermitConsumptionFromRow(row) : null;
+  }
 
 }
