@@ -68,20 +68,35 @@ test("qualification cannot pass with a missing or failed required gate", () => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("self-service UI creates isolated workspace, records Drive mapping and account without credentials", { timeout: 15000 }, async () => {
+test("self-service UI creates an isolated workspace and refuses every typed-credential path", { timeout: 15000 }, async () => {
   const root = tempRoot(); const reg = registry(root);
   const fakeRunner = { supportedTests(){ return ["core","w8-harness","host-preflight"]; }, async run(id){ return { passed: true, summary: `${id} passed`, artifactRefs: [] }; } };
   const server = new SelfServiceHttpServer(reg, { runtimeRoot: root, repoRoot: resolve("."), password: "pw", username: "owner", chromiumExecutablePath: "/bin/false", testRunner: fakeRunner });
   try {
     const bound = await server.start(); const base = `http://127.0.0.1:${bound.port}`; const auth = `Basic ${Buffer.from("owner:pw").toString("base64")}`;
     assert.equal((await fetch(base)).status, 401);
-    const home = await fetch(base, { headers: { authorization: auth } }); const html = await home.text(); const csrf = html.match(/name=csrf value=([a-f0-9]+)/)?.[1]; assert.ok(csrf);
-    let response = await fetch(base + "/workspaces", { method: "POST", redirect: "manual", headers: { authorization: auth, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ csrf, workspaceId: "brother", displayName: "Brother", timezone: "Europe/Vienna" }) });
-    assert.equal(response.status, 303);
-    const page = await fetch(base + "/workspaces/brother", { headers: { authorization: auth } }); const workspaceHtml = await page.text(); assert.match(workspaceHtml, /Google Drive/); assert.match(workspaceHtml, /Test Lab/);
-    response = await fetch(base + "/workspaces/brother/drive", { method: "POST", redirect: "manual", headers: { authorization: auth, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ csrf, rootFolderId: "drive-demo-root" }) }); assert.equal(response.status, 303);
-    response = await fetch(base + "/workspaces/brother/accounts", { method: "POST", redirect: "manual", headers: { authorization: auth, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ csrf, platform: "instagram", accountId: "ig_primary", expectedHandle: "brother_test", creatorId: "brother" }) }); assert.equal(response.status, 303);
-    const layout = workspaceRuntimeLayout(root, "brother"); const store = new SqliteControlPlaneStore(layout.databasePath); try { assert.equal(store.getSocialAccount("ig_primary").account.expectedHandle, "brother_test"); assert.equal(store.getBrowserIdentity("browser_ig_primary").identity.profileKey, "instagram/ig_primary"); } finally { store.close(); }
+    const html = await (await fetch(base, { headers: { authorization: auth } })).text();
+    const csrf = html.match(/name=csrf value=([a-f0-9]+)/)?.[1]; assert.ok(csrf);
+
+    const form = (body) => ({ method: "POST", redirect: "manual", headers: { authorization: auth, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ csrf, ...body }) });
+    assert.equal((await fetch(base + "/workspaces", form({ workspaceId: "brother", displayName: "Brother", timezone: "Europe/Vienna" }))).status, 303);
+
+    const workspaceHtml = await (await fetch(base + "/workspaces/brother", { headers: { authorization: auth } })).text();
+    assert.match(workspaceHtml, /Google Drive/);
+    assert.match(workspaceHtml, /Test Lab/);
+    assert.match(workspaceHtml, /Workspace-Isolation/);
+
+    // The routes that used to accept a folder id and a handle as free text are gone, not merely
+    // hidden: setup reads those from Drive and from the live session instead.
+    assert.equal((await fetch(base + "/workspaces/brother/drive", form({ rootFolderId: "drive-demo-root" }))).status, 404);
+    assert.equal((await fetch(base + "/workspaces/brother/accounts", form({ platform: "instagram", accountId: "ig_primary", expectedHandle: "brother_test" }))).status, 404);
+
+    const layout = workspaceRuntimeLayout(root, "brother");
+    const store = new SqliteControlPlaneStore(layout.databasePath);
+    try {
+      assert.deepEqual(store.listSocialAccounts(), [], "no account can exist without a discovered session");
+      assert.deepEqual(store.listChannelSourceBindings(), []);
+    } finally { store.close(); }
   } finally { await server.stop(); rmSync(root, { recursive: true, force: true }); }
 });
 

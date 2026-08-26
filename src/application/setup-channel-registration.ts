@@ -17,6 +17,11 @@ export interface RegisterFromDiscoveryParams {
   now: Instant;
   actor: Actor;
   creatorId?: string;
+  /**
+   * Profile to give this identity. Defaults to one derived from the channel key. The setup wizard
+   * passes the seeded copy of the login profile so the session carries over without a second login.
+   */
+  profileKey?: string;
 }
 
 export interface RegisteredChannel {
@@ -66,7 +71,7 @@ export class SetupChannelRegistrationService {
       identityId,
       accountId,
       platform: result.platform,
-      profileKey: deriveProfileKey(result.platform, channel.channelKey),
+      profileKey: params.profileKey ?? deriveProfileKey(result.platform, channel.channelKey),
       expectedHandle,
       enabled: true
     };

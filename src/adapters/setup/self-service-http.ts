@@ -11,10 +11,21 @@ import { BrowserProfileDirectoryResolver, DurableBrowserProfileLockAdapter, File
 import { ChromiumCdpRuntimeAdapter } from "../browser/chromium-cdp.js";
 import { BrowserBootstrapService } from "../../application/browser-bootstrap.js";
 import type { Platform } from "../../domain/model.js";
+import type { ChannelDiscoveryPort } from "../../domain/channel-discovery-ports.js";
+import type { ChannelDiscoveryResult } from "../../domain/channel-discovery.js";
+import { deriveProfileKey, selectDiscoveredChannel } from "../../domain/channel-discovery.js";
+import { SetupChannelRegistrationService } from "../../application/setup-channel-registration.js";
+import { loginProfileKey, seedChannelProfile } from "../../application/login-profile.js";
+import { computeSetupProgress, assertPrerequisite, type SetupProgress } from "../../application/setup-progress.js";
+import type { SourceFolderBrowserPort } from "../../domain/source-folder-ports.js";
+import type { SourceFolderListing, SourceFolderPreview } from "../../domain/source-folder.js";
+import { DRIVE_ROOT } from "../ingress/google-drive/google-drive-browser.js";
+import { FileDriveCredentialStore, type StoredDriveCredential } from "../ingress/google-drive/drive-credentials.js";
 
-interface DriveSetup { rootFolderId: string; configuredAt: string; }
+interface SelectedFolder { folderId: string; folderPath: string; preview?: SourceFolderPreview; selectedAt: string; }
 interface TestResultRecord { testId: string; passed: boolean; summary: string; checkedAt: string; artifactRefs: readonly string[]; }
-interface RetainedOperatorSession { session: OperatorBrowserSession; store: SqliteControlPlaneStore; }
+interface RetainedOperatorSession { session: OperatorBrowserSession; store: SqliteControlPlaneStore; profileKey: string; platform: Platform; }
+interface PendingDiscovery { platform: Platform; result: ChannelDiscoveryResult; }
 
 function escapeHtml(value: string): string { return value.replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;"); }
 function parseBasicAuth(header: string | string[] | undefined): {username:string;password:string}|null { if(typeof header!=="string"||!header.startsWith("Basic "))return null; try{const decoded=Buffer.from(header.slice(6),"base64").toString("utf8"); const i=decoded.indexOf(":"); return i<0?null:{username:decoded.slice(0,i),password:decoded.slice(i+1)};}catch{return null;} }
@@ -31,45 +42,455 @@ export interface SelfServiceHttpOptions {
   port?: number;
   chromiumExecutablePath: string;
   testRunner: FixedTestRunnerPort;
+  /** Absent until a deployment supplies OAuth credentials; step 1 then explains what is missing. */
+  folderBrowser?: SourceFolderBrowserPort;
+  /** Absent until discovery specs are calibrated; step 4 then refuses rather than inviting typing. */
+  channelDiscovery?: ChannelDiscoveryPort;
+  /** Absent until a deployment supplies an OAuth client. */
+  driveOAuth?: DriveOAuthPort;
+  /**
+   * The login browser is visible by default -- the operator has to type into it. Headless exists
+   * for automated end-to-end runs of this wizard, which must be able to exercise the real flow.
+   */
+  headlessLogin?: boolean;
 }
 
+/**
+ * The OAuth half of connecting Drive, kept behind a port so the wizard can be exercised without
+ * talking to Google and so a deployment without credentials degrades to an explanation.
+ */
+export interface DriveOAuthPort {
+  begin(workspaceId: string): { state: string; codeVerifier: string; authorizationUrl: string };
+  complete(workspaceId: string, code: string, codeVerifier: string): Promise<StoredDriveCredential>;
+}
+
+/**
+ * The setup wizard.
+ *
+ * Two properties matter more than the markup. First, step order is enforced from durable facts,
+ * so a hand-made POST cannot bind a folder to a channel that was never confirmed. Second, nothing
+ * on the account path accepts a typed handle: registration only ever consumes a discovery result.
+ */
 export class SelfServiceHttpServer {
   private server: Server | undefined;
   private readonly csrf = createHash("sha256").update(`${Date.now()}|${Math.random()}`).digest("hex");
   private readonly sessions = new Map<string, RetainedOperatorSession>();
-  constructor(private readonly registry: WorkspaceRegistryPort, private readonly options: SelfServiceHttpOptions) { if(!options.password) throw new Error("Self-service UI password is required"); }
+  private readonly discoveries = new Map<string, PendingDiscovery>();
+  private readonly selections = new Map<string, SelectedFolder>();
+
+  constructor(private readonly registry: WorkspaceRegistryPort, private readonly options: SelfServiceHttpOptions) {
+    if (!options.password) throw new Error("Self-service UI password is required");
+  }
+
   private authorized(req: IncomingMessage): boolean { const auth=parseBasicAuth(req.headers.authorization); return Boolean(auth&&auth.username===(this.options.username??"flerdvision")&&auth.password===this.options.password); }
   private deny(res: ServerResponse): void { res.statusCode=401;res.setHeader("WWW-Authenticate",'Basic realm="Flerdvision Setup"');res.end("Authentication required"); }
   private redirect(res: ServerResponse, location:string): void { res.statusCode=303;res.setHeader("Location",location);res.end(); }
-  private drivePath(workspaceId:string): string { return resolve(workspaceRuntimeLayout(this.options.runtimeRoot,workspaceId).configDir,"drive.json"); }
-  private testsPath(workspaceId:string): string { return resolve(workspaceRuntimeLayout(this.options.runtimeRoot,workspaceId).configDir,"test-results.json"); }
-  private readDrive(workspaceId:string): DriveSetup|null { const p=this.drivePath(workspaceId); return existsSync(p)?JSON.parse(readFileSync(p,"utf8")) as DriveSetup:null; }
+  private actor() { return { type: "operator" as const, id: this.options.username ?? "flerdvision" }; }
+  private layout(workspaceId: string) { return workspaceRuntimeLayout(this.options.runtimeRoot, workspaceId); }
+  private credentials(workspaceId: string) { return new FileDriveCredentialStore(this.layout(workspaceId).configDir); }
+  private testsPath(workspaceId:string): string { return resolve(this.layout(workspaceId).configDir,"test-results.json"); }
   private readTests(workspaceId:string): TestResultRecord[] { const p=this.testsPath(workspaceId); return existsSync(p)?JSON.parse(readFileSync(p,"utf8")) as TestResultRecord[]:[]; }
   private recordTest(workspaceId:string,result:TestResultRecord):void { const all=this.readTests(workspaceId).filter(x=>x.testId!==result.testId); all.push(result); writeFileSync(this.testsPath(workspaceId),JSON.stringify(all,null,2),{encoding:"utf8",mode:0o600}); }
-  private shell(title:string, body:string):string { return `<!doctype html><html><head><meta charset=utf-8><title>${escapeHtml(title)}</title><style>body{font-family:system-ui,sans-serif;max-width:1100px;margin:30px auto;padding:0 20px}a{color:inherit}.card{border:1px solid #ddd;border-radius:10px;padding:16px;margin:12px 0}.ok{color:#087f23}.warn{color:#9a6700}.bad{color:#b42318}input,select,button{padding:7px;margin:3px}code,pre{background:#f5f5f5;padding:3px 5px;border-radius:4px}pre{white-space:pre-wrap}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #ddd;padding:7px;text-align:left}</style></head><body>${body}</body></html>`; }
-  private home():string { const rows=this.registry.list().map(w=>`<tr><td><a href="/workspaces/${encodeURIComponent(w.workspaceId)}">${escapeHtml(w.displayName)}</a></td><td>${escapeHtml(w.workspaceId)}</td><td>${escapeHtml(w.status)}</td><td>${escapeHtml(w.timezone)}</td></tr>`).join(""); return this.shell("Flerdvision Setup",`<h1>Flerdvision Self-Service</h1><p>Workspaces are isolated by database, browser profiles and evidence storage.</p><table><tr><th>Name</th><th>ID</th><th>Status</th><th>Timezone</th></tr>${rows||"<tr><td colspan=4>No workspaces yet</td></tr>"}</table><div class=card><h2>Create workspace</h2><form method=post action=/workspaces><input type=hidden name=csrf value=${this.csrf}><input name=workspaceId placeholder="workspace id" required><input name=displayName placeholder="display name" required><input name=timezone value="Europe/Vienna" required><button>Create</button></form></div>`); }
+
+  /** Progress is recomputed from storage on every request; nothing about it is cached in a page. */
+  progress(workspaceId: string): SetupProgress {
+    const store = new SqliteControlPlaneStore(this.layout(workspaceId).databasePath);
+    try {
+      return computeSetupProgress({
+        driveConnected: this.credentials(workspaceId).status().connected,
+        folderSelected: this.selections.has(workspaceId),
+        sessionDiscovered: this.discoveries.has(workspaceId),
+        registeredAccounts: store.listSocialAccounts().length,
+        bindings: store.listChannelSourceBindings().length
+      });
+    } finally { store.close(); }
+  }
+
+  // ---------------- rendering ----------------
+
+  private shell(title:string, body:string):string {
+    return `<!doctype html><html lang=de><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>
+body{font-family:system-ui,sans-serif;max-width:1000px;margin:30px auto;padding:0 20px;line-height:1.55;color:#111}
+a{color:#0e6b70}.card{border:1px solid #d8dedd;border-radius:10px;padding:16px 18px;margin:14px 0}
+.card.now{border-color:#0e6b70;box-shadow:0 0 0 1px #0e6b70}.card.locked{opacity:.55}
+.ok{color:#2f6b45}.warn{color:#8a6516}.bad{color:#9e3b2f}
+input,select,button{padding:7px;margin:3px;font:inherit}button{cursor:pointer}
+code,pre{background:#f2f5f4;padding:2px 5px;border-radius:4px;font-family:ui-monospace,monospace;font-size:.9em}
+pre{white-space:pre-wrap;padding:10px}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e2e8e7;padding:7px;text-align:left}
+.step{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#71827e;margin:0 0 4px}
+.proof{border-left:3px solid #2f6b45;background:#f2f5f4;padding:10px 14px;margin:10px 0}
+.gate{border-left:3px solid #9e3b2f;background:#f9efed;padding:10px 14px;margin:10px 0}
+</style></head><body>${body}</body></html>`;
+  }
+
+  private home():string {
+    const rows=this.registry.list().map(w=>`<tr><td><a href="/workspaces/${encodeURIComponent(w.workspaceId)}">${escapeHtml(w.displayName)}</a></td><td><code>${escapeHtml(w.workspaceId)}</code></td><td>${escapeHtml(w.status)}</td><td>${escapeHtml(w.timezone)}</td></tr>`).join("");
+    return this.shell("Flerdvision Setup",`<h1>Flerdvision Self-Service</h1><p>Jeder Workspace ist getrennt: eigene Datenbank, eigene Browserprofile, eigene Evidence.</p><table><tr><th>Name</th><th>ID</th><th>Status</th><th>Zeitzone</th></tr>${rows||"<tr><td colspan=4>Noch keine Workspaces</td></tr>"}</table><div class=card><h2>Workspace anlegen</h2><form method=post action=/workspaces><input type=hidden name=csrf value=${this.csrf}><input name=workspaceId placeholder="workspace id" required><input name=displayName placeholder="Anzeigename" required><input name=timezone value="Europe/Vienna" required><button>Anlegen</button></form></div>`);
+  }
+
+  private card(index: number, title: string, done: boolean, current: boolean, body: string): string {
+    const cls = current ? "card now" : done ? "card" : "card locked";
+    const mark = done ? '<span class="ok">✓</span>' : current ? "▶" : "•";
+    return `<div class="${cls}"><p class=step>Schritt ${index} ${mark}</p><h2>${escapeHtml(title)}</h2>${body}</div>`;
+  }
+
+  private driveCard(workspaceId: string, p: SetupProgress): string {
+    const status = this.credentials(workspaceId).status();
+    if (status.connected) {
+      return this.card(1, "Google Drive", true, false,
+        `<div class=proof>Verbunden${status.connectedAccount?` als <code>${escapeHtml(status.connectedAccount)}</code>`:""} seit ${escapeHtml(status.connectedAt ?? "")}.</div>
+         <form method=post action="/workspaces/${workspaceId}/drive/disconnect"><input type=hidden name=csrf value=${this.csrf}><button>Verbindung lösen</button></form>`);
+    }
+    if (!this.options.folderBrowser) {
+      return this.card(1, "Google Drive", false, p.currentStep === "DRIVE",
+        `<div class=gate>Kein OAuth-Client hinterlegt. Setze <code>GOOGLE_OAUTH_CLIENT_ID</code> und <code>GOOGLE_OAUTH_CLIENT_SECRET</code> in der Deployment-Konfiguration und starte die UI neu. Ich lege dir hier keinen Platzhalter an, der später so aussieht, als wäre etwas verbunden.</div>`);
+    }
+    return this.card(1, "Google Drive", false, p.currentStep === "DRIVE",
+      `<p>Der Login läuft im Browser, der Refresh-Token landet nur in <code>config/drive-credential.json</code> (mode 600) und wird nie angezeigt.</p>
+       <form method=post action="/workspaces/${workspaceId}/drive/connect"><input type=hidden name=csrf value=${this.csrf}><button>Google-Login öffnen</button></form>`);
+  }
+
+  private folderCard(workspaceId: string, p: SetupProgress): string {
+    const selected = this.selections.get(workspaceId);
+    const unlocked = p.facts.driveConnected;
+    if (selected) {
+      const pv = selected.preview;
+      return this.card(2, "Ordner wählen", true, false,
+        `<div class=proof><strong>${escapeHtml(selected.folderPath)}</strong>${pv?`<br>${pv.videoCount} Videos${pv.otherCount?`, ${pv.otherCount} weitere Dateien`:""}${pv.newestName?`<br>Neuestes: <code>${escapeHtml(pv.newestName)}</code>`:""}`:""}</div>
+         <p><a href="/workspaces/${workspaceId}/browse?folderId=${encodeURIComponent(DRIVE_ROOT)}">Anderen Ordner wählen</a></p>`);
+    }
+    if (!unlocked) return this.card(2, "Ordner wählen", false, false, `<div class=gate>Zuerst Drive verbinden.</div>`);
+    return this.card(2, "Ordner wählen", false, p.currentStep === "FOLDER",
+      `<p><a href="/workspaces/${workspaceId}/browse?folderId=${encodeURIComponent(DRIVE_ROOT)}">Drive durchsuchen</a> — klick dich hinein, dann auswählen.</p>`);
+  }
+
+  private loginCard(workspaceId: string, p: SetupProgress): string {
+    const unlocked = p.facts.folderSelected;
+    const open = [...this.sessions.entries()].find(([key]) => key.startsWith(`${workspaceId}:`));
+    if (!unlocked) return this.card(3, "Kanal einloggen", false, false, `<div class=gate>Zuerst einen Ordner wählen.</div>`);
+    if (p.facts.sessionDiscovered) {
+      const d = this.discoveries.get(workspaceId)!;
+      return this.card(3, "Kanal einloggen", true, false, `<div class=proof>Sitzung für <code>${escapeHtml(d.platform)}</code> gelesen.</div>`);
+    }
+    const body = open
+      ? `<p>Browser offen für <code>${escapeHtml(open[1].platform)}</code>. Logge dich dort ein — Passwort und 2FA tippst du selbst — und lies dann die Sitzung aus.</p>
+         <form method=post action="/workspaces/${workspaceId}/discover"><input type=hidden name=csrf value=${this.csrf}><button>Sitzung auslesen</button></form>
+         <form method=post action="/workspaces/${workspaceId}/browser/close"><input type=hidden name=csrf value=${this.csrf}><button>Browser schließen</button></form>`
+      : `<form method=post action="/workspaces/${workspaceId}/browser/open"><input type=hidden name=csrf value=${this.csrf}>
+         <select name=platform><option value=instagram>Instagram</option><option value=tiktok>TikTok</option><option value=youtube>YouTube</option></select>
+         <input name=slot value=primary size=10><button>Login-Browser öffnen</button></form>
+         <small>Der Slot trennt mehrere Logins derselben Plattform in einem Workspace.</small>`;
+    return this.card(3, "Kanal einloggen", false, p.currentStep === "LOGIN", body);
+  }
+
+  private channelCard(workspaceId: string, p: SetupProgress): string {
+    if (!p.facts.sessionDiscovered) {
+      return this.card(4, "Kanal bestätigen", p.facts.registeredAccounts > 0, false,
+        p.facts.registeredAccounts > 0
+          ? `<div class=proof>${p.facts.registeredAccounts} Kanal/Kanäle registriert.</div>`
+          : `<div class=gate>Zuerst einloggen und die Sitzung auslesen.</div>`);
+    }
+    const d = this.discoveries.get(workspaceId)!;
+    if (d.result.state !== "HEALTHY") {
+      return this.card(4, "Kanal bestätigen", false, true,
+        `<div class=gate>Sitzung meldet <code>${escapeHtml(d.result.state)}</code>${d.result.note?`: ${escapeHtml(d.result.note)}`:""}. Kein Kanal auswählbar — hier wird nichts geraten.</div>`);
+    }
+    const options = d.result.channels.map(c =>
+      `<label style="display:block;padding:6px 0"><input type=radio name=channelKey value="${escapeHtml(c.channelKey)}" required> <strong>${escapeHtml(c.displayName)}</strong> — <code>${escapeHtml(c.handle)}</code>${c.detail?` · ${escapeHtml(c.detail)}`:""}</label>`).join("");
+    return this.card(4, "Kanal bestätigen", false, true,
+      `<div class=proof>Aus der Sitzung gelesen, nicht getippt: ${d.result.channels.length} Kanal/Kanäle auf <code>${escapeHtml(d.platform)}</code>.</div>
+       <form method=post action="/workspaces/${workspaceId}/channel"><input type=hidden name=csrf value=${this.csrf}>${options}<button>Kanal übernehmen</button></form>
+       <small>Der Browser wird geschlossen und die Sitzung in das Profil dieses Kanals kopiert.</small>`);
+  }
+
+  private linkCard(workspaceId: string, p: SetupProgress): string {
+    const store = new SqliteControlPlaneStore(this.layout(workspaceId).databasePath);
+    let unbound: { accountId: string; handle: string; platform: string }[] = [];
+    let bound: { accountId: string; folderPath: string; sub: boolean }[] = [];
+    try {
+      for (const a of store.listSocialAccounts()) {
+        const b = store.getChannelSourceBindingForAccount(a.account.accountId);
+        if (b) bound.push({ accountId: a.account.accountId, folderPath: b.binding.folderPath, sub: b.binding.interpretSubstructure });
+        else unbound.push({ accountId: a.account.accountId, handle: a.account.expectedHandle, platform: a.account.platform });
+      }
+    } finally { store.close(); }
+
+    const boundRows = bound.map(b => `<tr><td><code>${escapeHtml(b.accountId)}</code></td><td>${escapeHtml(b.folderPath)}</td><td>${b.sub?"mit Unterstruktur":"direkt"}</td></tr>`).join("");
+    const selected = this.selections.get(workspaceId);
+    let form = "";
+    if (unbound.length && selected) {
+      const opts = unbound.map(u => `<option value="${escapeHtml(u.accountId)}">${escapeHtml(u.platform)} · @${escapeHtml(u.handle)}</option>`).join("");
+      form = `<form method=post action="/workspaces/${workspaceId}/bind"><input type=hidden name=csrf value=${this.csrf}>
+        <p>Ordner: <strong>${escapeHtml(selected.folderPath)}</strong></p>
+        <select name=accountId>${opts}</select>
+        <label><input type=checkbox name=interpretSubstructure value=on> <code>creator/woche/tag</code> auswerten</label>
+        <button>Verknüpfung speichern</button></form>`;
+    } else if (!selected) {
+      form = `<div class=gate>Kein Ordner ausgewählt.</div>`;
+    } else {
+      form = `<p>Alle registrierten Kanäle sind verknüpft.</p>`;
+    }
+    return this.card(5, "Ordner ↔ Kanal", bound.length > 0, p.currentStep === "LINK",
+      `${boundRows?`<table><tr><th>Kanal</th><th>Ordner</th><th>Modus</th></tr>${boundRows}</table>`:""}${form}`);
+  }
+
+  private testCard(workspaceId: string, p: SetupProgress): string {
+    const tests = this.readTests(workspaceId);
+    const rows = SELF_SERVICE_TEST_CATALOG.map(t => {
+      const r = tests.find(x => x.testId === t.testId);
+      const blocked = t.requires !== "NONE" && p.currentStep !== "READY";
+      const action = blocked
+        ? `<span class=bad>gesperrt</span>`
+        : `<form method=post action="/workspaces/${workspaceId}/tests/${encodeURIComponent(t.testId)}"><input type=hidden name=csrf value=${this.csrf}><button>Starten</button></form>`;
+      return `<tr><td>${escapeHtml(t.label)}<br><small>${escapeHtml(t.description)}</small></td><td>${escapeHtml(t.risk)}</td><td class=${r?.passed?"ok":r?"bad":"warn"}>${r?r.passed?"BESTANDEN":"FEHLGESCHLAGEN":"NICHT GELAUFEN"}</td><td>${action}${r?`<details><summary>Details</summary><pre>${escapeHtml(r.summary)}</pre></details>`:""}</td></tr>`;
+    }).join("");
+    return this.card(6, "Test Lab", false, p.currentStep === "READY",
+      `<p>Keine freie Shell — fest verdrahtete Kommandos, jedes mit erzwungenem <code>ALLOW_FINAL_PUBLISH=false</code>. Die drei lokalen Tests hängen an keinem Setup-Schritt: ein frischer Host muss beweisen können, dass er gesund ist.</p>
+       <table><tr><th>Test</th><th>Risiko</th><th>Status</th><th>Aktion</th></tr>${rows}</table>`);
+  }
+
   private workspacePage(workspaceId:string):string {
-    const workspace=this.registry.get(workspaceId); if(!workspace) return this.shell("Not found","<h1>Workspace not found</h1>");
-    const layout=workspaceRuntimeLayout(this.options.runtimeRoot,workspaceId); const drive=this.readDrive(workspaceId); const tests=this.readTests(workspaceId); const store=new SqliteControlPlaneStore(layout.databasePath);
-    let accounts; try { accounts=store.listSocialAccounts().map(a=>({account:a,identity:store.listBrowserIdentities().find(i=>i.identity.accountId===a.account.accountId)})); } finally { store.close(); }
-    const accountRows=accounts.map(({account,identity})=>`<tr><td>${escapeHtml(account.account.platform)}</td><td>@${escapeHtml(account.account.expectedHandle)}</td><td>${identity?escapeHtml(identity.identity.identityId):"missing"}</td><td>${identity&&this.sessions.has(`${workspaceId}:${identity.identity.identityId}`)?"browser open":"closed"}</td><td>${identity?`<form method=post action="/workspaces/${workspaceId}/browser/${encodeURIComponent(identity.identity.identityId)}/open"><input type=hidden name=csrf value=${this.csrf}><button>Open login browser</button></form><form method=post action="/workspaces/${workspaceId}/browser/${encodeURIComponent(identity.identity.identityId)}/close"><input type=hidden name=csrf value=${this.csrf}><button>Close browser</button></form>`:""}</td></tr>`).join("");
-    const testRows=SELF_SERVICE_TEST_CATALOG.map(t=>{const r=tests.find(x=>x.testId===t.testId);return `<tr><td>${escapeHtml(t.label)}</td><td>${escapeHtml(t.risk)}</td><td class=${r?.passed?"ok":r?"bad":"warn"}>${r?r.passed?"PASS":"FAIL":"NOT RUN"}</td><td><form method=post action="/workspaces/${workspaceId}/tests/${encodeURIComponent(t.testId)}"><input type=hidden name=csrf value=${this.csrf}><button>Run</button></form>${r?`<details><summary>details</summary><pre>${escapeHtml(r.summary)}</pre></details>`:""}</td></tr>`}).join("");
-    return this.shell(workspace.displayName,`<p><a href=/>&larr; Workspaces</a></p><h1>${escapeHtml(workspace.displayName)}</h1><p><strong>${escapeHtml(workspace.workspaceId)}</strong> · ${escapeHtml(workspace.status)} · ${escapeHtml(workspace.timezone)}</p><div class=card><h2>1 · Google Drive</h2><p class=${drive?"ok":"warn"}>${drive?`Configured root: ${escapeHtml(drive.rootFolderId)}`:"Not configured"}</p><form method=post action="/workspaces/${workspaceId}/drive"><input type=hidden name=csrf value=${this.csrf}><input name=rootFolderId placeholder="Drive root folder ID" value="${escapeHtml(drive?.rootFolderId??"")}" required><button>Save mapping</button></form><small>No Drive credential is stored here; credentials stay in deployment secrets.</small></div><div class=card><h2>2 · Social accounts</h2><table><tr><th>Platform</th><th>Expected account</th><th>Browser identity</th><th>Session</th><th>Action</th></tr>${accountRows||"<tr><td colspan=5>No accounts registered</td></tr>"}</table><form method=post action="/workspaces/${workspaceId}/accounts"><input type=hidden name=csrf value=${this.csrf}><select name=platform><option>instagram</option><option>tiktok</option><option>youtube</option></select><input name=accountId placeholder="account id" required><input name=expectedHandle placeholder="expected handle" required><input name=creatorId placeholder="creator id (optional)"><button>Register isolated account</button></form><small>Passwords and 2FA are never stored in Flerdvision config. Login happens in the isolated browser profile.</small></div><div class=card><h2>3 · Test Lab</h2><table><tr><th>Test</th><th>Risk</th><th>Status</th><th>Action</th></tr>${testRows}</table></div><div class=card><h2>Workspace isolation</h2><pre>${escapeHtml(JSON.stringify(layout,null,2))}</pre></div>`);
+    const workspace=this.registry.get(workspaceId);
+    if(!workspace) return this.shell("Nicht gefunden","<h1>Workspace nicht gefunden</h1>");
+    const p = this.progress(workspaceId);
+    return this.shell(workspace.displayName,
+      `<p><a href=/>&larr; Workspaces</a></p><h1>${escapeHtml(workspace.displayName)}</h1>
+       <p><code>${escapeHtml(workspace.workspaceId)}</code> · ${escapeHtml(workspace.status)} · ${escapeHtml(workspace.timezone)} · Schritt <strong>${escapeHtml(p.currentStep)}</strong></p>
+       ${this.driveCard(workspaceId,p)}${this.folderCard(workspaceId,p)}${this.loginCard(workspaceId,p)}${this.channelCard(workspaceId,p)}${this.linkCard(workspaceId,p)}${this.testCard(workspaceId,p)}
+       <div class=card><h2>Workspace-Isolation</h2><pre>${escapeHtml(JSON.stringify(this.layout(workspaceId),null,2))}</pre></div>`);
   }
-  private async handle(req:IncomingMessage,res:ServerResponse):Promise<void>{ if(!this.authorized(req)){this.deny(res);return;} const method=req.method??"GET"; const path=(req.url??"/").split("?",1)[0]??"/";
-    if(method==="GET"&&path==="/"){res.statusCode=200;res.setHeader("Content-Type","text/html; charset=utf-8");res.end(this.home());return;}
-    const wm=path.match(/^\/workspaces\/([^/]+)$/); if(method==="GET"&&wm){res.statusCode=200;res.setHeader("Content-Type","text/html; charset=utf-8");res.end(this.workspacePage(decodeURIComponent(wm[1]!)));return;}
-    if(method!=="POST"){res.statusCode=404;res.end("Not found");return;} const form=await readForm(req); if(form.get("csrf")!==this.csrf){res.statusCode=403;res.end("Invalid CSRF token");return;}
-    try{
-      if(path==="/workspaces"){const ws=new WorkspaceService(this.registry,this.options.runtimeRoot).create({workspaceId:form.get("workspaceId")??"",displayName:form.get("displayName")??"",timezone:form.get("timezone")??"Europe/Vienna",now:new Date().toISOString()});this.redirect(res,`/workspaces/${ws.workspace.workspaceId}`);return;}
-      const drive=path.match(/^\/workspaces\/([^/]+)\/drive$/); if(drive){const id=decodeURIComponent(drive[1]!); const rootFolderId=(form.get("rootFolderId")??"").trim(); if(!rootFolderId) throw new Error("Drive root folder ID is required"); writeFileSync(this.drivePath(id),JSON.stringify({rootFolderId,configuredAt:new Date().toISOString()},null,2),{encoding:"utf8",mode:0o600}); this.redirect(res,`/workspaces/${id}`);return;}
-      const accounts=path.match(/^\/workspaces\/([^/]+)\/accounts$/); if(accounts){const id=decodeURIComponent(accounts[1]!); const layout=workspaceRuntimeLayout(this.options.runtimeRoot,id); const store=new SqliteControlPlaneStore(layout.databasePath); try{const p=platform(form.get("platform")??"");const accountId=(form.get("accountId")??"").trim();const expectedHandle=(form.get("expectedHandle")??"").trim();const creatorId=(form.get("creatorId")??"").trim(); const now=new Date().toISOString(); const actor={type:"operator" as const,id:this.options.username??"flerdvision"};store.registerSocialAccount({accountId,platform:p,expectedHandle,enabled:true,...(creatorId?{creatorId}: {})},now,actor);store.registerBrowserIdentity({identityId:`browser_${accountId}`,accountId,platform:p,profileKey:`${p}/${accountId}`,expectedHandle,enabled:true},now,actor);}finally{store.close();}this.redirect(res,`/workspaces/${id}`);return;}
-      const test=path.match(/^\/workspaces\/([^/]+)\/tests\/([^/]+)$/); if(test){const id=decodeURIComponent(test[1]!);const testId=decodeURIComponent(test[2]!);const result=await new TestLabService(this.options.testRunner,this.options.repoRoot).run(testId);this.recordTest(id,{testId,...result,checkedAt:new Date().toISOString()});this.redirect(res,`/workspaces/${id}`);return;}
-      const open=path.match(/^\/workspaces\/([^/]+)\/browser\/([^/]+)\/open$/); if(open){const id=decodeURIComponent(open[1]!);const identityId=decodeURIComponent(open[2]!);const key=`${id}:${identityId}`;if(this.sessions.has(key))throw new Error("Browser session already open");const layout=workspaceRuntimeLayout(this.options.runtimeRoot,id);const store=new SqliteControlPlaneStore(layout.databasePath);const identity=store.getBrowserIdentity(identityId);if(!identity){store.close();throw new Error(`Unknown browser identity: ${identityId}`);}const resolver=new BrowserProfileDirectoryResolver(layout.profilesDir);const locks=new DurableBrowserProfileLockAdapter(store,new FileBrowserProfileLockAdapter(resolver));const runtime=new ChromiumCdpRuntimeAdapter({profilesRoot:layout.profilesDir,executablePath:this.options.chromiumExecutablePath});const session=await new BrowserBootstrapService(store,runtime,locks).openForOperator({identityId,ownerId:this.options.username??"flerdvision",bootstrapUrl:bootstrapUrl(identity.identity.platform),now:new Date().toISOString(),headless:false});this.sessions.set(key,{session,store});this.redirect(res,`/workspaces/${id}`);return;}
-      const close=path.match(/^\/workspaces\/([^/]+)\/browser\/([^/]+)\/close$/); if(close){const id=decodeURIComponent(close[1]!);const identityId=decodeURIComponent(close[2]!);const key=`${id}:${identityId}`;const retained=this.sessions.get(key);if(retained){this.sessions.delete(key);try{await retained.session.close();}finally{retained.store.close();}}this.redirect(res,`/workspaces/${id}`);return;}
+
+  private async browsePage(workspaceId: string, folderId: string): Promise<string> {
+    assertPrerequisite(this.progress(workspaceId), "DRIVE_CONNECTED");
+    if (!this.options.folderBrowser) throw new Error("No source folder browser is configured");
+    const listing: SourceFolderListing = await this.options.folderBrowser.listFolder(folderId);
+    const crumbs = listing.path.map((c,i) =>
+      i === listing.path.length-1 ? `<strong>${escapeHtml(c.name)}</strong>`
+        : `<a href="/workspaces/${workspaceId}/browse?folderId=${encodeURIComponent(c.id)}">${escapeHtml(c.name)}</a>`).join(" / ");
+    const rows = listing.entries.map(e => e.kind === "folder"
+      ? `<tr><td>📁 <a href="/workspaces/${workspaceId}/browse?folderId=${encodeURIComponent(e.id)}">${escapeHtml(e.name)}</a></td><td>Ordner</td></tr>`
+      : `<tr><td>📄 ${escapeHtml(e.name)}</td><td>${escapeHtml(e.mimeType ?? "Datei")}</td></tr>`).join("");
+    const pickable = listing.folderId !== DRIVE_ROOT;
+    return this.shell(`Ordner: ${listing.folderName}`,
+      `<p><a href="/workspaces/${workspaceId}">&larr; Setup</a></p><h1>${escapeHtml(listing.folderName)}</h1><p>${crumbs}</p>
+       <table><tr><th>Name</th><th>Typ</th></tr>${rows||"<tr><td colspan=2>Dieser Ordner ist leer.</td></tr>"}</table>
+       ${listing.truncated?"<p class=warn>Liste gekürzt — dieser Ordner hat sehr viele Einträge.</p>":""}
+       ${pickable?`<form method=post action="/workspaces/${workspaceId}/folder"><input type=hidden name=csrf value=${this.csrf}><input type=hidden name=folderId value="${escapeHtml(listing.folderId)}"><input type=hidden name=folderPath value="${escapeHtml(listing.path.map(c=>c.name).join(" / "))}"><button>Diesen Ordner wählen</button></form>`:"<p>Wähle einen Unterordner; die Ablage-Wurzel selbst ist keine Quelle.</p>"}`);
+  }
+
+  // ---------------- routing ----------------
+
+  private async handle(req:IncomingMessage,res:ServerResponse):Promise<void>{
+    if(!this.authorized(req)){this.deny(res);return;}
+    const method=req.method??"GET";
+    const url=new URL(req.url??"/","http://127.0.0.1");
+    const path=url.pathname;
+    try {
+      if(method==="GET"&&path==="/"){res.statusCode=200;res.setHeader("Content-Type","text/html; charset=utf-8");res.end(this.home());return;}
+
+      const wm=path.match(/^\/workspaces\/([^/]+)$/);
+      if(method==="GET"&&wm){res.statusCode=200;res.setHeader("Content-Type","text/html; charset=utf-8");res.end(this.workspacePage(decodeURIComponent(wm[1]!)));return;}
+
+      const browse=path.match(/^\/workspaces\/([^/]+)\/browse$/);
+      if(method==="GET"&&browse){const id=decodeURIComponent(browse[1]!);const html=await this.browsePage(id,url.searchParams.get("folderId")??DRIVE_ROOT);res.statusCode=200;res.setHeader("Content-Type","text/html; charset=utf-8");res.end(html);return;}
+
+      const cb=path.match(/^\/workspaces\/([^/]+)\/drive\/callback$/);
+      if(method==="GET"&&cb){await this.driveCallback(decodeURIComponent(cb[1]!),url,res);return;}
+
+      if(method!=="POST"){res.statusCode=404;res.end("Not found");return;}
+      const form=await readForm(req);
+      if(form.get("csrf")!==this.csrf){res.statusCode=403;res.end("Invalid CSRF token");return;}
+
+      if(path==="/workspaces"){
+        const ws=new WorkspaceService(this.registry,this.options.runtimeRoot).create({workspaceId:form.get("workspaceId")??"",displayName:form.get("displayName")??"",timezone:form.get("timezone")??"Europe/Vienna",now:new Date().toISOString()});
+        this.redirect(res,`/workspaces/${ws.workspace.workspaceId}`);return;
+      }
+
+      const m=(re:RegExp)=>path.match(re);
+      let hit;
+
+      if((hit=m(/^\/workspaces\/([^/]+)\/drive\/connect$/))){ await this.driveConnect(decodeURIComponent(hit[1]!),res); return; }
+
+      if((hit=m(/^\/workspaces\/([^/]+)\/drive\/disconnect$/))){
+        const id=decodeURIComponent(hit[1]!);
+        writeFileSync(resolve(this.layout(id).configDir,"drive-credential.json"),"{}",{encoding:"utf8",mode:0o600});
+        this.selections.delete(id); this.redirect(res,`/workspaces/${id}`); return;
+      }
+
+      if((hit=m(/^\/workspaces\/([^/]+)\/folder$/))){
+        const id=decodeURIComponent(hit[1]!);
+        assertPrerequisite(this.progress(id),"DRIVE_CONNECTED");
+        const folderId=(form.get("folderId")??"").trim();
+        const folderPath=(form.get("folderPath")??"").trim();
+        if(!folderId) throw new Error("Kein Ordner übergeben");
+        const preview = this.options.folderBrowser ? await this.options.folderBrowser.previewFolder(folderId) : undefined;
+        this.selections.set(id,{folderId,folderPath,selectedAt:new Date().toISOString(),...(preview?{preview}:{})});
+        this.redirect(res,`/workspaces/${id}`); return;
+      }
+
+      if((hit=m(/^\/workspaces\/([^/]+)\/browser\/open$/))){
+        const id=decodeURIComponent(hit[1]!);
+        assertPrerequisite(this.progress(id),"FOLDER_SELECTED");
+        await this.openLoginBrowser(id, platform(form.get("platform")??""), (form.get("slot")??"primary").trim() || "primary");
+        this.redirect(res,`/workspaces/${id}`); return;
+      }
+
+      if((hit=m(/^\/workspaces\/([^/]+)\/browser\/close$/))){
+        await this.closeSessions(decodeURIComponent(hit[1]!)); this.redirect(res,`/workspaces/${decodeURIComponent(hit[1]!)}`); return;
+      }
+
+      if((hit=m(/^\/workspaces\/([^/]+)\/discover$/))){
+        const id=decodeURIComponent(hit[1]!);
+        await this.discover(id); this.redirect(res,`/workspaces/${id}`); return;
+      }
+
+      if((hit=m(/^\/workspaces\/([^/]+)\/channel$/))){
+        const id=decodeURIComponent(hit[1]!);
+        assertPrerequisite(this.progress(id),"SESSION_DISCOVERED");
+        await this.confirmChannel(id, (form.get("channelKey")??"").trim());
+        this.redirect(res,`/workspaces/${id}`); return;
+      }
+
+      if((hit=m(/^\/workspaces\/([^/]+)\/bind$/))){
+        const id=decodeURIComponent(hit[1]!);
+        const p=this.progress(id);
+        assertPrerequisite(p,"CHANNEL_REGISTERED");
+        assertPrerequisite(p,"FOLDER_SELECTED");
+        this.bind(id, (form.get("accountId")??"").trim(), form.get("interpretSubstructure")==="on");
+        this.redirect(res,`/workspaces/${id}`); return;
+      }
+
+      if((hit=m(/^\/workspaces\/([^/]+)\/tests\/([^/]+)$/))){
+        const id=decodeURIComponent(hit[1]!); const testId=decodeURIComponent(hit[2]!);
+        const result=await new TestLabService(this.options.testRunner,this.options.repoRoot).run(testId,this.progress(id));
+        this.recordTest(id,{testId,...result,checkedAt:new Date().toISOString()});
+        this.redirect(res,`/workspaces/${id}`); return;
+      }
+
       res.statusCode=404;res.end("Not found");
-    }catch(error){res.statusCode=409;res.setHeader("Content-Type","text/plain; charset=utf-8");res.end(error instanceof Error?error.message:String(error));}
+    } catch(error) {
+      res.statusCode=409;res.setHeader("Content-Type","text/plain; charset=utf-8");
+      res.end(error instanceof Error?error.message:String(error));
+    }
   }
-  async start():Promise<{host:string;port:number}>{if(this.server)throw new Error("Self-service server already started");const host=this.options.host??"127.0.0.1";const port=this.options.port??0;this.server=createServer((req,res)=>{void this.handle(req,res);});await new Promise<void>(resolvePromise=>this.server!.listen(port,host,resolvePromise));const a=this.server.address();if(!a||typeof a==="string")throw new Error("Self-service server did not expose address");return{host,port:a.port};}
-  async stop():Promise<void>{for(const [key,retained] of this.sessions){this.sessions.delete(key);try{await retained.session.close();}finally{retained.store.close();}}if(!this.server)return;const s=this.server;this.server=undefined;await new Promise<void>((resolvePromise,reject)=>s.close(error=>error?reject(error):resolvePromise()));}
+
+  // ---------------- actions ----------------
+
+  private pendingAuth = new Map<string, { state: string; codeVerifier: string }>();
+
+  private async driveConnect(workspaceId: string, res: ServerResponse): Promise<void> {
+    const oauth = this.options.driveOAuth;
+    if (!oauth) throw new Error("Kein OAuth-Client hinterlegt: GOOGLE_OAUTH_CLIENT_ID und GOOGLE_OAUTH_CLIENT_SECRET fehlen.");
+    const pending = oauth.begin(workspaceId);
+    this.pendingAuth.set(workspaceId, { state: pending.state, codeVerifier: pending.codeVerifier });
+    this.redirect(res, pending.authorizationUrl);
+  }
+
+  private async driveCallback(workspaceId: string, url: URL, res: ServerResponse): Promise<void> {
+    const oauth = this.options.driveOAuth;
+    const pending = this.pendingAuth.get(workspaceId);
+    if (!oauth || !pending) throw new Error("Kein laufender Google-Login für diesen Workspace");
+    const state = url.searchParams.get("state");
+    // A mismatched state means the callback did not come from the flow this process started.
+    if (!state || state !== pending.state) throw new Error("State stimmt nicht überein; Login abgebrochen");
+    const code = url.searchParams.get("code");
+    if (!code) throw new Error(`Google meldete: ${url.searchParams.get("error") ?? "kein Code"}`);
+    const credential = await oauth.complete(workspaceId, code, pending.codeVerifier);
+    this.pendingAuth.delete(workspaceId);
+    this.credentials(workspaceId).write(credential);
+    this.redirect(res, `/workspaces/${workspaceId}`);
+  }
+
+  private async openLoginBrowser(workspaceId: string, platformName: Platform, slot: string): Promise<void> {
+    if (this.sessions.has(`${workspaceId}:login`)) throw new Error("Es ist bereits ein Login-Browser offen");
+    const layout = this.layout(workspaceId);
+    const profileKey = loginProfileKey(platformName, slot);
+    const store = new SqliteControlPlaneStore(layout.databasePath);
+    const resolver = new BrowserProfileDirectoryResolver(layout.profilesDir);
+    const locks = new DurableBrowserProfileLockAdapter(store, new FileBrowserProfileLockAdapter(resolver));
+    const runtime = new ChromiumCdpRuntimeAdapter({ profilesRoot: layout.profilesDir, executablePath: this.options.chromiumExecutablePath });
+    // The login profile belongs to no identity yet, so a provisional one carries it.
+    const provisional = { identityId: `setup:${profileKey}`, accountId: `setup:${profileKey}`, platform: platformName, profileKey, expectedHandle: "unknown", enabled: true };
+    const session = await new BrowserBootstrapService(store, runtime, locks).openProvisional({
+      identity: provisional, ownerId: this.actor().id, bootstrapUrl: bootstrapUrl(platformName), now: new Date().toISOString(), headless: this.options.headlessLogin ?? false
+    });
+    this.sessions.set(`${workspaceId}:login`, { session, store, profileKey, platform: platformName });
+  }
+
+  private async discover(workspaceId: string): Promise<void> {
+    const retained = this.sessions.get(`${workspaceId}:login`);
+    if (!retained) throw new Error("Kein Login-Browser offen");
+    if (!this.options.channelDiscovery) {
+      throw new Error("Kanal-Rücklesung ist noch nicht kalibriert. Ohne kalibrierte Selektoren wird hier nichts geraten — und getippt wird auch nichts.");
+    }
+    const result = await this.options.channelDiscovery.discover(retained.session.page, retained.platform, new Date().toISOString());
+    this.discoveries.set(workspaceId, { platform: retained.platform, result });
+  }
+
+  private async confirmChannel(workspaceId: string, channelKey: string): Promise<void> {
+    const pending = this.discoveries.get(workspaceId);
+    if (!pending) throw new Error("Keine ausgelesene Sitzung");
+
+    // Validate before touching anything. A rejected key must leave no trace: closing the browser
+    // or creating a directory for a channel that was never discovered would turn a refused request
+    // into a real side effect, and would strand the operator's session for the legitimate retry.
+    const chosen = selectDiscoveredChannel(pending.result, channelKey);
+    const targetProfile = deriveProfileKey(pending.platform, chosen.channelKey);
+
+    const retained = this.sessions.get(`${workspaceId}:login`);
+    const loginKey = retained?.profileKey;
+    // Chromium must be gone before the profile is copied, or the copy restores no session.
+    await this.closeSessions(workspaceId);
+
+    const layout = this.layout(workspaceId);
+    const store = new SqliteControlPlaneStore(layout.databasePath);
+    try {
+      if (loginKey) seedChannelProfile({ profilesRoot: layout.profilesDir, fromProfileKey: loginKey, toProfileKey: targetProfile });
+      new SetupChannelRegistrationService(store).registerFromDiscovery({
+        result: pending.result, channelKey: chosen.channelKey,
+        checkId: `check:${workspaceId}:${chosen.channelKey}:${Date.now()}`,
+        now: new Date().toISOString(), actor: this.actor(),
+        ...(loginKey ? { profileKey: targetProfile } : {})
+      });
+    } finally { store.close(); }
+    this.discoveries.delete(workspaceId);
+  }
+
+  private bind(workspaceId: string, accountId: string, interpretSubstructure: boolean): void {
+    const selected = this.selections.get(workspaceId);
+    if (!selected) throw new Error("Kein Ordner ausgewählt");
+    const store = new SqliteControlPlaneStore(this.layout(workspaceId).databasePath);
+    try {
+      new SetupChannelRegistrationService(store).bindSource({
+        accountId, bindingId: `bind:${accountId}`,
+        folderId: selected.folderId, folderPath: selected.folderPath,
+        interpretSubstructure, now: new Date().toISOString(), actor: this.actor()
+      });
+    } finally { store.close(); }
+  }
+
+  private async closeSessions(workspaceId: string): Promise<void> {
+    for (const [key, retained] of [...this.sessions]) {
+      if (!key.startsWith(`${workspaceId}:`)) continue;
+      this.sessions.delete(key);
+      try { await retained.session.close(); } finally { retained.store.close(); }
+    }
+  }
+
+  async start():Promise<{host:string;port:number}>{
+    if(this.server)throw new Error("Self-service server already started");
+    const host=this.options.host??"127.0.0.1";const port=this.options.port??0;
+    this.server=createServer((req,res)=>{void this.handle(req,res);});
+    await new Promise<void>(resolvePromise=>this.server!.listen(port,host,resolvePromise));
+    const a=this.server.address();
+    if(!a||typeof a==="string")throw new Error("Self-service server did not expose address");
+    return{host,port:a.port};
+  }
+
+  async stop():Promise<void>{
+    for(const [key,retained] of [...this.sessions]){this.sessions.delete(key);try{await retained.session.close();}finally{retained.store.close();}}
+    if(!this.server)return;
+    const s=this.server;this.server=undefined;
+    await new Promise<void>((resolvePromise,reject)=>s.close(error=>error?reject(error):resolvePromise()));
+  }
 }

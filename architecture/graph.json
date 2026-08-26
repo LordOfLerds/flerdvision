@@ -1,5 +1,5 @@
 {
-  "version": 12,
+  "version": 13,
   "nodes": [
     {
       "id": "external_source",
@@ -850,6 +850,46 @@
       "id": "channel_discovery_port",
       "kind": "port",
       "label": "ChannelDiscoveryPort"
+    },
+    {
+      "id": "source_folder_browser_port",
+      "kind": "port",
+      "label": "SourceFolderBrowserPort"
+    },
+    {
+      "id": "google_drive_folder_browser",
+      "kind": "adapter",
+      "label": "GoogleDriveFolderBrowser"
+    },
+    {
+      "id": "drive_oauth",
+      "kind": "adapter",
+      "label": "GoogleDriveOAuth (PKCE loopback)"
+    },
+    {
+      "id": "drive_credential_store",
+      "kind": "adapter",
+      "label": "FileDriveCredentialStore"
+    },
+    {
+      "id": "http_json_port",
+      "kind": "port",
+      "label": "HttpJsonPort"
+    },
+    {
+      "id": "setup_progress",
+      "kind": "application",
+      "label": "SetupProgress gate"
+    },
+    {
+      "id": "login_profile",
+      "kind": "runtime",
+      "label": "Login Browser Profile"
+    },
+    {
+      "id": "setup_wizard",
+      "kind": "adapter",
+      "label": "SelfServiceHttpServer (wizard)"
     }
   ],
   "edges": [
@@ -2107,6 +2147,66 @@
       "from": "channel_discovery_port",
       "to": "configured_channel_discovery",
       "rel": "implemented_by"
+    },
+    {
+      "from": "drive_oauth",
+      "to": "drive_credential_store",
+      "rel": "yields_refresh_token_to"
+    },
+    {
+      "from": "drive_credential_store",
+      "to": "google_drive_folder_browser",
+      "rel": "authorizes"
+    },
+    {
+      "from": "http_json_port",
+      "to": "google_drive_folder_browser",
+      "rel": "transport_for"
+    },
+    {
+      "from": "http_json_port",
+      "to": "drive_oauth",
+      "rel": "transport_for"
+    },
+    {
+      "from": "source_folder_browser_port",
+      "to": "google_drive_folder_browser",
+      "rel": "implemented_by"
+    },
+    {
+      "from": "google_drive_folder_browser",
+      "to": "setup_wizard",
+      "rel": "browsed_in"
+    },
+    {
+      "from": "setup_wizard",
+      "to": "setup_progress",
+      "rel": "gated_by"
+    },
+    {
+      "from": "setup_wizard",
+      "to": "configured_channel_discovery",
+      "rel": "reads_session_via"
+    },
+    {
+      "from": "setup_wizard",
+      "to": "setup_channel_registration",
+      "rel": "registers_via"
+    },
+    {
+      "from": "login_profile",
+      "to": "workspace_browser_profiles",
+      "rel": "seeds"
+    },
+    {
+      "from": "setup_wizard",
+      "to": "login_profile",
+      "rel": "opens"
+    },
+    {
+      "from": "setup_progress",
+      "to": "channel_source_binding",
+      "rel": "completes_on"
     }
   ],
   "invariants": [
@@ -2180,6 +2280,11 @@
     "an uncalibrated channel_discovery_spec must refuse to run rather than guess selectors",
     "each social_account has at most one channel_source_binding",
     "a source folder may feed several social_accounts (cross-posting) but never ambiguously one",
-    "browser executable resolution must be platform-derived, never a fixed path"
+    "browser executable resolution must be platform-derived, never a fixed path",
+    "a refused channel key must produce no filesystem or session side effect",
+    "setup step order is derived from durable facts, never from the page the operator is on",
+    "a channel profile must be seeded from the login profile, never left empty",
+    "the Drive refresh token must never be rendered into a page",
+    "test-lab entries declare their own setup prerequisite; local tests require none"
   ]
 }

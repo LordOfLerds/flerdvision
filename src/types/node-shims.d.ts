@@ -31,7 +31,7 @@ declare const process: {
 declare module "node:crypto" {
   export interface Hash {
     update(data: string | Uint8Array): Hash;
-    digest(encoding: "hex"): string;
+    digest(encoding: "hex" | "base64" | "base64url"): string;
   }
   export function createHash(algorithm: "sha256"): Hash;
   export function randomBytes(size: number): { toString(encoding?: string): string };
@@ -54,6 +54,8 @@ declare module "node:fs" {
   export function createWriteStream(path: string, options?: { mode?: number }): unknown;
   export function mkdtempSync(prefix: string): string;
   export function copyFileSync(source: string, destination: string): void;
+  export function cpSync(source: string, destination: string, options?: { recursive?: boolean; force?: boolean; errorOnExist?: boolean }): void;
+  export function readdirSync(path: string): string[];
 }
 
 declare module "node:path" {

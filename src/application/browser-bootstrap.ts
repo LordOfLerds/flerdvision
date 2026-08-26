@@ -1,3 +1,4 @@
+import type { BrowserIdentity } from "../domain/browser-identity.js";
 import type {
   BrowserIdentityStorePort,
   BrowserPageSessionPort,
@@ -58,6 +59,46 @@ export class BrowserBootstrapService {
             lock?.release();
             lock = null;
           }
+        }
+      };
+    } catch (error) {
+      lock.release();
+      lock = null;
+      throw error;
+    }
+  }
+
+  /**
+   * Opens a browser for an identity that is not registered yet.
+   *
+   * Setup needs this exactly once per login: the channel is read out of the session, so the
+   * session has to exist before there is anything to register. The profile is still locked, so a
+   * provisional session cannot race a registered one over the same directory.
+   */
+  async openProvisional(params: {
+    identity: BrowserIdentity;
+    ownerId: string;
+    bootstrapUrl: string;
+    now: string;
+    headless?: boolean;
+  }): Promise<OperatorBrowserSession> {
+    let lock: BrowserProfileLock | null = this.profileLocks.acquire(params.identity, params.ownerId, params.now);
+    try {
+      const page = await this.runtime.launch(params.identity, {
+        headless: params.headless ?? false,
+        initialUrl: params.bootstrapUrl
+      });
+      let closed = false;
+      return {
+        identityId: params.identity.identityId,
+        accountId: params.identity.accountId,
+        profileDirectory: page.profileDirectory,
+        page,
+        heartbeat(heartbeatAt: string) { lock?.heartbeat(heartbeatAt); },
+        async close() {
+          if (closed) return;
+          closed = true;
+          try { await page.close(); } finally { lock?.release(); lock = null; }
         }
       };
     } catch (error) {
