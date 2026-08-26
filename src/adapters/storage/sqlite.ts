@@ -3,6 +3,8 @@ import type { ContentItem, PublicationIntent, SourceObservation, Instant } from 
 import type { BrowserIdentity, SessionHealthCheck, SocialAccount, StoredBrowserIdentity, StoredSocialAccount } from "../../domain/browser-identity.js";
 import { normalizeSocialHandle } from "../../domain/browser-identity.js";
 import type { BrowserIdentityStorePort } from "../../domain/browser-identity-ports.js";
+import type { PlatformCapabilityProbe } from "../../domain/platform-ui.js";
+import type { PlatformCapabilityStorePort } from "../../domain/platform-ui-ports.js";
 import type { PublicationState } from "../../domain/states.js";
 import { transition as assertTransition } from "../../domain/states.js";
 import type {
@@ -153,6 +155,18 @@ interface SessionHealthRow {
   state: SessionHealthCheck["state"];
   expected_handle: string;
   observed_handle: string | null;
+  current_url: string | null;
+  note: string | null;
+}
+
+interface PlatformCapabilityProbeRow {
+  sequence: number;
+  probe_id: string;
+  account_id: string;
+  identity_id: string;
+  platform: PlatformCapabilityProbe["platform"];
+  probed_at: string;
+  capabilities_json: string;
   current_url: string | null;
   note: string | null;
 }
@@ -328,6 +342,20 @@ function sessionHealthFromRow(row: SessionHealthRow): SessionHealthCheck {
   return check;
 }
 
+function platformCapabilityProbeFromRow(row: PlatformCapabilityProbeRow): PlatformCapabilityProbe {
+  const probe: PlatformCapabilityProbe = {
+    probeId: row.probe_id,
+    accountId: row.account_id,
+    identityId: row.identity_id,
+    platform: row.platform,
+    probedAt: row.probed_at,
+    capabilities: JSON.parse(row.capabilities_json) as PlatformCapabilityProbe["capabilities"]
+  };
+  if (row.current_url !== null) Object.assign(probe, { currentUrl: row.current_url });
+  if (row.note !== null) Object.assign(probe, { note: row.note });
+  return probe;
+}
+
 function sameSocialAccount(existing: SocialAccount, candidate: SocialAccount): boolean {
   return (existing.creatorId ?? null) === (candidate.creatorId ?? null) &&
     existing.platform === candidate.platform &&
@@ -359,7 +387,7 @@ function sameIntentPayload(existing: PublicationIntent, candidate: PublicationIn
   );
 }
 
-export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressStorePort, BrowserIdentityStorePort {
+export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressStorePort, BrowserIdentityStorePort, PlatformCapabilityStorePort {
   private readonly db: DatabaseSync;
 
   constructor(databasePath: string) {
@@ -574,6 +602,42 @@ export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressSt
         `);
         this.db.prepare("INSERT INTO schema_migrations(version, name, applied_at) VALUES (?, ?, ?)")
           .run(3, "browser identity and session health", new Date().toISOString());
+      });
+    }
+
+    const migrationFour = this.db.prepare("SELECT version FROM schema_migrations WHERE version = 4").get();
+    if (!migrationFour) {
+      this.transaction(() => {
+        this.db.exec(`
+          CREATE TABLE platform_capability_probes (
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+            probe_id TEXT NOT NULL UNIQUE,
+            account_id TEXT NOT NULL REFERENCES social_accounts(account_id) ON DELETE RESTRICT,
+            identity_id TEXT NOT NULL REFERENCES browser_identities(identity_id) ON DELETE RESTRICT,
+            platform TEXT NOT NULL,
+            probed_at TEXT NOT NULL,
+            capabilities_json TEXT NOT NULL,
+            current_url TEXT,
+            note TEXT
+          );
+
+          CREATE INDEX idx_platform_capability_account_time
+            ON platform_capability_probes(account_id, probed_at DESC, sequence DESC);
+
+          CREATE TRIGGER platform_capability_no_update
+          BEFORE UPDATE ON platform_capability_probes
+          BEGIN
+            SELECT RAISE(ABORT, 'platform_capability_probes is append-only');
+          END;
+
+          CREATE TRIGGER platform_capability_no_delete
+          BEFORE DELETE ON platform_capability_probes
+          BEGIN
+            SELECT RAISE(ABORT, 'platform_capability_probes is append-only');
+          END;
+        `);
+        this.db.prepare("INSERT INTO schema_migrations(version, name, applied_at) VALUES (?, ?, ?)")
+          .run(4, "platform UI capability probes", new Date().toISOString());
       });
     }
   }
@@ -1397,6 +1461,46 @@ export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressSt
       ? this.db.prepare("SELECT * FROM session_health_checks WHERE identity_id = ? ORDER BY checked_at, sequence").all(identityId) as SessionHealthRow[]
       : this.db.prepare("SELECT * FROM session_health_checks ORDER BY checked_at, sequence").all() as SessionHealthRow[];
     return rows.map(sessionHealthFromRow);
+  }
+
+  recordCapabilityProbe(probe: PlatformCapabilityProbe, actor: Actor): PlatformCapabilityProbe {
+    return this.transaction(() => {
+      const account = this.getSocialAccount(probe.accountId);
+      const identity = this.getBrowserIdentity(probe.identityId);
+      if (!account) throw new SocialAccountConflictError(`Unknown social account: ${probe.accountId}`);
+      if (!identity) throw new BrowserIdentityConflictError(`Unknown browser identity: ${probe.identityId}`);
+      if (identity.identity.accountId !== probe.accountId || account.account.platform !== probe.platform || identity.identity.platform !== probe.platform) {
+        throw new BrowserIdentityConflictError("Capability probe account/identity/platform mismatch");
+      }
+      const normalized: PlatformCapabilityProbe = { ...probe, probedAt: asIso(probe.probedAt) };
+      this.db.prepare(`
+        INSERT INTO platform_capability_probes(
+          probe_id, account_id, identity_id, platform, probed_at, capabilities_json, current_url, note
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        normalized.probeId, normalized.accountId, normalized.identityId, normalized.platform, normalized.probedAt,
+        JSON.stringify(normalized.capabilities), normalized.currentUrl ?? null, normalized.note ?? null
+      );
+      this.appendEvent({
+        aggregateType: "platform_capability", aggregateId: normalized.accountId, eventType: "platform_capability.probed",
+        occurredAt: normalized.probedAt, actor, payload: { identityId: normalized.identityId, platform: normalized.platform, capabilities: normalized.capabilities }
+      });
+      return normalized;
+    });
+  }
+
+  latestCapabilityProbe(accountId: string): PlatformCapabilityProbe | null {
+    const row = this.db.prepare(`
+      SELECT * FROM platform_capability_probes WHERE account_id = ? ORDER BY probed_at DESC, sequence DESC LIMIT 1
+    `).get(accountId) as PlatformCapabilityProbeRow | undefined;
+    return row ? platformCapabilityProbeFromRow(row) : null;
+  }
+
+  listCapabilityProbes(accountId?: string): readonly PlatformCapabilityProbe[] {
+    const rows = accountId
+      ? this.db.prepare("SELECT * FROM platform_capability_probes WHERE account_id = ? ORDER BY probed_at, sequence").all(accountId) as PlatformCapabilityProbeRow[]
+      : this.db.prepare("SELECT * FROM platform_capability_probes ORDER BY probed_at, sequence").all() as PlatformCapabilityProbeRow[];
+    return rows.map(platformCapabilityProbeFromRow);
   }
 
 }

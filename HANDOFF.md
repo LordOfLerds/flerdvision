@@ -1,7 +1,7 @@
 # HANDOFF — current repository state
 
 ## Current phase
-W3 — browser identity subsystem **complete under local verification**. W4 PREPARE_ONLY platform adapters are next.
+W4 — PREPARE_ONLY platform UI subsystem **implemented under local/synthetic verification**. W5 verification/reconciliation is next; real platform selector calibration remains a W8 test-account gate.
 
 ## Implemented
 - W0 architecture graph and reverse-trace model,
@@ -30,7 +30,15 @@ W3 — browser identity subsystem **complete under local verification**. W4 PREP
 - first-time browser registration/bootstrap CLI,
 - generic session probe + exact account identity guard,
 - real Chromium restart/persistent-cookie test and DOM health-probe test,
-- 42 automated tests passing at W3 full-suite checkpoint.
+- W4 generic semantic DOM UI driver with native file-input and screenshot support,
+- exact-byte media materialization + SHA-256 for local/Google Drive sources,
+- deterministic copy payload resolver keyed by copyVersionId,
+- declarative Instagram/TikTok/YouTube PREPARE_ONLY adapters,
+- append-only per-account platform capability probes / migration 4,
+- screenshot + DOM + metadata + action-journal prepare evidence,
+- runtime final-button click guard and publisher with physically absent final action,
+- calibrated platform UI spec contract and validation CLI.
+- 54 automated tests passing at W4 full-suite checkpoint.
 
 ## Safety correction made in W1
 `PUBLISH_UNCERTAIN -> READY` was removed. An uncertain irreversible outcome must reconcile through `VERIFYING` before any retry path exists.
@@ -41,16 +49,17 @@ The current isolated SQLite adapter uses Node 22.16 `node:sqlite`, which emits a
 ## Intentionally not implemented yet
 - real Google Drive credential/bootstrap and live folder scan,
 - exact current bot/checkmark receiver integration,
-- real Playwright platform adapters,
+- calibrated real Instagram/TikTok/YouTube selectors and live prepare-only account run,
+- durable verification/reconciliation evidence store (W5),
 - final-publish capability on any real account.
 
 These remain blocked by wave order.
 
 ## Next implementation order
-W4 PREPARE_ONLY adapters -> W5 verification -> W6 operations/bot integration -> W7 AI repair.
+W5 verification/reconciliation -> W6 operations/bot integration -> W7 AI repair -> W8 private/test-account real selector calibration + E2E.
 
 ## W3 environment note
-The build container applies a Chromium administrator navigation policy to some local/data URLs. No real social site was accessed. The W3 browser-profile/session mechanics are locally verified; live social-session bootstrap remains an operator-host acceptance step before W4/W8.
+The build container applies a Chromium administrator navigation policy to some local/data URLs. No real social site was accessed. W4 uses real installed Chromium against synthetic DOM fixtures for native file input, form fields, screenshots and final-boundary safety. Real social-session bootstrap and selector calibration remain W8 operator-host acceptance steps.
 
 ## Safety
 Do not enable customer publishing during W0–W8. Follow `docs/06-GO-LIVE-GATES.md`.

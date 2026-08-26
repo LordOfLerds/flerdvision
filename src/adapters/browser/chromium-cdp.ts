@@ -1,6 +1,6 @@
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { BrowserIdentity } from "../../domain/browser-identity.js";
 import type {
@@ -171,6 +171,7 @@ export class ChromiumCdpRuntimeAdapter implements BrowserRuntimePort {
       await page.send("Page.enable");
       await page.send("Runtime.enable");
       await page.send("Network.enable");
+      await page.send("DOM.enable");
 
       let closed = false;
       const session: BrowserPageSessionPort = {
@@ -212,6 +213,23 @@ export class ChromiumCdpRuntimeAdapter implements BrowserRuntimePort {
           const remote = result.result as { value?: T; description?: string } | undefined;
           if (!remote) throw new Error("Browser evaluation returned no result");
           return remote.value as T;
+        },
+        async setInputFiles(selector: string, filePaths: readonly string[]): Promise<void> {
+          if (filePaths.length === 0) throw new Error("setInputFiles requires at least one file");
+          const documentResult = await page.send("DOM.getDocument", { depth: 1, pierce: true });
+          const root = documentResult.root as { nodeId?: number } | undefined;
+          if (!root?.nodeId) throw new Error("Chromium did not return a DOM root node");
+          const query = await page.send("DOM.querySelector", { nodeId: root.nodeId, selector });
+          const nodeId = Number(query.nodeId ?? 0);
+          if (!Number.isInteger(nodeId) || nodeId <= 0) throw new Error(`File input not found for selector: ${selector}`);
+          await page.send("DOM.setFileInputFiles", { nodeId, files: [...filePaths] });
+        },
+        async captureScreenshot(filePath: string): Promise<void> {
+          const result = await page.send("Page.captureScreenshot", { format: "png", fromSurface: true });
+          const data = typeof result.data === "string" ? result.data : "";
+          if (!data) throw new Error("Chromium returned an empty screenshot");
+          mkdirSync(dirname(filePath), { recursive: true, mode: 0o700 });
+          writeFileSync(filePath, data, { encoding: "base64", mode: 0o600 });
         },
         async setCookie(url: string, name: string, value: string, expires?: number): Promise<void> {
           const result = await page.send("Network.setCookie", {

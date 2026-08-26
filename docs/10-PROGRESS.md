@@ -10,8 +10,8 @@ This file is the repository-local progress source of truth. Update it at every i
 | W1 | Durable control plane | DONE — local verification |
 | W2 | Pluggable ingress + source acknowledgement | DONE — local verification |
 | W3 | Browser identity subsystem | DONE — local verification |
-| W4 | Platform adapters PREPARE_ONLY | NEXT |
-| W5 | Verification + uncertainty reconciliation | NOT STARTED |
+| W4 | Platform adapters PREPARE_ONLY | DONE — local/synthetic verification; live calibration deferred to W8 |
+| W5 | Verification + uncertainty reconciliation | NEXT |
 | W6 | Notifications + operations | NOT STARTED |
 | W7 | AI repair engineering loop | NOT STARTED |
 | W8 | Private/test-account E2E + failure campaign | NOT STARTED |
@@ -142,5 +142,42 @@ W3 implements the generic health/guard contract and DOM probe. Stable Instagram/
 ### W3 runtime uses Chromium CDP behind a port
 The build environment could not reliably fetch new npm dependencies during W3, while system Chromium was available. W3 therefore implements persistent-profile/bootstrap mechanics with a small localhost-only CDP adapter. This is explicitly replaceable; W4 can add Playwright behind the browser/platform adapter seams without changing identity semantics.
 
+## W4 acceptance
+
+- [x] generic semantic DOM UI driver
+- [x] native browser file-input upload primitive
+- [x] browser screenshot primitive
+- [x] exact-byte SHA-256 media materialization
+- [x] local-file media adapter
+- [x] streamed Google Drive media adapter
+- [x] deterministic copy-version payload resolver
+- [x] Instagram Web prepare adapter
+- [x] Instagram Trial Reel prepare path in synthetic fixture
+- [x] TikTok Web prepare adapter
+- [x] YouTube Studio prepare adapter
+- [x] append-only per-account capability probes / migration 4
+- [x] screenshot + DOM + metadata + action journal boundary artifacts
+- [x] hard final-action absence in W4 publisher
+- [x] runtime protection against misconfigured prepare click resolving to final button
+- [x] calibrated UI-spec contract; unverified specs rejected for real execution
+- [x] full local/synthetic test suite green
+- [ ] real Instagram/TikTok/YouTube selector calibration — intentionally deferred to W8 private/test-account acceptance
+
+
+## W4 automated evidence
+
+- TypeScript build: PASS
+- W4-specific tests: **12 passed / 0 failed**
+- Full suite: **54 passed / 0 failed**
+- Real installed Chromium native file input / form / screenshot execution: PASS against synthetic fixture DOM
+- Google Drive media download transport + SHA-256 materialization contract: PASS with isolated transport test
+- Misconfigured prepare click resolving to final-action button: BLOCKED
+- W1 database -> current migration 4 path: PASS
+- Real social-site navigation/selectors: **not performed**
+- Final publish implementation: **physically absent in W4 publisher**
+
+## W4 plan change
+The original W4 exit criterion mentioned live prepare-only runs. Real account/browser calibration is intentionally deferred to W8 because the rollout requirement is to finish and harden the code before touching the user's private test account. W9 remains blocked until those real W8 runs pass.
+
 ## Next wave
-W4: Instagram/TikTok/YouTube UI adapters in PREPARE_ONLY, with screenshot/trace evidence and a hard stop before every irreversible final action.
+W5: durable PublishAttempt / VerificationEvidence / VerifiedPublication persistence, reconciliation rules for `PUBLISH_UNCERTAIN`, proof storage and deterministic retry eligibility.

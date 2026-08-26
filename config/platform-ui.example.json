@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "specs": [
+    {
+      "specId": "instagram-web-v1",
+      "platform": "instagram",
+      "calibrationStatus": "UNVERIFIED",
+      "spec": {
+        "platform": "instagram",
+        "bootstrapUrl": "https://www.instagram.com/",
+        "supportedFormats": ["reel", "trial_reel"],
+        "requiredCapabilities": {
+          "reel": ["web_video_upload", "reel", "caption", "final_action_boundary"],
+          "trial_reel": ["web_video_upload", "trial_reel", "caption", "final_action_boundary"]
+        },
+        "capabilityLocators": {
+          "web_video_upload": [{ "kind": "css", "value": "__CALIBRATE__" }],
+          "reel": [{ "kind": "css", "value": "__CALIBRATE__" }],
+          "trial_reel": [{ "kind": "css", "value": "__CALIBRATE__" }],
+          "caption": [{ "kind": "css", "value": "__CALIBRATE__" }]
+        },
+        "preUploadActions": [],
+        "uploadActions": [],
+        "fieldActions": [],
+        "formatActions": {},
+        "finalActionBoundary": [{ "kind": "css", "value": "__CALIBRATE__" }]
+      }
+    },
+    {
+      "specId": "tiktok-web-v1",
+      "platform": "tiktok",
+      "calibrationStatus": "UNVERIFIED",
+      "spec": {
+        "platform": "tiktok",
+        "bootstrapUrl": "https://www.tiktok.com/",
+        "supportedFormats": ["tiktok"],
+        "requiredCapabilities": {
+          "tiktok": ["web_video_upload", "tiktok_video", "caption", "final_action_boundary"]
+        },
+        "capabilityLocators": {
+          "web_video_upload": [{ "kind": "css", "value": "__CALIBRATE__" }],
+          "tiktok_video": [{ "kind": "css", "value": "__CALIBRATE__" }],
+          "caption": [{ "kind": "css", "value": "__CALIBRATE__" }]
+        },
+        "preUploadActions": [],
+        "uploadActions": [],
+        "fieldActions": [],
+        "formatActions": {},
+        "finalActionBoundary": [{ "kind": "css", "value": "__CALIBRATE__" }]
+      }
+    },
+    {
+      "specId": "youtube-studio-v1",
+      "platform": "youtube",
+      "calibrationStatus": "UNVERIFIED",
+      "spec": {
+        "platform": "youtube",
+        "bootstrapUrl": "https://studio.youtube.com/",
+        "supportedFormats": ["short"],
+        "requiredCapabilities": {
+          "short": ["web_video_upload", "youtube_short", "title", "final_action_boundary"]
+        },
+        "capabilityLocators": {
+          "web_video_upload": [{ "kind": "css", "value": "__CALIBRATE__" }],
+          "youtube_short": [{ "kind": "css", "value": "__CALIBRATE__" }],
+          "title": [{ "kind": "css", "value": "__CALIBRATE__" }]
+        },
+        "preUploadActions": [],
+        "uploadActions": [],
+        "fieldActions": [],
+        "formatActions": {},
+        "finalActionBoundary": [{ "kind": "css", "value": "__CALIBRATE__" }]
+      }
+    }
+  ]
+}

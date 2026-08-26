@@ -19,6 +19,9 @@
 - Browser session data, cookies, credentials, customer media and evidence artifacts are never committed to git.
 - One browser profile belongs to exactly one BrowserIdentity; concurrent profile/identity use is forbidden.
 - A platform publisher must pass the exact-account `AccountIdentityGuard`; merely being logged in is insufficient.
+- W4 PREPARE_ONLY code must contain no working final publish action; `invokeFinalAction` remains unavailable until a later explicit release decision.
+- Every reversible click must be runtime-checked against the configured final-action boundary.
+- Real platform UI specs must be explicitly CALIBRATED; never promote placeholder/unverified selectors to a live account.
 - Video bytes are immutable in the publishing system unless a future explicit content-processing contract says otherwise.
 - Re-observing the same source object with a changed media fingerprint is a conflict and must fail closed; never silently replace accepted content.
 - `Europe/Vienna` is the business scheduling timezone.

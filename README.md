@@ -4,8 +4,10 @@
 - W1 durable control plane: **done under local verification**
 - W2 pluggable ingress/disposition: **done under local verification**
 - W3 browser identity subsystem: **done under local verification**
-- Automated tests: **42 passed / 0 failed**
-- W4 platform PREPARE_ONLY adapters: **next**
+- W4 PREPARE_ONLY platform UI kernel/adapters: **implemented under local/synthetic verification**
+- Automated tests: **54 passed / 0 failed**
+- Real platform selector calibration: **deferred to private W8 E2E**
+- W5 verification/reconciliation: **next**
 - Real social-account publishing: **not implemented and intentionally blocked**
 
 See `docs/10-PROGRESS.md`, `docs/10-W1-DURABLE-CONTROL-PLANE.md`, and `docs/11-W2-PLUGGABLE-INGRESS.md`.
@@ -38,10 +40,11 @@ Every node is traceable backward to its source and forward to its targets.
 8. `docs/07-INCIDENTS-AND-AI-REPAIR.md`
 9. `docs/08-IMPLEMENTATION-WAVES.md`
 10. `docs/12-W3-BROWSER-IDENTITY.md`
+11. `docs/13-W4-PREPARE-ONLY.md`
 
 ## Current code
 
-The repository now contains the durable control plane, replaceable ingress/disposition adapters, and a persistent browser-identity subsystem. Chromium profiles are isolated and guarded, but no Instagram/TikTok/YouTube upload adapter or irreversible social action exists yet.
+The repository now contains the durable control plane, replaceable ingress/disposition adapters, persistent browser identities, and a PREPARE_ONLY platform UI kernel for Instagram/TikTok/YouTube. Media upload/field preparation is implemented, but the W4 publisher contains no irreversible final social action. Real platform selectors remain explicitly uncalibrated until W8 private/test-account E2E.
 
 ```bash
 npm run check

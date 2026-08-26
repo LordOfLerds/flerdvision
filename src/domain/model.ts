@@ -51,6 +51,9 @@ export interface PublishAttempt {
   finalActionInvokedAt?: Instant;
   finishedAt?: Instant;
   result: "not_started" | "prepared" | "final_action_invoked" | "failed" | "uncertain";
+  mediaSha256?: string;
+  preparationArtifactRefs?: readonly string[];
+  reachedFinalActionBoundary?: boolean;
 }
 
 export type EvidenceKind =

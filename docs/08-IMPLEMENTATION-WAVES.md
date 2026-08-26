@@ -45,7 +45,7 @@ Exit: today's source schema works, but tests prove a second fake schema can plug
 
 Exit: every test account can be opened/validated reliably after reboot.
 
-## W4 — Platform adapters in PREPARE_ONLY [NEXT]
+## W4 — Platform adapters in PREPARE_ONLY [IMPLEMENTED LOCALLY; LIVE CALIBRATION IN W8]
 - Instagram Web,
 - TikTok Web/Studio,
 - YouTube Studio,
@@ -54,7 +54,7 @@ Exit: every test account can be opened/validated reliably after reboot.
 - hard stop before final action,
 - per-account capability registry (Trial Reel etc.).
 
-Exit: repeated live prepare-only runs with zero irreversible action.
+Exit split: local/synthetic prepare kernel is green in W4; repeated real-platform prepare-only runs occur in W8 on the private/test account before any customer canary.
 
 ## W5 — Verification & uncertainty
 - UI receipt evidence,

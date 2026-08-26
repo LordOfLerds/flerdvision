@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "nodes": [
     {
       "id": "external_source",
@@ -260,6 +260,101 @@
       "id": "configured_dom_probe",
       "kind": "adapter",
       "label": "ConfiguredDomSessionProbe"
+    },
+    {
+      "id": "publication_payload",
+      "kind": "domain",
+      "label": "PublicationPayload"
+    },
+    {
+      "id": "local_media_artifact",
+      "kind": "domain",
+      "label": "LocalMediaArtifact"
+    },
+    {
+      "id": "platform_capability_probe",
+      "kind": "domain",
+      "label": "PlatformCapabilityProbe"
+    },
+    {
+      "id": "final_action_boundary",
+      "kind": "boundary",
+      "label": "Final Action Boundary"
+    },
+    {
+      "id": "publication_payload_resolver_port",
+      "kind": "port",
+      "label": "PublicationPayloadResolverPort"
+    },
+    {
+      "id": "media_materializer_port",
+      "kind": "port",
+      "label": "MediaMaterializerPort"
+    },
+    {
+      "id": "prepare_artifact_sink_port",
+      "kind": "port",
+      "label": "PrepareArtifactSinkPort"
+    },
+    {
+      "id": "platform_ui_adapter_port",
+      "kind": "port",
+      "label": "PlatformUiAdapterPort"
+    },
+    {
+      "id": "platform_capability_store_port",
+      "kind": "port",
+      "label": "PlatformCapabilityStorePort"
+    },
+    {
+      "id": "prepare_only_publisher",
+      "kind": "application",
+      "label": "PrepareOnlyPlatformPublisher"
+    },
+    {
+      "id": "browser_dom_ui_driver",
+      "kind": "adapter",
+      "label": "BrowserDomUiDriver"
+    },
+    {
+      "id": "local_prepare_artifact_sink",
+      "kind": "adapter",
+      "label": "LocalPrepareArtifactSink"
+    },
+    {
+      "id": "local_file_materializer",
+      "kind": "adapter",
+      "label": "LocalFileMediaMaterializer"
+    },
+    {
+      "id": "drive_media_materializer",
+      "kind": "adapter",
+      "label": "GoogleDriveRestMediaMaterializer"
+    },
+    {
+      "id": "static_payload_resolver",
+      "kind": "adapter",
+      "label": "StaticPublicationPayloadResolver"
+    },
+    {
+      "id": "instagram_prepare_adapter",
+      "kind": "adapter",
+      "label": "InstagramWebPrepareAdapter"
+    },
+    {
+      "id": "tiktok_prepare_adapter",
+      "kind": "adapter",
+      "label": "TikTokWebPrepareAdapter"
+    },
+    {
+      "id": "youtube_prepare_adapter",
+      "kind": "adapter",
+      "label": "YouTubeStudioPrepareAdapter"
+    },
+    {
+      "id": "platform_ui_spec_config",
+      "kind": "config",
+      "label": "Calibrated PlatformUiSpec"
     }
   ],
   "edges": [
@@ -622,6 +717,151 @@
       "from": "browser_identity",
       "to": "browser_runtime_port",
       "rel": "launched_through"
+    },
+    {
+      "from": "content_item",
+      "to": "media_materializer_port",
+      "rel": "materialized_via"
+    },
+    {
+      "from": "media_materializer_port",
+      "to": "local_media_artifact",
+      "rel": "produces"
+    },
+    {
+      "from": "local_file_materializer",
+      "to": "media_materializer_port",
+      "rel": "implements"
+    },
+    {
+      "from": "drive_media_materializer",
+      "to": "media_materializer_port",
+      "rel": "implements"
+    },
+    {
+      "from": "publication_intent",
+      "to": "publication_payload_resolver_port",
+      "rel": "copy_resolved_via"
+    },
+    {
+      "from": "publication_payload_resolver_port",
+      "to": "publication_payload",
+      "rel": "produces"
+    },
+    {
+      "from": "static_payload_resolver",
+      "to": "publication_payload_resolver_port",
+      "rel": "implements"
+    },
+    {
+      "from": "publication_intent",
+      "to": "prepare_only_publisher",
+      "rel": "prepared_by"
+    },
+    {
+      "from": "prepare_only_publisher",
+      "to": "account_identity_guard",
+      "rel": "requires"
+    },
+    {
+      "from": "prepare_only_publisher",
+      "to": "media_materializer_port",
+      "rel": "uses"
+    },
+    {
+      "from": "prepare_only_publisher",
+      "to": "publication_payload_resolver_port",
+      "rel": "uses"
+    },
+    {
+      "from": "prepare_only_publisher",
+      "to": "platform_ui_adapter_port",
+      "rel": "delegates_to"
+    },
+    {
+      "from": "prepare_only_publisher",
+      "to": "platform_capability_store_port",
+      "rel": "records_via"
+    },
+    {
+      "from": "platform_ui_adapter_port",
+      "to": "browser_dom_ui_driver",
+      "rel": "drives_ui_via"
+    },
+    {
+      "from": "platform_ui_adapter_port",
+      "to": "prepare_artifact_sink_port",
+      "rel": "captures_via"
+    },
+    {
+      "from": "platform_ui_adapter_port",
+      "to": "platform_capability_probe",
+      "rel": "observes"
+    },
+    {
+      "from": "platform_capability_probe",
+      "to": "platform_capability_store_port",
+      "rel": "persisted_via"
+    },
+    {
+      "from": "local_prepare_artifact_sink",
+      "to": "prepare_artifact_sink_port",
+      "rel": "implements"
+    },
+    {
+      "from": "instagram_prepare_adapter",
+      "to": "platform_ui_adapter_port",
+      "rel": "implements"
+    },
+    {
+      "from": "tiktok_prepare_adapter",
+      "to": "platform_ui_adapter_port",
+      "rel": "implements"
+    },
+    {
+      "from": "youtube_prepare_adapter",
+      "to": "platform_ui_adapter_port",
+      "rel": "implements"
+    },
+    {
+      "from": "platform_ui_spec_config",
+      "to": "instagram_prepare_adapter",
+      "rel": "configures"
+    },
+    {
+      "from": "platform_ui_spec_config",
+      "to": "tiktok_prepare_adapter",
+      "rel": "configures"
+    },
+    {
+      "from": "platform_ui_spec_config",
+      "to": "youtube_prepare_adapter",
+      "rel": "configures"
+    },
+    {
+      "from": "platform_ui_adapter_port",
+      "to": "final_action_boundary",
+      "rel": "stops_at"
+    },
+    {
+      "from": "final_action_boundary",
+      "to": "publish_attempt",
+      "rel": "precedes"
+    },
+    {
+      "from": "local_media_artifact",
+      "to": "publish_attempt",
+      "rel": "fingerprinted_in"
+    },
+    {
+      "from": "publication_payload",
+      "to": "publish_attempt",
+      "rel": "prepared_with"
+    },
+    {
+      "from": "sqlite_control_plane",
+      "to": "platform_capability_store_port",
+      "rel": "implements"
     }
   ],
   "invariants": [
@@ -636,6 +876,11 @@
     "uncertain publication cannot transition directly to retry-ready state",
     "one browser profile key belongs to exactly one browser identity",
     "browser identity use is exclusive through local lock and durable lease",
-    "publish preparation requires a healthy exact-account identity guard"
+    "publish preparation requires a healthy exact-account identity guard",
+    "prepare-only publisher has no working final-action implementation",
+    "every reversible click is checked against the final-action boundary",
+    "real platform UI execution requires an explicitly calibrated selector spec",
+    "prepared media is SHA-256 fingerprinted after local materialization",
+    "prepare evidence artifacts are runtime-only and never committed to git"
   ]
 }

@@ -35,6 +35,8 @@ export interface BrowserPageSessionPort {
   navigate(url: string): Promise<void>;
   currentUrl(): Promise<string>;
   evaluate<T>(expression: string): Promise<T>;
+  setInputFiles(selector: string, filePaths: readonly string[]): Promise<void>;
+  captureScreenshot(filePath: string): Promise<void>;
   setCookie(url: string, name: string, value: string, expires?: number): Promise<void>;
   cookies(url: string): Promise<readonly BrowserCookie[]>;
   close(): Promise<void>;
