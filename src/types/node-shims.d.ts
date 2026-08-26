@@ -48,7 +48,7 @@ declare module "node:fs" {
   export function rmSync(path: string, options?: { force?: boolean; recursive?: boolean }): void;
   export function readSync(fd: number, buffer: Uint8Array, offset: number, length: number, position: number | null): number;
   export function renameSync(oldPath: string, newPath: string): void;
-  export function statSync(path: string): { size: number; mode: number; isFile(): boolean };
+  export function statSync(path: string): { size: number; mode: number; mtime: { toISOString(): string }; isFile(): boolean; isDirectory(): boolean };
   export function accessSync(path: string, mode?: number): void;
   export const constants: { X_OK: number };
   export function createWriteStream(path: string, options?: { mode?: number }): unknown;

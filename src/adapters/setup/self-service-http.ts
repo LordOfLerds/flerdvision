@@ -49,6 +49,11 @@ export interface SelfServiceHttpOptions {
   /** Absent until a deployment supplies an OAuth client. */
   driveOAuth?: DriveOAuthPort;
   /**
+   * A directory the operator may pick from. Set this and the workspace needs no Google credential
+   * at all: a mounted Google Drive, OneDrive or Dropbox folder is an ordinary directory.
+   */
+  localSourceRoot?: string;
+  /**
    * The login browser is visible by default -- the operator has to type into it. Headless exists
    * for automated end-to-end runs of this wizard, which must be able to exercise the real flow.
    */
@@ -92,12 +97,17 @@ export class SelfServiceHttpServer {
   private readTests(workspaceId:string): TestResultRecord[] { const p=this.testsPath(workspaceId); return existsSync(p)?JSON.parse(readFileSync(p,"utf8")) as TestResultRecord[]:[]; }
   private recordTest(workspaceId:string,result:TestResultRecord):void { const all=this.readTests(workspaceId).filter(x=>x.testId!==result.testId); all.push(result); writeFileSync(this.testsPath(workspaceId),JSON.stringify(all,null,2),{encoding:"utf8",mode:0o600}); }
 
+  /** A source counts as connected when either credential path is satisfied. */
+  private sourceConnected(workspaceId: string): boolean {
+    return Boolean(this.options.localSourceRoot) || this.credentials(workspaceId).status().connected;
+  }
+
   /** Progress is recomputed from storage on every request; nothing about it is cached in a page. */
   progress(workspaceId: string): SetupProgress {
     const store = new SqliteControlPlaneStore(this.layout(workspaceId).databasePath);
     try {
       return computeSetupProgress({
-        driveConnected: this.credentials(workspaceId).status().connected,
+        driveConnected: this.sourceConnected(workspaceId),
         folderSelected: this.selections.has(workspaceId),
         sessionDiscovered: this.discoveries.has(workspaceId),
         registeredAccounts: store.listSocialAccounts().length,
@@ -135,19 +145,26 @@ pre{white-space:pre-wrap;padding:10px}table{width:100%;border-collapse:collapse}
   }
 
   private driveCard(workspaceId: string, p: SetupProgress): string {
+    if (this.options.localSourceRoot) {
+      return this.card(1, "Quelle", true, false,
+        `<div class=proof>Lokaler Ordner: <code>${escapeHtml(this.options.localSourceRoot)}</code><br>
+         Kein Google-Konto, kein Token, nichts zu registrieren. Ein per Google&nbsp;Drive for Desktop,
+         OneDrive oder Dropbox eingehängter Ordner ist hier einfach ein Verzeichnis.</div>`);
+    }
     const status = this.credentials(workspaceId).status();
     if (status.connected) {
-      return this.card(1, "Google Drive", true, false,
-        `<div class=proof>Verbunden${status.connectedAccount?` als <code>${escapeHtml(status.connectedAccount)}</code>`:""} seit ${escapeHtml(status.connectedAt ?? "")}.</div>
+      return this.card(1, "Quelle", true, false,
+        `<div class=proof>Google Drive verbunden${status.connectedAccount?` als <code>${escapeHtml(status.connectedAccount)}</code>`:""} seit ${escapeHtml(status.connectedAt ?? "")}.</div>
          <form method=post action="/workspaces/${workspaceId}/drive/disconnect"><input type=hidden name=csrf value=${this.csrf}><button>Verbindung lösen</button></form>`);
     }
-    if (!this.options.folderBrowser) {
-      return this.card(1, "Google Drive", false, p.currentStep === "DRIVE",
-        `<div class=gate>Kein OAuth-Client hinterlegt. Setze <code>GOOGLE_OAUTH_CLIENT_ID</code> und <code>GOOGLE_OAUTH_CLIENT_SECRET</code> in der Deployment-Konfiguration und starte die UI neu. Ich lege dir hier keinen Platzhalter an, der später so aussieht, als wäre etwas verbunden.</div>`);
-    }
-    return this.card(1, "Google Drive", false, p.currentStep === "DRIVE",
-      `<p>Der Login läuft im Browser, der Refresh-Token landet nur in <code>config/drive-credential.json</code> (mode 600) und wird nie angezeigt.</p>
-       <form method=post action="/workspaces/${workspaceId}/drive/connect"><input type=hidden name=csrf value=${this.csrf}><button>Google-Login öffnen</button></form>`);
+    const oauthPart = this.options.driveOAuth
+      ? `<form method=post action="/workspaces/${workspaceId}/drive/connect"><input type=hidden name=csrf value=${this.csrf}><button>Google-Login öffnen</button></form>`
+      : `<p>Für den API-Weg fehlen <code>GOOGLE_OAUTH_CLIENT_ID</code> und <code>GOOGLE_OAUTH_CLIENT_SECRET</code>.</p>`;
+    return this.card(1, "Quelle", false, p.currentStep === "DRIVE",
+      `<div class=gate>Keine Quelle konfiguriert. Es gibt zwei Wege, und der einfachere braucht gar nichts:</div>
+       <p><strong>Ohne Zugangsdaten:</strong> Starte die UI mit <code>--source-root &lt;Pfad&gt;</code> bzw. <code>FLERDVISION_SOURCE_ROOT</code> und zeig auf deinen eingehängten Cloud-Ordner. Derselbe Picker, dieselben Verknüpfungen.</p>
+       <p><strong>Über die Drive-API:</strong> braucht einen Installed-App-Client. Nur nötig, wenn der Ordner nicht als Laufwerk eingehängt ist — etwa später auf dem VPS.</p>
+       ${oauthPart}`);
   }
 
   private folderCard(workspaceId: string, p: SetupProgress): string {
@@ -161,7 +178,7 @@ pre{white-space:pre-wrap;padding:10px}table{width:100%;border-collapse:collapse}
     }
     if (!unlocked) return this.card(2, "Ordner wählen", false, false, `<div class=gate>Zuerst Drive verbinden.</div>`);
     return this.card(2, "Ordner wählen", false, p.currentStep === "FOLDER",
-      `<p><a href="/workspaces/${workspaceId}/browse?folderId=${encodeURIComponent(DRIVE_ROOT)}">Drive durchsuchen</a> — klick dich hinein, dann auswählen.</p>`);
+      `<p><a href="/workspaces/${workspaceId}/browse?folderId=${encodeURIComponent(DRIVE_ROOT)}">Quelle durchsuchen</a> — klick dich hinein, dann auswählen.</p>`);
   }
 
   private loginCard(workspaceId: string, p: SetupProgress): string {
@@ -203,35 +220,73 @@ pre{white-space:pre-wrap;padding:10px}table{width:100%;border-collapse:collapse}
        <small>Der Browser wird geschlossen und die Sitzung in das Profil dieses Kanals kopiert.</small>`);
   }
 
-  private linkCard(workspaceId: string, p: SetupProgress): string {
+  /** Everything registered in this workspace, and which folder feeds it. */
+  private channels(workspaceId: string) {
     const store = new SqliteControlPlaneStore(this.layout(workspaceId).databasePath);
-    let unbound: { accountId: string; handle: string; platform: string }[] = [];
-    let bound: { accountId: string; folderPath: string; sub: boolean }[] = [];
     try {
-      for (const a of store.listSocialAccounts()) {
-        const b = store.getChannelSourceBindingForAccount(a.account.accountId);
-        if (b) bound.push({ accountId: a.account.accountId, folderPath: b.binding.folderPath, sub: b.binding.interpretSubstructure });
-        else unbound.push({ accountId: a.account.accountId, handle: a.account.expectedHandle, platform: a.account.platform });
-      }
+      const identities = store.listBrowserIdentities();
+      return store.listSocialAccounts().map((a) => {
+        const binding = store.getChannelSourceBindingForAccount(a.account.accountId);
+        const identity = identities.find((i) => i.identity.accountId === a.account.accountId);
+        const shared = binding
+          ? store.listChannelSourceBindingsForFolder(binding.binding.folderId)
+              .filter((b) => b.binding.accountId !== a.account.accountId)
+              .map((b) => b.binding.accountId)
+          : [];
+        return {
+          accountId: a.account.accountId,
+          platform: a.account.platform,
+          handle: a.account.expectedHandle,
+          profileKey: identity?.identity.profileKey ?? "fehlt",
+          folderPath: binding?.binding.folderPath ?? null,
+          folderId: binding?.binding.folderId ?? null,
+          substructure: binding?.binding.interpretSubstructure ?? false,
+          sharesFolderWith: shared
+        };
+      });
     } finally { store.close(); }
+  }
 
-    const boundRows = bound.map(b => `<tr><td><code>${escapeHtml(b.accountId)}</code></td><td>${escapeHtml(b.folderPath)}</td><td>${b.sub?"mit Unterstruktur":"direkt"}</td></tr>`).join("");
+  private linkCard(workspaceId: string, p: SetupProgress): string {
+    const all = this.channels(workspaceId);
+    const unbound = all.filter((c) => !c.folderPath);
     const selected = this.selections.get(workspaceId);
+
     let form = "";
-    if (unbound.length && selected) {
-      const opts = unbound.map(u => `<option value="${escapeHtml(u.accountId)}">${escapeHtml(u.platform)} · @${escapeHtml(u.handle)}</option>`).join("");
+    if (!selected) {
+      form = `<div class=gate>Kein Ordner ausgewählt — geh zurück zu Schritt 2.</div>`;
+    } else if (unbound.length === 0) {
+      form = `<p>Alle registrierten Kanäle sind verknüpft.</p>`;
+    } else {
+      const alsoFed = all.filter((c) => c.folderId === selected.folderId);
+      const opts = unbound.map((u) => `<option value="${escapeHtml(u.accountId)}">${escapeHtml(u.platform)} · @${escapeHtml(u.handle)}</option>`).join("");
       form = `<form method=post action="/workspaces/${workspaceId}/bind"><input type=hidden name=csrf value=${this.csrf}>
         <p>Ordner: <strong>${escapeHtml(selected.folderPath)}</strong></p>
+        ${alsoFed.length ? `<div class=proof>Dieser Ordner speist bereits ${alsoFed.map((c) => `<code>${escapeHtml(c.accountId)}</code>`).join(", ")}. Ein weiterer Kanal daran ist Cross-Posting: dasselbe Video geht auf beide, ohne es zweimal abzulegen.</div>` : ""}
         <select name=accountId>${opts}</select>
         <label><input type=checkbox name=interpretSubstructure value=on> <code>creator/woche/tag</code> auswerten</label>
         <button>Verknüpfung speichern</button></form>`;
-    } else if (!selected) {
-      form = `<div class=gate>Kein Ordner ausgewählt.</div>`;
-    } else {
-      form = `<p>Alle registrierten Kanäle sind verknüpft.</p>`;
     }
-    return this.card(5, "Ordner ↔ Kanal", bound.length > 0, p.currentStep === "LINK",
-      `${boundRows?`<table><tr><th>Kanal</th><th>Ordner</th><th>Modus</th></tr>${boundRows}</table>`:""}${form}`);
+    return this.card(5, "Ordner ↔ Kanal", all.some((c) => c.folderPath), p.currentStep === "LINK", form);
+  }
+
+  /** The overview the operator actually lives in once setup has run at least once. */
+  private channelsCard(workspaceId: string): string {
+    const all = this.channels(workspaceId);
+    if (all.length === 0) return "";
+    const rows = all.map((c) => `<tr>
+      <td>${escapeHtml(c.platform)}<br><small><code>${escapeHtml(c.accountId)}</code></small></td>
+      <td>@${escapeHtml(c.handle)}</td>
+      <td><code>${escapeHtml(c.profileKey)}</code></td>
+      <td>${c.folderPath ? escapeHtml(c.folderPath) : "<span class=warn>nicht verknüpft</span>"}${c.substructure ? "<br><small>mit Unterstruktur</small>" : ""}</td>
+      <td>${c.sharesFolderWith.length ? c.sharesFolderWith.map((x) => `<code>${escapeHtml(x)}</code>`).join("<br>") : "—"}</td>
+    </tr>`).join("");
+    return `<div class=card><h2>Kanäle in diesem Workspace</h2>
+      <table><tr><th>Plattform</th><th>Konto</th><th>Browserprofil</th><th>Ordner</th><th>Teilt Ordner mit</th></tr>${rows}</table>
+      <p>Jeder Kanal beobachtet genau <em>einen</em> Ordner — eine ankommende Datei hat damit nie zwei mögliche Ziele. Ein Ordner darf mehrere Kanäle speisen; das ist der Cross-Posting-Fall.</p>
+      <form method=post action="/workspaces/${workspaceId}/channels/add"><input type=hidden name=csrf value=${this.csrf}>
+        <button>Weiteren Kanal hinzufügen</button></form>
+      <small>Setzt Schritt 2 bis 4 für einen weiteren Durchlauf zurück. Willst du denselben Ordner für einen zweiten Kanal, wähl ihn in Schritt 2 einfach wieder aus.</small></div>`;
   }
 
   private testCard(workspaceId: string, p: SetupProgress): string {
@@ -256,7 +311,7 @@ pre{white-space:pre-wrap;padding:10px}table{width:100%;border-collapse:collapse}
     return this.shell(workspace.displayName,
       `<p><a href=/>&larr; Workspaces</a></p><h1>${escapeHtml(workspace.displayName)}</h1>
        <p><code>${escapeHtml(workspace.workspaceId)}</code> · ${escapeHtml(workspace.status)} · ${escapeHtml(workspace.timezone)} · Schritt <strong>${escapeHtml(p.currentStep)}</strong></p>
-       ${this.driveCard(workspaceId,p)}${this.folderCard(workspaceId,p)}${this.loginCard(workspaceId,p)}${this.channelCard(workspaceId,p)}${this.linkCard(workspaceId,p)}${this.testCard(workspaceId,p)}
+       ${this.channelsCard(workspaceId)}${this.driveCard(workspaceId,p)}${this.folderCard(workspaceId,p)}${this.loginCard(workspaceId,p)}${this.channelCard(workspaceId,p)}${this.linkCard(workspaceId,p)}${this.testCard(workspaceId,p)}
        <div class=card><h2>Workspace-Isolation</h2><pre>${escapeHtml(JSON.stringify(this.layout(workspaceId),null,2))}</pre></div>`);
   }
 
@@ -357,6 +412,14 @@ pre{white-space:pre-wrap;padding:10px}table{width:100%;border-collapse:collapse}
         assertPrerequisite(p,"CHANNEL_REGISTERED");
         assertPrerequisite(p,"FOLDER_SELECTED");
         this.bind(id, (form.get("accountId")??"").trim(), form.get("interpretSubstructure")==="on");
+        this.redirect(res,`/workspaces/${id}`); return;
+      }
+
+      if((hit=m(/^\/workspaces\/([^/]+)\/channels\/add$/))){
+        const id=decodeURIComponent(hit[1]!);
+        // Only the transient pass is reset. Registered channels and their bindings are durable
+        // and must survive starting another one.
+        this.selections.delete(id); this.discoveries.delete(id); await this.closeSessions(id);
         this.redirect(res,`/workspaces/${id}`); return;
       }
 

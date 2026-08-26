@@ -12,7 +12,12 @@ import type { Instant } from "./model.js";
  *    and TikTok without being uploaded to Drive twice.
  */
 
-export type SourceKind = "google_drive";
+/**
+ * Where a channel's material comes from. A mounted cloud folder (Google Drive for Desktop,
+ * OneDrive, Dropbox) is an ordinary directory, so it needs no API credential at all -- the same
+ * picker and the same bindings work either way.
+ */
+export type SourceKind = "google_drive" | "local_folder";
 
 export interface ChannelSourceBinding {
   bindingId: string;

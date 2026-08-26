@@ -135,7 +135,7 @@ test("wizard end to end: connect, browse, pick, log in, discover, confirm, bind,
     assert.equal(res.status, 303);
 
     let page = await (await h.get("/workspaces/luca")).text();
-    assert.match(page, /Verbunden/);
+    assert.match(page, /Google Drive verbunden/);
     assert.doesNotMatch(page, /refresh-1/, "the refresh token must never reach the page");
 
     // 3 · browse into a real folder tree and pick a folder
@@ -316,5 +316,95 @@ test("a refused channel key leaves no trace and does not strand the login sessio
     assert.ok(readdirSync(seeded).length > 0, "the login must still carry over after a refused attempt");
   } finally {
     await h.close();
+  }
+});
+
+/* ---------- a source that needs no credential at all ---------- */
+
+test("a mounted folder works as a source without any credential", async () => {
+  const { mkdirSync, writeFileSync } = await import("node:fs");
+  const { LocalFolderBrowser, LOCAL_ROOT } = await import("../dist/adapters/ingress/local/local-folder-browser.js");
+  const root = mkdtempSync(join(tmpdir(), "mount-"));
+  try {
+    mkdirSync(join(root, "Flerdvision", "Reels"), { recursive: true });
+    writeFileSync(join(root, "Flerdvision", "Reels", "reel_0824.mp4"), "x");
+    writeFileSync(join(root, "Flerdvision", "Reels", "reel_0819.mov"), "x");
+    writeFileSync(join(root, "Flerdvision", "Reels", "caption.txt"), "x");
+    writeFileSync(join(root, "Flerdvision", ".DS_Store"), "x");
+
+    const browser = new LocalFolderBrowser({ root, rootLabel: "Mein Mount" });
+    const top = await browser.listFolder(LOCAL_ROOT);
+    assert.equal(top.folderName, "Mein Mount");
+    assert.deepEqual(top.entries.map((e) => e.name), ["Flerdvision"]);
+
+    const mid = await browser.listFolder(top.entries[0].id);
+    assert.deepEqual(mid.entries.map((e) => e.name), ["Reels"], "dotfiles stay hidden");
+    assert.deepEqual(mid.path.map((c) => c.name), ["Mein Mount", "Flerdvision"]);
+
+    const leaf = await browser.listFolder(mid.entries[0].id);
+    assert.deepEqual(leaf.entries.map((e) => e.name), ["caption.txt", "reel_0819.mov", "reel_0824.mp4"]);
+
+    const preview = await browser.previewFolder(mid.entries[0].id);
+    assert.equal(preview.videoCount, 2, ".mp4 and .mov count as video, .txt does not");
+    assert.equal(preview.otherCount, 1);
+
+    // Folder ids stay opaque tokens the binding layer accepts.
+    const { assertFolderId } = await import("../dist/domain/source-binding.js");
+    for (const entry of [...top.entries, ...mid.entries]) assertFolderId(entry.id);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a local source cannot be walked out of its configured root", async () => {
+  const { LocalFolderBrowser } = await import("../dist/adapters/ingress/local/local-folder-browser.js");
+  const root = mkdtempSync(join(tmpdir(), "mount-"));
+  try {
+    const browser = new LocalFolderBrowser({ root });
+    for (const escape of ["../../etc", "..", "/etc"]) {
+      const token = Buffer.from(escape, "utf8").toString("base64url");
+      await assert.rejects(() => browser.listFolder(token), /Unsafe folder id|escaped the configured source root|not readable|Not a folder/);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("one folder feeds Instagram and TikTok; each channel still watches exactly one folder", async () => {
+  const { SetupChannelRegistrationService } = await import("../dist/application/setup-channel-registration.js");
+  const { ChannelSourceBindingConflictError } = await import("../dist/domain/source-binding.js");
+  const dir = mkdtempSync(join(tmpdir(), "crosspost-"));
+  const store = new SqliteControlPlaneStore(join(dir, "db.sqlite"));
+  try {
+    const service = new SetupChannelRegistrationService(store);
+    const actor = { type: "test", id: "crosspost" };
+    const register = (platform, key, handle, checkId) => service.registerFromDiscovery({
+      result: { platform, state: "HEALTHY", discoveredAt: "2026-08-26T20:00:00Z", channels: [{ channelKey: key, handle, displayName: handle }] },
+      channelKey: key, checkId, now: "2026-08-26T20:00:01Z", actor
+    });
+
+    const ig = register("instagram", "flerdvision", "@flerdvision", "c1");
+    const tt = register("tiktok", "flerdvisionat", "@flerdvision.at", "c2");
+
+    const folder = { folderId: "RmxlcmR2aXNpb24vUmVlbHM", folderPath: "Mein Mount / Flerdvision / Reels", interpretSubstructure: false, now: "2026-08-26T20:01:00Z", actor };
+    service.bindSource({ ...folder, accountId: ig.accountId, bindingId: "bind:ig" });
+    service.bindSource({ ...folder, accountId: tt.accountId, bindingId: "bind:tt" });
+
+    // The same video therefore reaches both channels from one drop.
+    const fed = store.listChannelSourceBindingsForFolder(folder.folderId).map((b) => b.binding.accountId).sort();
+    assert.deepEqual(fed, ["instagram_flerdvision", "tiktok_flerdvisionat"]);
+
+    // The reverse stays impossible: a channel cannot listen to a second folder.
+    assert.throws(
+      () => service.bindSource({ ...folder, accountId: ig.accountId, bindingId: "bind:ig:2", folderId: "AnotherFolderToken" }),
+      ChannelSourceBindingConflictError
+    );
+
+    // And the two channels keep separate browser profiles despite sharing a folder.
+    const profiles = store.listBrowserIdentities().map((i) => i.identity.profileKey).sort();
+    assert.deepEqual(profiles, ["instagram/flerdvision", "tiktok/flerdvisionat"]);
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
   }
 });

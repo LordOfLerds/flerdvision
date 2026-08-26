@@ -82,7 +82,11 @@ test("self-service UI creates an isolated workspace and refuses every typed-cred
     assert.equal((await fetch(base + "/workspaces", form({ workspaceId: "brother", displayName: "Brother", timezone: "Europe/Vienna" }))).status, 303);
 
     const workspaceHtml = await (await fetch(base + "/workspaces/brother", { headers: { authorization: auth } })).text();
-    assert.match(workspaceHtml, /Google Drive/);
+    assert.match(workspaceHtml, /Quelle/);
+    // With no source configured at all, step 1 must name both routes -- including the one that
+    // needs no credential, so nobody concludes an OAuth client is mandatory.
+    assert.match(workspaceHtml, /source-root/);
+    assert.match(workspaceHtml, /GOOGLE_OAUTH_CLIENT_ID/);
     assert.match(workspaceHtml, /Test Lab/);
     assert.match(workspaceHtml, /Workspace-Isolation/);
 

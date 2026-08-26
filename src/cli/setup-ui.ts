@@ -4,6 +4,7 @@ import { FixedCommandTestRunner } from "../adapters/test-lab/fixed-command-runne
 import { SelfServiceHttpServer, type DriveOAuthPort } from "../adapters/setup/self-service-http.js";
 import { resolveChromiumExecutablePath } from "../adapters/browser/resolve-chromium.js";
 import { GoogleDriveFolderBrowser } from "../adapters/ingress/google-drive/google-drive-browser.js";
+import { LocalFolderBrowser } from "../adapters/ingress/local/local-folder-browser.js";
 import { FetchHttpJson, FileDriveCredentialStore, driveOAuthClientFromEnv } from "../adapters/ingress/google-drive/drive-credentials.js";
 import { RefreshingAccessToken, beginAuthorization, exchangeAuthorizationCode } from "../adapters/ingress/google-drive/google-oauth.js";
 import { workspaceRuntimeLayout } from "../application/workspaces.js";
@@ -61,7 +62,11 @@ function driveWiring(): { oauth?: DriveOAuthPort; browser?: GoogleDriveFolderBro
   return { oauth, browser };
 }
 
-const { oauth, browser } = driveWiring();
+// A mounted cloud folder needs no credential, so it wins when configured: the simpler path
+// should be the one that just works.
+const sourceRoot = arg("--source-root") ?? process.env.FLERDVISION_SOURCE_ROOT;
+const { oauth, browser } = sourceRoot ? { oauth: undefined, browser: undefined } : driveWiring();
+const localBrowser = sourceRoot ? new LocalFolderBrowser({ root: resolve(sourceRoot) }) : undefined;
 const registry = new JsonWorkspaceRegistry(resolve(runtimeRoot, "registry", "workspaces.json"));
 const server = new SelfServiceHttpServer(registry, {
   runtimeRoot, repoRoot, password,
@@ -69,6 +74,7 @@ const server = new SelfServiceHttpServer(registry, {
   host, port,
   chromiumExecutablePath: arg("--chromium") ?? resolveChromiumExecutablePath(),
   testRunner: new FixedCommandTestRunner(),
+  ...(localBrowser ? { folderBrowser: localBrowser, localSourceRoot: resolve(sourceRoot!) } : {}),
   ...(browser ? { folderBrowser: browser } : {}),
   ...(oauth ? { driveOAuth: oauth } : {})
   // channelDiscovery stays unset until config/channel-discovery.json is calibrated: an
@@ -77,7 +83,8 @@ const server = new SelfServiceHttpServer(registry, {
 
 const listening = await server.start();
 console.log(`Flerdvision self-service UI listening on http://${listening.host}:${listening.port}`);
-if (!oauth) console.log("Google Drive is not wired: set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET to enable steps 1 and 2.");
+if (localBrowser) console.log(`Source: local folder ${resolve(sourceRoot!)} (no credential needed).`);
+else if (!oauth) console.log("No source configured. Either pass --source-root <path> to a mounted folder, or set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET for the Drive API.");
 console.log("Channel discovery is not wired: calibrate config/channel-discovery.json before step 4.");
 await new Promise<void>((resolvePromise) => { process.on("SIGINT", resolvePromise); process.on("SIGTERM", resolvePromise); });
 await server.stop();
