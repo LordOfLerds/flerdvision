@@ -16,6 +16,8 @@ import type { PlatformCapabilityProbe } from "../../domain/platform-ui.js";
 import type { PlatformCapabilityStorePort } from "../../domain/platform-ui-ports.js";
 import type { PublishAttemptStorePort, VerificationStorePort } from "../../domain/verification-ports.js";
 import type { OperationsStorePort } from "../../domain/operations-ports.js";
+import type { RepairStorePort } from "../../domain/repair-ports.js";
+import type { AiDiagnosis, IncidentEvidenceBundle, RepairBranchRecord, RepairGateResult, RepairProposal } from "../../domain/repair.js";
 import type {
   HumanActionRecord,
   Incident,
@@ -309,6 +311,33 @@ interface NotificationDeliveryRow {
   error: string | null;
 }
 
+interface RepairBundleRow {
+  sequence: number; bundle_id: string; incident_id: string; captured_at: string; release_sha: string; adapter_version: string;
+  redaction_policy_version: string; incident_kind: IncidentEvidenceBundle["incidentKind"]; incident_summary: string;
+  sanitized_context_json: string; artifacts_json: string; redaction_findings_json: string;
+}
+
+interface AiDiagnosisRow {
+  sequence: number; diagnosis_id: string; bundle_id: string; incident_id: string; created_at: string;
+  classification: AiDiagnosis["classification"]; confidence: number; root_cause: string; evidence_rationale_json: string;
+  proposed_repair_kind: AiDiagnosis["proposedRepairKind"]; requires_human: number; security_notes_json: string;
+}
+
+interface RepairProposalRow {
+  sequence: number; proposal_id: string; diagnosis_id: string; incident_id: string; created_at: string; title: string; summary: string;
+  unified_diff: string; changed_files_json: string; regression_test_files_json: string; requested_test_commands_json: string;
+}
+
+interface RepairGateRow {
+  sequence: number; gate_result_id: string; proposal_id: string; gate: RepairGateResult["gate"]; status: RepairGateResult["status"];
+  checked_at: string; summary: string; artifact_refs_json: string;
+}
+
+interface RepairBranchRow {
+  sequence: number; branch_record_id: string; proposal_id: string; created_at: string; branch_name: string; base_ref: string;
+  worktree_path: string; head_sha: string | null;
+}
+
 export class IdempotencyConflictError extends Error {}
 export class ScheduleConflictError extends Error {}
 export class IntentNotFoundError extends Error {}
@@ -325,6 +354,11 @@ export class IncidentConflictError extends Error {}
 export class HumanActionConflictError extends Error {}
 export class KillSwitchConflictError extends Error {}
 export class NotificationConflictError extends Error {}
+export class RepairBundleConflictError extends Error {}
+export class AiDiagnosisConflictError extends Error {}
+export class RepairProposalConflictError extends Error {}
+export class RepairGateConflictError extends Error {}
+export class RepairBranchConflictError extends Error {}
 
 function asIso(instant: Instant): Instant {
   const date = new Date(instant);
@@ -641,6 +675,44 @@ function notificationDeliveryFromRow(row: NotificationDeliveryRow): Notification
   return delivery;
 }
 
+function repairBundleFromRow(row: RepairBundleRow): IncidentEvidenceBundle {
+  return {
+    bundleId: row.bundle_id, incidentId: row.incident_id, capturedAt: row.captured_at, releaseSha: row.release_sha,
+    adapterVersion: row.adapter_version, redactionPolicyVersion: row.redaction_policy_version, incidentKind: row.incident_kind,
+    incidentSummary: row.incident_summary, sanitizedContext: JSON.parse(row.sanitized_context_json) as Record<string, unknown>,
+    artifacts: JSON.parse(row.artifacts_json) as IncidentEvidenceBundle["artifacts"],
+    redactionFindings: JSON.parse(row.redaction_findings_json) as IncidentEvidenceBundle["redactionFindings"]
+  };
+}
+
+function aiDiagnosisFromRow(row: AiDiagnosisRow): AiDiagnosis {
+  return {
+    diagnosisId: row.diagnosis_id, bundleId: row.bundle_id, incidentId: row.incident_id, createdAt: row.created_at,
+    classification: row.classification, confidence: row.confidence, rootCause: row.root_cause,
+    evidenceRationale: JSON.parse(row.evidence_rationale_json) as string[], proposedRepairKind: row.proposed_repair_kind,
+    requiresHuman: row.requires_human === 1, securityNotes: JSON.parse(row.security_notes_json) as string[]
+  };
+}
+
+function repairProposalFromRow(row: RepairProposalRow): RepairProposal {
+  return {
+    proposalId: row.proposal_id, diagnosisId: row.diagnosis_id, incidentId: row.incident_id, createdAt: row.created_at,
+    title: row.title, summary: row.summary, unifiedDiff: row.unified_diff,
+    changedFiles: JSON.parse(row.changed_files_json) as string[], regressionTestFiles: JSON.parse(row.regression_test_files_json) as string[],
+    requestedTestCommands: JSON.parse(row.requested_test_commands_json) as string[]
+  };
+}
+
+function repairGateFromRow(row: RepairGateRow): RepairGateResult {
+  return { gateResultId: row.gate_result_id, proposalId: row.proposal_id, gate: row.gate, status: row.status, checkedAt: row.checked_at, summary: row.summary, artifactRefs: JSON.parse(row.artifact_refs_json) as string[] };
+}
+
+function repairBranchFromRow(row: RepairBranchRow): RepairBranchRecord {
+  const record: RepairBranchRecord = { branchRecordId: row.branch_record_id, proposalId: row.proposal_id, createdAt: row.created_at, branchName: row.branch_name, baseRef: row.base_ref, worktreePath: row.worktree_path };
+  if (row.head_sha !== null) Object.assign(record, { headSha: row.head_sha });
+  return record;
+}
+
 function sameSocialAccount(existing: SocialAccount, candidate: SocialAccount): boolean {
   return (existing.creatorId ?? null) === (candidate.creatorId ?? null) &&
     existing.platform === candidate.platform &&
@@ -710,7 +782,7 @@ function sameVerifiedPublication(existing: VerifiedPublication, candidate: Verif
     JSON.stringify([...existing.evidenceIds]) === JSON.stringify([...candidate.evidenceIds]);
 }
 
-export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressStorePort, BrowserIdentityStorePort, PlatformCapabilityStorePort, PublishAttemptStorePort, VerificationStorePort, OperationsStorePort {
+export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressStorePort, BrowserIdentityStorePort, PlatformCapabilityStorePort, PublishAttemptStorePort, VerificationStorePort, OperationsStorePort, RepairStorePort {
   private readonly db: DatabaseSync;
 
   constructor(databasePath: string) {
@@ -1178,6 +1250,88 @@ export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressSt
         `);
         this.db.prepare("INSERT INTO schema_migrations(version, name, applied_at) VALUES (?, ?, ?)")
           .run(6, "operations incidents notifications and kill switches", new Date().toISOString());
+      });
+    }
+
+    const migrationSeven = this.db.prepare("SELECT version FROM schema_migrations WHERE version = 7").get();
+    if (!migrationSeven) {
+      this.transaction(() => {
+        this.db.exec(`
+          CREATE TABLE incident_evidence_bundles (
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+            bundle_id TEXT NOT NULL UNIQUE,
+            incident_id TEXT NOT NULL REFERENCES incidents(incident_id) ON DELETE RESTRICT,
+            captured_at TEXT NOT NULL,
+            release_sha TEXT NOT NULL,
+            adapter_version TEXT NOT NULL,
+            redaction_policy_version TEXT NOT NULL,
+            incident_kind TEXT NOT NULL,
+            incident_summary TEXT NOT NULL,
+            sanitized_context_json TEXT NOT NULL,
+            artifacts_json TEXT NOT NULL,
+            redaction_findings_json TEXT NOT NULL
+          );
+          CREATE INDEX idx_repair_bundle_incident ON incident_evidence_bundles(incident_id, captured_at, sequence);
+
+          CREATE TABLE ai_diagnoses (
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+            diagnosis_id TEXT NOT NULL UNIQUE,
+            bundle_id TEXT NOT NULL REFERENCES incident_evidence_bundles(bundle_id) ON DELETE RESTRICT,
+            incident_id TEXT NOT NULL REFERENCES incidents(incident_id) ON DELETE RESTRICT,
+            created_at TEXT NOT NULL,
+            classification TEXT NOT NULL,
+            confidence REAL NOT NULL CHECK(confidence >= 0 AND confidence <= 1),
+            root_cause TEXT NOT NULL,
+            evidence_rationale_json TEXT NOT NULL,
+            proposed_repair_kind TEXT NOT NULL,
+            requires_human INTEGER NOT NULL CHECK(requires_human IN (0,1)),
+            security_notes_json TEXT NOT NULL
+          );
+          CREATE INDEX idx_ai_diagnosis_incident ON ai_diagnoses(incident_id, created_at, sequence);
+
+          CREATE TABLE repair_proposals (
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+            proposal_id TEXT NOT NULL UNIQUE,
+            diagnosis_id TEXT NOT NULL REFERENCES ai_diagnoses(diagnosis_id) ON DELETE RESTRICT,
+            incident_id TEXT NOT NULL REFERENCES incidents(incident_id) ON DELETE RESTRICT,
+            created_at TEXT NOT NULL,
+            title TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            unified_diff TEXT NOT NULL,
+            changed_files_json TEXT NOT NULL,
+            regression_test_files_json TEXT NOT NULL,
+            requested_test_commands_json TEXT NOT NULL
+          );
+          CREATE INDEX idx_repair_proposal_incident ON repair_proposals(incident_id, created_at, sequence);
+
+          CREATE TABLE repair_gate_results (
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+            gate_result_id TEXT NOT NULL UNIQUE,
+            proposal_id TEXT NOT NULL REFERENCES repair_proposals(proposal_id) ON DELETE RESTRICT,
+            gate TEXT NOT NULL, status TEXT NOT NULL, checked_at TEXT NOT NULL, summary TEXT NOT NULL, artifact_refs_json TEXT NOT NULL
+          );
+          CREATE INDEX idx_repair_gate_proposal ON repair_gate_results(proposal_id, checked_at, sequence);
+
+          CREATE TABLE repair_branches (
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+            branch_record_id TEXT NOT NULL UNIQUE,
+            proposal_id TEXT NOT NULL UNIQUE REFERENCES repair_proposals(proposal_id) ON DELETE RESTRICT,
+            created_at TEXT NOT NULL, branch_name TEXT NOT NULL UNIQUE, base_ref TEXT NOT NULL, worktree_path TEXT NOT NULL, head_sha TEXT
+          );
+
+          CREATE TRIGGER incident_evidence_bundles_no_update BEFORE UPDATE ON incident_evidence_bundles BEGIN SELECT RAISE(ABORT, 'incident_evidence_bundles is append-only'); END;
+          CREATE TRIGGER incident_evidence_bundles_no_delete BEFORE DELETE ON incident_evidence_bundles BEGIN SELECT RAISE(ABORT, 'incident_evidence_bundles is append-only'); END;
+          CREATE TRIGGER ai_diagnoses_no_update BEFORE UPDATE ON ai_diagnoses BEGIN SELECT RAISE(ABORT, 'ai_diagnoses is append-only'); END;
+          CREATE TRIGGER ai_diagnoses_no_delete BEFORE DELETE ON ai_diagnoses BEGIN SELECT RAISE(ABORT, 'ai_diagnoses is append-only'); END;
+          CREATE TRIGGER repair_proposals_no_update BEFORE UPDATE ON repair_proposals BEGIN SELECT RAISE(ABORT, 'repair_proposals is append-only'); END;
+          CREATE TRIGGER repair_proposals_no_delete BEFORE DELETE ON repair_proposals BEGIN SELECT RAISE(ABORT, 'repair_proposals is append-only'); END;
+          CREATE TRIGGER repair_gate_results_no_update BEFORE UPDATE ON repair_gate_results BEGIN SELECT RAISE(ABORT, 'repair_gate_results is append-only'); END;
+          CREATE TRIGGER repair_gate_results_no_delete BEFORE DELETE ON repair_gate_results BEGIN SELECT RAISE(ABORT, 'repair_gate_results is append-only'); END;
+          CREATE TRIGGER repair_branches_no_update BEFORE UPDATE ON repair_branches BEGIN SELECT RAISE(ABORT, 'repair_branches is append-only'); END;
+          CREATE TRIGGER repair_branches_no_delete BEFORE DELETE ON repair_branches BEGIN SELECT RAISE(ABORT, 'repair_branches is append-only'); END;
+        `);
+        this.db.prepare("INSERT INTO schema_migrations(version, name, applied_at) VALUES (?, ?, ?)")
+          .run(7, "AI repair evidence diagnosis proposals and gates", new Date().toISOString());
       });
     }
   }
@@ -2581,5 +2735,108 @@ export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressSt
       return notificationDeliveryFromRow(updated);
     });
   }
+  recordEvidenceBundle(bundle: IncidentEvidenceBundle, actor: Actor): IncidentEvidenceBundle {
+    return this.transaction(() => {
+      if (!this.getIncident(bundle.incidentId)) throw new RepairBundleConflictError(`Unknown incident: ${bundle.incidentId}`);
+      const existing = this.db.prepare("SELECT * FROM incident_evidence_bundles WHERE bundle_id = ?").get(bundle.bundleId) as RepairBundleRow | undefined;
+      if (existing) {
+        const stored = repairBundleFromRow(existing);
+        if (JSON.stringify(stored) !== JSON.stringify(bundle)) throw new RepairBundleConflictError(`Bundle ${bundle.bundleId} conflicts with existing record`);
+        return stored;
+      }
+      this.db.prepare(`INSERT INTO incident_evidence_bundles(bundle_id, incident_id, captured_at, release_sha, adapter_version, redaction_policy_version, incident_kind, incident_summary, sanitized_context_json, artifacts_json, redaction_findings_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        bundle.bundleId, bundle.incidentId, asIso(bundle.capturedAt), bundle.releaseSha, bundle.adapterVersion, bundle.redactionPolicyVersion, bundle.incidentKind, bundle.incidentSummary, JSON.stringify(bundle.sanitizedContext), JSON.stringify(bundle.artifacts), JSON.stringify(bundle.redactionFindings)
+      );
+      this.appendEvent({ aggregateType: "repair_bundle", aggregateId: bundle.bundleId, eventType: "repair_bundle.recorded", occurredAt: bundle.capturedAt, actor, payload: { incidentId: bundle.incidentId, redactionPolicyVersion: bundle.redactionPolicyVersion } });
+      return this.getEvidenceBundle(bundle.bundleId)!;
+    });
+  }
+
+  getEvidenceBundle(bundleId: string): IncidentEvidenceBundle | null {
+    const row = this.db.prepare("SELECT * FROM incident_evidence_bundles WHERE bundle_id = ?").get(bundleId) as RepairBundleRow | undefined;
+    return row ? repairBundleFromRow(row) : null;
+  }
+
+  listEvidenceBundles(incidentId?: string): readonly IncidentEvidenceBundle[] {
+    const rows = incidentId
+      ? this.db.prepare("SELECT * FROM incident_evidence_bundles WHERE incident_id = ? ORDER BY captured_at, sequence").all(incidentId) as RepairBundleRow[]
+      : this.db.prepare("SELECT * FROM incident_evidence_bundles ORDER BY captured_at, sequence").all() as RepairBundleRow[];
+    return rows.map(repairBundleFromRow);
+  }
+
+  recordAiDiagnosis(diagnosis: AiDiagnosis, actor: Actor): AiDiagnosis {
+    return this.transaction(() => {
+      const bundle = this.getEvidenceBundle(diagnosis.bundleId);
+      if (!bundle || bundle.incidentId !== diagnosis.incidentId) throw new AiDiagnosisConflictError("Diagnosis bundle/incident mismatch");
+      const existing = this.db.prepare("SELECT * FROM ai_diagnoses WHERE diagnosis_id = ?").get(diagnosis.diagnosisId) as AiDiagnosisRow | undefined;
+      if (existing) { const stored = aiDiagnosisFromRow(existing); if (JSON.stringify(stored) !== JSON.stringify(diagnosis)) throw new AiDiagnosisConflictError(`Diagnosis ${diagnosis.diagnosisId} conflicts`); return stored; }
+      this.db.prepare(`INSERT INTO ai_diagnoses(diagnosis_id,bundle_id,incident_id,created_at,classification,confidence,root_cause,evidence_rationale_json,proposed_repair_kind,requires_human,security_notes_json) VALUES(?,?,?,?,?,?,?,?,?,?,?)`).run(
+        diagnosis.diagnosisId, diagnosis.bundleId, diagnosis.incidentId, asIso(diagnosis.createdAt), diagnosis.classification, diagnosis.confidence, diagnosis.rootCause, JSON.stringify(diagnosis.evidenceRationale), diagnosis.proposedRepairKind, diagnosis.requiresHuman ? 1 : 0, JSON.stringify(diagnosis.securityNotes)
+      );
+      this.appendEvent({ aggregateType: "ai_diagnosis", aggregateId: diagnosis.diagnosisId, eventType: "ai_diagnosis.recorded", occurredAt: diagnosis.createdAt, actor, payload: { incidentId: diagnosis.incidentId, classification: diagnosis.classification, proposedRepairKind: diagnosis.proposedRepairKind } });
+      return aiDiagnosisFromRow(this.db.prepare("SELECT * FROM ai_diagnoses WHERE diagnosis_id = ?").get(diagnosis.diagnosisId) as AiDiagnosisRow);
+    });
+  }
+
+  listAiDiagnoses(incidentId?: string): readonly AiDiagnosis[] {
+    const rows = incidentId ? this.db.prepare("SELECT * FROM ai_diagnoses WHERE incident_id = ? ORDER BY created_at, sequence").all(incidentId) as AiDiagnosisRow[] : this.db.prepare("SELECT * FROM ai_diagnoses ORDER BY created_at, sequence").all() as AiDiagnosisRow[];
+    return rows.map(aiDiagnosisFromRow);
+  }
+
+  recordRepairProposal(proposal: RepairProposal, actor: Actor): RepairProposal {
+    return this.transaction(() => {
+      const diagnosis = this.db.prepare("SELECT * FROM ai_diagnoses WHERE diagnosis_id = ?").get(proposal.diagnosisId) as AiDiagnosisRow | undefined;
+      if (!diagnosis || diagnosis.incident_id !== proposal.incidentId) throw new RepairProposalConflictError("Proposal diagnosis/incident mismatch");
+      const existing = this.db.prepare("SELECT * FROM repair_proposals WHERE proposal_id = ?").get(proposal.proposalId) as RepairProposalRow | undefined;
+      if (existing) { const stored = repairProposalFromRow(existing); if (JSON.stringify(stored) !== JSON.stringify(proposal)) throw new RepairProposalConflictError(`Proposal ${proposal.proposalId} conflicts`); return stored; }
+      this.db.prepare(`INSERT INTO repair_proposals(proposal_id,diagnosis_id,incident_id,created_at,title,summary,unified_diff,changed_files_json,regression_test_files_json,requested_test_commands_json) VALUES(?,?,?,?,?,?,?,?,?,?)`).run(
+        proposal.proposalId, proposal.diagnosisId, proposal.incidentId, asIso(proposal.createdAt), proposal.title, proposal.summary, proposal.unifiedDiff, JSON.stringify(proposal.changedFiles), JSON.stringify(proposal.regressionTestFiles), JSON.stringify(proposal.requestedTestCommands)
+      );
+      this.appendEvent({ aggregateType: "repair_proposal", aggregateId: proposal.proposalId, eventType: "repair_proposal.recorded", occurredAt: proposal.createdAt, actor, payload: { incidentId: proposal.incidentId, changedFiles: [...proposal.changedFiles] } });
+      return this.getRepairProposal(proposal.proposalId)!;
+    });
+  }
+
+  getRepairProposal(proposalId: string): RepairProposal | null {
+    const row = this.db.prepare("SELECT * FROM repair_proposals WHERE proposal_id = ?").get(proposalId) as RepairProposalRow | undefined;
+    return row ? repairProposalFromRow(row) : null;
+  }
+
+  listRepairProposals(incidentId?: string): readonly RepairProposal[] {
+    const rows = incidentId ? this.db.prepare("SELECT * FROM repair_proposals WHERE incident_id = ? ORDER BY created_at, sequence").all(incidentId) as RepairProposalRow[] : this.db.prepare("SELECT * FROM repair_proposals ORDER BY created_at, sequence").all() as RepairProposalRow[];
+    return rows.map(repairProposalFromRow);
+  }
+
+  recordRepairGateResult(result: RepairGateResult, actor: Actor): RepairGateResult {
+    return this.transaction(() => {
+      if (!this.getRepairProposal(result.proposalId)) throw new RepairGateConflictError(`Unknown repair proposal: ${result.proposalId}`);
+      const existing = this.db.prepare("SELECT * FROM repair_gate_results WHERE gate_result_id = ?").get(result.gateResultId) as RepairGateRow | undefined;
+      if (existing) { const stored = repairGateFromRow(existing); if (JSON.stringify(stored) !== JSON.stringify(result)) throw new RepairGateConflictError(`Gate ${result.gateResultId} conflicts`); return stored; }
+      this.db.prepare(`INSERT INTO repair_gate_results(gate_result_id,proposal_id,gate,status,checked_at,summary,artifact_refs_json) VALUES(?,?,?,?,?,?,?)`).run(result.gateResultId, result.proposalId, result.gate, result.status, asIso(result.checkedAt), result.summary, JSON.stringify(result.artifactRefs));
+      this.appendEvent({ aggregateType: "repair_gate", aggregateId: result.gateResultId, eventType: `repair_gate.${result.gate.toLowerCase()}.${result.status.toLowerCase()}`, occurredAt: result.checkedAt, actor, payload: { proposalId: result.proposalId, summary: result.summary } });
+      return repairGateFromRow(this.db.prepare("SELECT * FROM repair_gate_results WHERE gate_result_id = ?").get(result.gateResultId) as RepairGateRow);
+    });
+  }
+
+  listRepairGateResults(proposalId: string): readonly RepairGateResult[] {
+    return (this.db.prepare("SELECT * FROM repair_gate_results WHERE proposal_id = ? ORDER BY checked_at, sequence").all(proposalId) as RepairGateRow[]).map(repairGateFromRow);
+  }
+
+  recordRepairBranch(record: RepairBranchRecord, actor: Actor): RepairBranchRecord {
+    return this.transaction(() => {
+      if (!this.getRepairProposal(record.proposalId)) throw new RepairBranchConflictError(`Unknown repair proposal: ${record.proposalId}`);
+      const byProposal = this.db.prepare("SELECT * FROM repair_branches WHERE proposal_id = ?").get(record.proposalId) as RepairBranchRow | undefined;
+      if (byProposal) { const stored = repairBranchFromRow(byProposal); if (JSON.stringify(stored) !== JSON.stringify(record)) throw new RepairBranchConflictError(`Proposal ${record.proposalId} already has another branch record`); return stored; }
+      this.db.prepare(`INSERT INTO repair_branches(branch_record_id,proposal_id,created_at,branch_name,base_ref,worktree_path,head_sha) VALUES(?,?,?,?,?,?,?)`).run(record.branchRecordId, record.proposalId, asIso(record.createdAt), record.branchName, record.baseRef, record.worktreePath, record.headSha ?? null);
+      this.appendEvent({ aggregateType: "repair_branch", aggregateId: record.branchRecordId, eventType: "repair_branch.recorded", occurredAt: record.createdAt, actor, payload: { proposalId: record.proposalId, branchName: record.branchName, baseRef: record.baseRef } });
+      return this.getRepairBranch(record.proposalId)!;
+    });
+  }
+
+  getRepairBranch(proposalId: string): RepairBranchRecord | null {
+    const row = this.db.prepare("SELECT * FROM repair_branches WHERE proposal_id = ?").get(proposalId) as RepairBranchRow | undefined;
+    return row ? repairBranchFromRow(row) : null;
+  }
+
 
 }

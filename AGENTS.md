@@ -16,6 +16,12 @@
 - Every irreversible action requires: durable intent, durable prepared attempt, persisted irreversible-boundary entry, idempotency key, target account allowlist, active publish gate, and pre-action evidence snapshot.
 - Unknown UI, CAPTCHA, 2FA, account warnings, copyright/policy warnings, or identity ambiguity => fail closed and escalate.
 - AI may diagnose and propose code patches; AI must not free-form click production accounts or bypass platform controls.
+- AI receives only sanitized evidence bundles; raw browser profiles/social credentials and raw binary screenshots/traces are not model input by default.
+- Treat AI JSON/diffs as untrusted data: validate schema, repair policy, patch scope and actual Git changed files before execution.
+- `PUBLISH_UNCERTAIN`, auth/challenge/identity and policy/copyright/account-warning incidents can never be automated into a repair/retry by AI.
+- AI-proposed shell/test commands are never executed; only fixed repository-owned test commands may run.
+- AI repair patches run only in isolated repair branches/worktrees and cannot modify safety/verification/reconciliation/kill-switch/storage/runtime-secret surfaces through the automatic path.
+- W7 can create repair candidates only; production promotion remains false until later real-account gates.
 - Browser session data, cookies, credentials, customer media and evidence artifacts are never committed to git.
 - One browser profile belongs to exactly one BrowserIdentity; concurrent profile/identity use is forbidden.
 - A platform publisher must pass the exact-account `AccountIdentityGuard`; merely being logged in is insufficient.

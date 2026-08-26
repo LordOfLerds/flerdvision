@@ -18,7 +18,9 @@
     "platform-ui": "npm run build && node dist/cli/platform-ui.js",
     "test:w5": "npm run build && node --test tests/w5-*.test.mjs",
     "test:w6": "npm run build && node --test tests/w6-*.test.mjs",
-    "ops": "npm run build && node dist/cli/ops.js"
+    "ops": "npm run build && node dist/cli/ops.js",
+    "test:w7": "npm run build && node --test tests/w7-*.test.mjs",
+    "repair": "npm run build && node dist/cli/repair.js"
   },
   "engines": {
     "node": ">=22"

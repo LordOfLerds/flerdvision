@@ -13,7 +13,7 @@ This file is the repository-local progress source of truth. Update it at every i
 | W4 | Platform adapters PREPARE_ONLY | DONE — local/synthetic verification; live calibration deferred to W8 |
 | W5 | Verification + uncertainty reconciliation | DONE — local/synthetic verification |
 | W6 | Notifications + operations | DONE — local/synthetic verification |
-| W7 | AI repair engineering loop | NOT STARTED |
+| W7 | AI repair engineering loop | DONE — local/synthetic verification; provider-specific invocation deferred to deployment/W8 |
 | W8 | Private/test-account E2E + failure campaign | NOT STARTED |
 | W9 | Customer canary | BLOCKED until W0–W8 green |
 | W10 | Metrics automation | NOT STARTED |
@@ -271,3 +271,44 @@ A kill switch blocks new work claims and is re-checked immediately before durabl
 
 ### Bot remains an adapter
 The exact current bot/checkmark transport is still intentionally not guessed. W6 provides a tested generic webhook bridge with idempotency keys; deployment can plug the real receiver into that port without changing operations or publish semantics.
+
+## W7 acceptance
+
+- [x] migration 7 repair/audit persistence
+- [x] append-only sanitized evidence bundles
+- [x] text/DOM/log redaction and evidence-root confinement
+- [x] raw binary screenshot/trace omission from AI bundles by default
+- [x] structured AI diagnosis/proposal ports
+- [x] runtime validation of untrusted AI JSON
+- [x] deterministic repair policy
+- [x] hard prohibition for PUBLISH_UNCERTAIN automated repair/retry
+- [x] human-only auth/challenge/identity/policy/copyright/account-warning classes
+- [x] AI child-process environment allowlist (no inherited social secrets)
+- [x] patch path/token/size/file-count/delete/rename/binary guards
+- [x] regression-test requirement
+- [x] isolated Git branch/worktree patch flow
+- [x] fixed repository-owned regression/full-suite commands; AI commands ignored
+- [x] prepare-only replay gate contract
+- [x] production promotion structurally false in W7
+- [x] repair inspection/bundle/prepare CLI
+- [x] full test suite green
+
+## W7 automated evidence
+
+- TypeScript build: PASS
+- W7-specific tests: **15 passed / 0 failed**
+- Full suite: **99 passed / 0 failed** at W7 completion checkpoint
+- Real external Claude/Codex provider invocation: **not performed; no provider CLI is installed in the build environment**
+- Real social account access: **not performed**
+- Production promotion from AI repair: **physically unsupported by W7 report contract**
+
+## W7 plan changes
+
+### Binary screenshot evidence is stricter than planned
+The original design said “redacted screenshot”. W7 does not claim safe pixel-level redaction without a dedicated sanitizer. Raw screenshots/traces remain local and are excluded from model input by default. Safe text/DOM/log evidence is still supplied.
+
+### AI provider is an adapter, not a hidden dependency
+The repository implements a structured command-wrapper adapter and does not assume Claude/Codex is installed. Deployment can supply a compatible provider wrapper without granting it browser profiles/social credentials.
+
+### AI-generated commands are never executed
+The model may return requested commands for audit/explanation, but test execution is controlled exclusively by fixed repository configuration.

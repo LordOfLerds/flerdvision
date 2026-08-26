@@ -1,7 +1,7 @@
 # HANDOFF — current repository state
 
 ## Current phase
-W6 — operations/notifications **implemented under local/synthetic verification**. W7 AI repair engineering loop is next; real platform selector/final-action calibration remains a W8 private/test-account gate.
+W7 — AI repair engineering loop **implemented under local/synthetic verification**. W8 private/test-account selector/final-action calibration and real E2E is next.
 
 ## Implemented
 - W0 architecture graph and reverse-trace model,
@@ -55,7 +55,14 @@ W6 — operations/notifications **implemented under local/synthetic verification
 - generic current-bot webhook notification adapter with idempotency key,
 - 08:30 readiness + 17:30 completion operations cadence in Europe/Vienna,
 - localhost-only Basic-auth + CSRF Ops UI with recovery guidance,
-- 84 automated tests passing at W6 full-suite checkpoint.
+- 84 automated tests passing at W6 full-suite checkpoint,
+- W7 sanitized incident evidence bundles + migration 7,
+- runtime AI diagnosis/proposal schema validation,
+- deterministic repair policy that prohibits uncertain-publish/auth/identity/policy automation,
+- isolated Git repair worktrees/branches + patch scope guards,
+- fixed regression/full-suite gates + PREPARE_ONLY replay contract,
+- command AI adapter with restricted environment and no inherited social secrets,
+- 99 automated tests passing at W7 full-suite checkpoint.
 
 ## Safety correction made in W1
 `PUBLISH_UNCERTAIN -> READY` was removed. An uncertain irreversible outcome must reconcile through `VERIFYING` before any retry path exists.
@@ -67,14 +74,13 @@ The current isolated SQLite adapter uses Node 22.16 `node:sqlite`, which emits a
 - real Google Drive credential/bootstrap and live folder scan,
 - exact production bot/checkmark receiver URL/auth configuration,
 - calibrated real Instagram/TikTok/YouTube selectors and live prepare-only account run,
-- AI repair engineering loop (W7),
 - calibrated real final-action invoker and real private/test-account E2E (W8),
 - final-publish capability on any customer account.
 
 These remain blocked by wave order.
 
 ## Next implementation order
-W7 AI repair -> W8 private/test-account real selector/final-action calibration + E2E.
+W8 private/test-account real selector/final-action calibration + E2E.
 
 ## W3 environment note
 The build container applies a Chromium administrator navigation policy to some local/data URLs. No real social site was accessed. W4 uses real installed Chromium against synthetic DOM fixtures for native file input, form fields, screenshots and final-boundary safety. Real social-session bootstrap and selector calibration remain W8 operator-host acceptance steps.

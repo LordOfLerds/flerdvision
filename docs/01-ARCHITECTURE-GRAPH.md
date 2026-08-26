@@ -22,8 +22,8 @@ Creator -> RoutingPolicy -> DistributionPlan
 PostingPolicy -> SlotPolicy -> ScheduleReservation
 
 PublishAttempt -> EvidenceBundle
-Failure/Unknown -> Incident -> EvidenceBundle -> Diagnosis -> RepairProposal
-RepairProposal -> CodeChange -> TestEvidence -> Release
+Failure/Unknown -> Incident -> sanitized EvidenceBundle -> schema-validated AiDiagnosis -> RepairPolicy -> RepairProposal
+RepairProposal -> PatchValidator -> isolated RepairBranch -> Regression/FullSuite -> PrepareOnlyGate -> HumanReview -> later Release
 
 NotificationSink <- DomainEvent
 SourceDisposition <- VerifiedPublication / BlockedOutcome
@@ -88,3 +88,7 @@ Given a `SourceObservation`, operators must be able to answer:
 - A BrowserIdentity maps to one SocialAccount and one isolated profile key.
 - A PublishAttempt may not prepare media unless AccountIdentityGuard has current positive exact-account evidence.
 - Browser-profile ownership is exclusive locally and durably.
+
+
+### IncidentEvidenceBundle / AiDiagnosis / RepairProposal
+W7 forms a separate engineering subgraph. Incident evidence is sanitized before model access; AI output is untrusted and must pass runtime schema + deterministic policy. Permitted patches are applied only in isolated Git worktrees and can never promote directly to production. `PUBLISH_UNCERTAIN` never enters this repair path.

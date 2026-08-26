@@ -1,3 +1,5 @@
+# Flerdvision
+
 ## Current implementation status
 
 - W0 canonical architecture: **done**
@@ -7,13 +9,10 @@
 - W4 PREPARE_ONLY platform UI kernel/adapters: **implemented under local/synthetic verification**
 - W5 verification/reconciliation: **done under local/synthetic verification**
 - W6 operations/notifications: **done under local/synthetic verification**
-- Automated tests: **84 passed / 0 failed** at W6 checkpoint
-- Real platform selector/calibration and real final-action invoker: **deferred to private W8 E2E**
-- Real social-account publishing: **not wired and intentionally blocked**
-
-See `docs/10-PROGRESS.md`, `docs/10-W1-DURABLE-CONTROL-PLANE.md`, and `docs/11-W2-PLUGGABLE-INGRESS.md`.
-
-# Flerdvision
+- W7 AI repair engineering loop: **done under local/synthetic verification**
+- Automated tests: **99 passed / 0 failed** at W7 checkpoint
+- Real platform selector/final-action calibration and private publish E2E: **W8 next**
+- Customer publishing: **not wired and intentionally blocked**
 
 Architecture-first repository for a **UI-native social publishing system** using normal user logins. Social platform APIs are intentionally outside the publishing path.
 
@@ -44,10 +43,11 @@ Every node is traceable backward to its source and forward to its targets.
 11. `docs/13-W4-PREPARE-ONLY.md`
 12. `docs/14-W5-VERIFICATION-AND-RECONCILIATION.md`
 13. `docs/15-W6-OPERATIONS-AND-NOTIFICATIONS.md`
+14. `docs/16-W7-AI-REPAIR.md`
 
 ## Current code
 
-The repository now contains the durable control plane, replaceable ingress/disposition adapters, persistent browser identities, a PREPARE_ONLY platform UI kernel, W5 publish-attempt/evidence/reconciliation semantics, and W6 incidents/notifications/human recovery/kill switches. The W4 publisher still contains no irreversible final social action; W5 adds the guarded lifecycle contract and W6 gates it operationally, but no real social final-action invoker is wired. Real platform selectors remain explicitly uncalibrated until W8 private/test-account E2E.
+The repository now contains the durable control plane, replaceable ingress/disposition adapters, persistent browser identities, a PREPARE_ONLY platform UI kernel, W5 publish-attempt/evidence/reconciliation semantics, W6 incidents/notifications/human recovery/kill switches, and the W7 sanitized AI-assisted repair engineering loop. The W4 publisher still contains no irreversible final social action; W5 adds the guarded lifecycle contract and W6 gates it operationally, but no real social final-action invoker is wired. Real platform selectors remain explicitly uncalibrated until W8 private/test-account E2E.
 
 ```bash
 npm run check

@@ -51,7 +51,7 @@ test("migration 6 creates operations tables and append-only human/notification r
     const raw = new DatabaseSync(runtime.path);
     try {
       const versions = raw.prepare("SELECT version FROM schema_migrations ORDER BY version").all().map((row) => Number(row.version));
-      assert.deepEqual(versions, [1, 2, 3, 4, 5, 6]);
+      assert.deepEqual(versions.slice(0, 6), [1, 2, 3, 4, 5, 6]);
       for (const table of ["incidents", "human_actions", "kill_switches", "notification_messages", "notification_deliveries"]) {
         assert.equal(raw.prepare("SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name=?").get(table).c, 1);
       }

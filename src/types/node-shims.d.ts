@@ -63,6 +63,15 @@ declare module "node:child_process" {
     kill(signal?: string): boolean;
   }
   export function spawn(command: string, args?: readonly string[], options?: { stdio?: string }): SpawnedProcess;
+  export interface SpawnSyncResult {
+    status: number | null;
+    stdout: string;
+    stderr: string;
+    error?: Error;
+  }
+  export function spawnSync(command: string, args?: readonly string[], options?: {
+    cwd?: string; input?: string; encoding?: string; timeout?: number; maxBuffer?: number; env?: Record<string, string>;
+  }): SpawnSyncResult;
 }
 
 declare module "node:timers/promises" {
@@ -104,4 +113,9 @@ declare module "node:http" {
     address(): AddressInfo | string | null;
   }
   export function createServer(handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>): Server;
+}
+
+
+declare module "node:os" {
+  export function tmpdir(): string;
 }

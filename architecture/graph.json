@@ -1,5 +1,5 @@
 {
-  "version": 7,
+  "version": 8,
   "nodes": [
     {
       "id": "external_source",
@@ -520,6 +520,91 @@
       "id": "ops_http_server",
       "kind": "adapter",
       "label": "OpsHttpServer"
+    },
+    {
+      "id": "incident_evidence_bundle_builder",
+      "kind": "application",
+      "label": "IncidentEvidenceBundleBuilder"
+    },
+    {
+      "id": "incident_text_redactor",
+      "kind": "adapter",
+      "label": "IncidentTextRedactor"
+    },
+    {
+      "id": "safe_artifact_text_reader",
+      "kind": "adapter",
+      "label": "SafeLocalArtifactTextReader"
+    },
+    {
+      "id": "repair_store_port",
+      "kind": "port",
+      "label": "RepairStorePort"
+    },
+    {
+      "id": "ai_diagnosis_port",
+      "kind": "port",
+      "label": "AiDiagnosisPort"
+    },
+    {
+      "id": "ai_repair_proposal_port",
+      "kind": "port",
+      "label": "AiRepairProposalPort"
+    },
+    {
+      "id": "command_ai_adapter",
+      "kind": "adapter",
+      "label": "CommandAiDiagnosis/ProposalAdapter"
+    },
+    {
+      "id": "ai_diagnosis",
+      "kind": "domain",
+      "label": "AiDiagnosis"
+    },
+    {
+      "id": "repair_policy",
+      "kind": "application",
+      "label": "RepairPolicy"
+    },
+    {
+      "id": "repair_patch_validator",
+      "kind": "application",
+      "label": "RepairPatchValidator"
+    },
+    {
+      "id": "repair_workspace_port",
+      "kind": "port",
+      "label": "RepairWorkspacePort"
+    },
+    {
+      "id": "git_repair_workspace",
+      "kind": "adapter",
+      "label": "GitRepairWorkspace"
+    },
+    {
+      "id": "repair_branch",
+      "kind": "engineering",
+      "label": "RepairBranchRecord"
+    },
+    {
+      "id": "repair_gate_result",
+      "kind": "engineering",
+      "label": "RepairGateResult"
+    },
+    {
+      "id": "prepare_only_repair_replay_port",
+      "kind": "port",
+      "label": "PrepareOnlyRepairReplayPort"
+    },
+    {
+      "id": "ai_repair_service",
+      "kind": "application",
+      "label": "AiRepairService"
+    },
+    {
+      "id": "repair_cli",
+      "kind": "adapter",
+      "label": "Repair CLI"
     }
   ],
   "edges": [
@@ -1302,6 +1387,146 @@
       "from": "kill_switch",
       "to": "publication_intent",
       "rel": "may_block"
+    },
+    {
+      "from": "incident",
+      "to": "incident_evidence_bundle_builder",
+      "rel": "bundled_by"
+    },
+    {
+      "from": "incident_evidence_bundle_builder",
+      "to": "incident_text_redactor",
+      "rel": "sanitizes_with"
+    },
+    {
+      "from": "incident_evidence_bundle_builder",
+      "to": "safe_artifact_text_reader",
+      "rel": "reads_safe_text_through"
+    },
+    {
+      "from": "incident_evidence_bundle_builder",
+      "to": "evidence_bundle",
+      "rel": "produces"
+    },
+    {
+      "from": "evidence_bundle",
+      "to": "repair_store_port",
+      "rel": "persisted_through"
+    },
+    {
+      "from": "evidence_bundle",
+      "to": "ai_diagnosis_port",
+      "rel": "diagnosed_through"
+    },
+    {
+      "from": "ai_diagnosis_port",
+      "to": "command_ai_adapter",
+      "rel": "implemented_by"
+    },
+    {
+      "from": "ai_diagnosis_port",
+      "to": "ai_diagnosis",
+      "rel": "returns_untrusted"
+    },
+    {
+      "from": "ai_diagnosis",
+      "to": "repair_policy",
+      "rel": "classified_by"
+    },
+    {
+      "from": "repair_policy",
+      "to": "ai_repair_proposal_port",
+      "rel": "may_authorize"
+    },
+    {
+      "from": "ai_repair_proposal_port",
+      "to": "command_ai_adapter",
+      "rel": "implemented_by"
+    },
+    {
+      "from": "ai_repair_proposal_port",
+      "to": "repair_proposal",
+      "rel": "proposes"
+    },
+    {
+      "from": "repair_proposal",
+      "to": "repair_patch_validator",
+      "rel": "validated_by"
+    },
+    {
+      "from": "repair_patch_validator",
+      "to": "repair_workspace_port",
+      "rel": "permits_apply_through"
+    },
+    {
+      "from": "repair_workspace_port",
+      "to": "git_repair_workspace",
+      "rel": "implemented_by"
+    },
+    {
+      "from": "git_repair_workspace",
+      "to": "repair_branch",
+      "rel": "creates_isolated"
+    },
+    {
+      "from": "repair_branch",
+      "to": "test_evidence",
+      "rel": "runs_regression_and_full_suite"
+    },
+    {
+      "from": "repair_branch",
+      "to": "prepare_only_repair_replay_port",
+      "rel": "may_replay_through"
+    },
+    {
+      "from": "test_evidence",
+      "to": "repair_gate_result",
+      "rel": "summarized_as"
+    },
+    {
+      "from": "prepare_only_repair_replay_port",
+      "to": "repair_gate_result",
+      "rel": "records_gate"
+    },
+    {
+      "from": "repair_gate_result",
+      "to": "repair_store_port",
+      "rel": "persisted_through"
+    },
+    {
+      "from": "ai_repair_service",
+      "to": "incident_evidence_bundle_builder",
+      "rel": "orchestrates"
+    },
+    {
+      "from": "ai_repair_service",
+      "to": "ai_diagnosis_port",
+      "rel": "calls"
+    },
+    {
+      "from": "ai_repair_service",
+      "to": "repair_policy",
+      "rel": "enforces"
+    },
+    {
+      "from": "ai_repair_service",
+      "to": "repair_patch_validator",
+      "rel": "enforces"
+    },
+    {
+      "from": "ai_repair_service",
+      "to": "repair_workspace_port",
+      "rel": "uses"
+    },
+    {
+      "from": "repair_cli",
+      "to": "ai_repair_service",
+      "rel": "invokes"
+    },
+    {
+      "from": "repair_proposal",
+      "to": "release",
+      "rel": "cannot_promote_directly"
     }
   ],
   "invariants": [
@@ -1338,6 +1563,17 @@
     "notification messages are persisted before delivery and deduplicated by stable keys",
     "repeated projection of one underlying incident observation must not create alert spam",
     "a resolved incident recurrence reopens and creates a new notification occurrence",
-    "Ops UI binds privately by default and state-changing actions require authentication and CSRF protection"
+    "Ops UI binds privately by default and state-changing actions require authentication and CSRF protection",
+    "AI receives only sanitized incident bundles; raw browser profile/session credentials are never part of model input",
+    "Binary screenshots and traces stay local and are omitted from AI bundles by default unless a future sanitizer explicitly produces AI-safe artifacts",
+    "AI output is untrusted data and must pass runtime schema validation before policy evaluation or patching",
+    "PUBLISH_UNCERTAIN can never enter the AI repair/retry path; only deterministic W5 reconciliation may open a retry path",
+    "Authentication, challenge/2FA, identity, policy, copyright, and account-warning incidents are human-only or prohibited repair classes",
+    "AI repair child processes receive only an allowlisted environment and do not inherit social-platform credentials",
+    "AI-proposed shell/test commands are advisory data only; execution uses repository-owned fixed commands",
+    "AI patches are applied only in isolated Git worktrees/branches and never directly to the main worktree",
+    "Protected safety, verification, reconciliation, operations kill-switch, storage, credential, and runtime paths cannot be modified by an AI repair patch",
+    "AI repair patches cannot delete/rename files or include binary patches and must include regression tests when repair policy requires them",
+    "W7 never promotes an AI repair directly to production; regression/full-suite and prepare-only gates precede human review and W8 real-account calibration"
   ]
 }

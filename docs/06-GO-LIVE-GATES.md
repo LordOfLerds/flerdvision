@@ -24,6 +24,8 @@ Customer publishing remains disabled until every mandatory gate is green.
 - [ ] Bot/notification incident path rehearsed.
 - [ ] Daily readiness/completion reports correct.
 - [ ] Kill switch rehearsed.
+- [ ] AI repair evidence redaction reviewed with representative incidents.
+- [ ] AI repair path proven unable to access social credentials or bypass PUBLISH_UNCERTAIN/auth/policy gates.
 
 ## Data/security
 - [ ] No secrets/profile data in Git.
