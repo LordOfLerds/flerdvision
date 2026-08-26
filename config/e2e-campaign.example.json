@@ -1,0 +1,20 @@
+{
+  "campaignId": "private-e2e-demo",
+  "demoDrive": {
+    "schema": "creator_week_day_path",
+    "rootFolderId": "SET_AT_DEPLOYMENT",
+    "creatorAlias": "01_TestCreator",
+    "creatorId": "creator_e2e_test",
+    "weekSegment": "2026-KW35",
+    "weekStartDate": "2026-08-24",
+    "daySegment": "03_Mittwoch"
+  },
+  "variants": [
+    {"folder":"01_Instagram_Normal_Reel_SECRET","variantId":"instagram.normal_reel.private_zero_followers"},
+    {"folder":"02_Instagram_Trial_Reel_PREPARE_ONLY","variantId":"instagram.trial_reel.nonfollowers"},
+    {"folder":"03_TikTok_OnlyYou_SECRET","variantId":"tiktok.video.only_you"},
+    {"folder":"04_TikTok_Followers_PREPARE_ONLY","variantId":"tiktok.video.followers"},
+    {"folder":"05_TikTok_Friends_PREPARE_ONLY","variantId":"tiktok.video.friends"},
+    {"folder":"06_TikTok_Everyone_PREPARE_ONLY","variantId":"tiktok.video.everyone"}
+  ]
+}

@@ -128,3 +128,6 @@ Still required before W8 can be marked DONE:
 - one private publish if zero-viewer conditions are genuinely satisfied,
 - real profile verification + cleanup,
 - failure injection on the real host.
+
+## Multi-platform campaign extension
+The canonical W8 completion criteria now include the matrix in `docs/19-W8-MULTIPLATFORM-E2E-CAMPAIGN.md`. W8 is not complete after a single Instagram publish; it requires all mandatory Instagram/TikTok prepare-only variants plus verified secret-live Instagram normal Reel and TikTok `Only you` runs.

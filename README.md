@@ -60,3 +60,6 @@ npm run check
 ## Handoff
 
 `AGENTS.md` and `CLAUDE.md` define the non-negotiable invariants for any coding agent. Architecture decisions live under `docs/adr/`.
+
+### W8 multi-platform acceptance
+W8 now uses a real demo Drive fixture and a mandatory Instagram/TikTok variant matrix. See `docs/19-W8-MULTIPLATFORM-E2E-CAMPAIGN.md`. A single successful Instagram test post is not enough to pass W8.

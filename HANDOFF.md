@@ -97,3 +97,11 @@ The build container applies a Chromium administrator navigation policy to some l
 
 ## Safety
 Do not enable customer publishing during W0–W8. Follow `docs/06-GO-LIVE-GATES.md`.
+
+## W8 multi-platform campaign extension — 2026-08-26
+- Real demo Drive root created outside Git: `Flerdvision_PRIVATE_E2E_DEMO`.
+- Canonical current-schema path: `01_TestCreator/2026-KW35/03_Mittwoch/`.
+- Mandatory W8 coverage now includes Instagram normal Reel, Instagram Trial Reel, and TikTok Only you / Followers / Friends / Everyone.
+- Zero-viewer live cases: Instagram normal Reel on a private zero-follower test account; TikTok `Only you`.
+- Trial Reel is prepare-only in the zero-viewer campaign because its purpose is non-follower distribution.
+- W8 completion requires all mandatory prepare-only cases + both secret-live verified cases + cleanup + failure-injection campaign.

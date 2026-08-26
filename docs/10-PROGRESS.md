@@ -364,3 +364,9 @@ W8 adds explicit provider activation modes. Subscription CLI authentication is s
 
 ## Current next gate
 Complete W8 on the intended private test host. W9 customer canary remains blocked until every real W8 acceptance item above is green.
+
+### 2026-08-26 — W8 multi-platform extension
+- Demo Google Drive E2E tree created (test-only, no customer content).
+- Mandatory campaign matrix added: Instagram normal Reel + Trial Reel; TikTok Only you / Followers / Friends / Everyone.
+- Secret-live eligibility is fail-closed: IG normal Reel on private zero-follower account and TikTok Only you only.
+- Real account execution remains pending; code/harness is not equivalent to a completed W8 live acceptance.

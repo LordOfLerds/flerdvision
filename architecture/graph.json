@@ -1,5 +1,5 @@
 {
-  "version": 9,
+  "version": 10,
   "nodes": [
     {
       "id": "external_source",
@@ -685,6 +685,26 @@
       "id": "e2e_cli",
       "kind": "adapter",
       "label": "E2E Operator CLI"
+    },
+    {
+      "id": "e2e_campaign_matrix",
+      "kind": "domain",
+      "label": "W8 Multi-Platform Campaign Matrix"
+    },
+    {
+      "id": "e2e_campaign_variant",
+      "kind": "domain",
+      "label": "E2ECampaignVariant"
+    },
+    {
+      "id": "e2e_secret_visibility_policy",
+      "kind": "domain",
+      "label": "Secret Live Eligibility Policy"
+    },
+    {
+      "id": "demo_drive_e2e_root",
+      "kind": "external",
+      "label": "Demo Google Drive E2E Root"
     }
   ],
   "edges": [
@@ -1707,6 +1727,36 @@
       "from": "e2e_cli",
       "to": "e2e_publish_permit",
       "rel": "issues_with_explicit_confirmation"
+    },
+    {
+      "from": "demo_drive_e2e_root",
+      "to": "content_ingress_port",
+      "rel": "feeds_test_content_through"
+    },
+    {
+      "from": "e2e_campaign_matrix",
+      "to": "e2e_campaign_variant",
+      "rel": "requires_coverage_of"
+    },
+    {
+      "from": "e2e_campaign_variant",
+      "to": "publication_intent",
+      "rel": "drives_test_intent_for"
+    },
+    {
+      "from": "e2e_secret_visibility_policy",
+      "to": "e2e_campaign_variant",
+      "rel": "classifies_live_eligibility"
+    },
+    {
+      "from": "e2e_campaign_matrix",
+      "to": "private_e2e_run",
+      "rel": "defines_completion_criteria_for"
+    },
+    {
+      "from": "e2e_secret_visibility_policy",
+      "to": "e2e_permit_service",
+      "rel": "constrains_secret_live_permits"
     }
   ],
   "invariants": [
@@ -1762,6 +1812,10 @@
     "W5 durable irreversible-boundary persistence still occurs before the retained-session final click",
     "W8 requires at least three successful real PREPARE_ONLY replays before a private final-action permit may be issued",
     "customer accounts remain prohibited until W8 real-account acceptance is complete",
-    "AI provider authentication is isolated from social-account/browser credentials and may be disabled without disabling deterministic operations"
+    "AI provider authentication is isolated from social-account/browser credentials and may be disabled without disabling deterministic operations",
+    "W8 is not complete after one Instagram publish; all mandatory Instagram/TikTok campaign variants must satisfy their required prepare-only coverage",
+    "Instagram Trial Reel is never eligible for a zero-viewer secret-live permit because Trial distribution targets non-followers",
+    "TikTok secret-live E2E may use only the per-post Only you audience mode; Followers, Friends and Everyone remain prepare-only during zero-viewer testing",
+    "the real demo Drive tree is test-only, contains no customer material and remains an ingress adapter fixture rather than a domain dependency"
   ]
 }
