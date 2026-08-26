@@ -18,6 +18,9 @@ import type { PublishAttemptStorePort, VerificationStorePort } from "../../domai
 import type { OperationsStorePort } from "../../domain/operations-ports.js";
 import type { RepairStorePort } from "../../domain/repair-ports.js";
 import type { E2EStorePort } from "../../domain/e2e-ports.js";
+import type { ChannelSourceBinding, StoredChannelSourceBinding } from "../../domain/source-binding.js";
+import { ChannelSourceBindingConflictError, normalizeChannelSourceBinding, sameChannelSourceBinding } from "../../domain/source-binding.js";
+import type { ChannelSourceBindingStorePort } from "../../domain/source-binding-ports.js";
 import type { AiDiagnosis, IncidentEvidenceBundle, RepairBranchRecord, RepairGateResult, RepairProposal } from "../../domain/repair.js";
 import type { E2EGateResult, E2EPublishPermit, E2EPublishPermitConsumption, PrivateE2ERun } from "../../domain/e2e.js";
 import type {
@@ -835,7 +838,35 @@ function sameVerifiedPublication(existing: VerifiedPublication, candidate: Verif
     JSON.stringify([...existing.evidenceIds]) === JSON.stringify([...candidate.evidenceIds]);
 }
 
-export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressStorePort, BrowserIdentityStorePort, PlatformCapabilityStorePort, PublishAttemptStorePort, VerificationStorePort, OperationsStorePort, RepairStorePort, E2EStorePort {
+interface ChannelSourceBindingRow {
+  binding_id: string;
+  account_id: string;
+  source: string;
+  folder_id: string;
+  folder_path: string;
+  interpret_substructure: number;
+  enabled: number;
+  created_at: string;
+  updated_at: string;
+}
+
+function channelSourceBindingFromRow(row: ChannelSourceBindingRow): StoredChannelSourceBinding {
+  return {
+    binding: {
+      bindingId: row.binding_id,
+      accountId: row.account_id,
+      source: row.source as ChannelSourceBinding["source"],
+      folderId: row.folder_id,
+      folderPath: row.folder_path,
+      interpretSubstructure: row.interpret_substructure === 1,
+      enabled: row.enabled === 1
+    },
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressStorePort, BrowserIdentityStorePort, PlatformCapabilityStorePort, PublishAttemptStorePort, VerificationStorePort, OperationsStorePort, RepairStorePort, E2EStorePort, ChannelSourceBindingStorePort {
   private readonly db: DatabaseSync;
 
   constructor(databasePath: string) {
@@ -1450,6 +1481,29 @@ export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressSt
         `);
         this.db.prepare("INSERT INTO schema_migrations(version, name, applied_at) VALUES (?, ?, ?)")
           .run(8, "private live E2E runs gates and one-shot publish permits", new Date().toISOString());
+      });
+    }
+
+    const migrationNine = this.db.prepare("SELECT version FROM schema_migrations WHERE version = 9").get();
+    if (!migrationNine) {
+      this.transaction(() => {
+        this.db.exec(`
+          CREATE TABLE channel_source_bindings (
+            binding_id TEXT PRIMARY KEY,
+            account_id TEXT NOT NULL UNIQUE REFERENCES social_accounts(account_id) ON DELETE RESTRICT,
+            source TEXT NOT NULL,
+            folder_id TEXT NOT NULL,
+            folder_path TEXT NOT NULL,
+            interpret_substructure INTEGER NOT NULL,
+            enabled INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+
+          CREATE INDEX idx_channel_source_bindings_folder ON channel_source_bindings(folder_id);
+        `);
+        this.db.prepare("INSERT INTO schema_migrations(version, name, applied_at) VALUES (?, ?, ?)")
+          .run(9, "per-channel source folder bindings", new Date().toISOString());
       });
     }
   }
@@ -3075,6 +3129,84 @@ export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressSt
   getE2EPublishPermitConsumption(permitId: string): E2EPublishPermitConsumption | null {
     const row = this.db.prepare("SELECT * FROM e2e_publish_permit_consumptions WHERE permit_id = ?").get(permitId) as E2EPermitConsumptionRow | undefined;
     return row ? e2ePermitConsumptionFromRow(row) : null;
+  }
+
+  bindChannelSource(binding: ChannelSourceBinding, now: Instant, actor: Actor): { created: boolean; record: StoredChannelSourceBinding } {
+    const normalized = normalizeChannelSourceBinding(binding);
+    return this.transaction(() => {
+      const account = this.db.prepare("SELECT account_id FROM social_accounts WHERE account_id = ?").get(normalized.accountId);
+      if (!account) throw new ChannelSourceBindingConflictError(`Unknown social account: ${normalized.accountId}`);
+
+      const byId = this.db.prepare("SELECT * FROM channel_source_bindings WHERE binding_id = ?").get(normalized.bindingId) as ChannelSourceBindingRow | undefined;
+      if (byId) {
+        const existing = channelSourceBindingFromRow(byId);
+        if (!sameChannelSourceBinding(existing.binding, normalized)) {
+          throw new ChannelSourceBindingConflictError(`Binding ${normalized.bindingId} already exists with different configuration`);
+        }
+        return { created: false, record: existing };
+      }
+
+      const timestamp = asIso(now);
+      // One folder per account: re-pointing a channel updates its binding rather than adding a
+      // second one, so an arriving file can never have two destinations.
+      const byAccount = this.db.prepare("SELECT * FROM channel_source_bindings WHERE account_id = ?").get(normalized.accountId) as ChannelSourceBindingRow | undefined;
+      if (byAccount) {
+        if (byAccount.binding_id !== normalized.bindingId) {
+          throw new ChannelSourceBindingConflictError(
+            `Account ${normalized.accountId} is already bound as ${byAccount.binding_id}; rebind that binding instead of creating ${normalized.bindingId}`
+          );
+        }
+      }
+
+      this.db.prepare(`
+        INSERT INTO channel_source_bindings(binding_id, account_id, source, folder_id, folder_path, interpret_substructure, enabled, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        normalized.bindingId,
+        normalized.accountId,
+        normalized.source,
+        normalized.folderId,
+        normalized.folderPath,
+        normalized.interpretSubstructure ? 1 : 0,
+        normalized.enabled ? 1 : 0,
+        timestamp,
+        timestamp
+      );
+      this.appendEvent({
+        aggregateType: "channel_source_binding",
+        aggregateId: normalized.bindingId,
+        eventType: "channel_source_binding.created",
+        occurredAt: timestamp,
+        actor,
+        payload: {
+          accountId: normalized.accountId,
+          source: normalized.source,
+          folderId: normalized.folderId,
+          interpretSubstructure: normalized.interpretSubstructure
+        }
+      });
+      return { created: true, record: this.getChannelSourceBinding(normalized.bindingId)! };
+    });
+  }
+
+  getChannelSourceBinding(bindingId: string): StoredChannelSourceBinding | null {
+    const row = this.db.prepare("SELECT * FROM channel_source_bindings WHERE binding_id = ?").get(bindingId) as ChannelSourceBindingRow | undefined;
+    return row ? channelSourceBindingFromRow(row) : null;
+  }
+
+  getChannelSourceBindingForAccount(accountId: string): StoredChannelSourceBinding | null {
+    const row = this.db.prepare("SELECT * FROM channel_source_bindings WHERE account_id = ?").get(accountId) as ChannelSourceBindingRow | undefined;
+    return row ? channelSourceBindingFromRow(row) : null;
+  }
+
+  listChannelSourceBindings(): readonly StoredChannelSourceBinding[] {
+    const rows = this.db.prepare("SELECT * FROM channel_source_bindings ORDER BY created_at, binding_id").all() as ChannelSourceBindingRow[];
+    return rows.map(channelSourceBindingFromRow);
+  }
+
+  listChannelSourceBindingsForFolder(folderId: string): readonly StoredChannelSourceBinding[] {
+    const rows = this.db.prepare("SELECT * FROM channel_source_bindings WHERE folder_id = ? ORDER BY created_at, binding_id").all(folderId) as ChannelSourceBindingRow[];
+    return rows.map(channelSourceBindingFromRow);
   }
 
 }

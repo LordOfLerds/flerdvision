@@ -1,5 +1,5 @@
 {
-  "version": 11,
+  "version": 12,
   "nodes": [
     {
       "id": "external_source",
@@ -805,6 +805,51 @@
       "id": "vps_installer",
       "kind": "adapter",
       "label": "VPS Installer"
+    },
+    {
+      "id": "channel_discovery_spec",
+      "kind": "config",
+      "label": "ChannelDiscoverySpec"
+    },
+    {
+      "id": "channel_discovery_result",
+      "kind": "domain",
+      "label": "ChannelDiscoveryResult"
+    },
+    {
+      "id": "discovered_channel",
+      "kind": "domain",
+      "label": "DiscoveredChannel"
+    },
+    {
+      "id": "configured_channel_discovery",
+      "kind": "adapter",
+      "label": "ConfiguredChannelDiscovery"
+    },
+    {
+      "id": "setup_channel_registration",
+      "kind": "application",
+      "label": "SetupChannelRegistrationService"
+    },
+    {
+      "id": "channel_source_binding",
+      "kind": "domain",
+      "label": "ChannelSourceBinding"
+    },
+    {
+      "id": "channel_source_binding_store",
+      "kind": "port",
+      "label": "ChannelSourceBindingStorePort"
+    },
+    {
+      "id": "chromium_executable_resolver",
+      "kind": "adapter",
+      "label": "ChromiumExecutableResolver"
+    },
+    {
+      "id": "channel_discovery_port",
+      "kind": "port",
+      "label": "ChannelDiscoveryPort"
     }
   ],
   "edges": [
@@ -1997,6 +2042,71 @@
       "from": "vps_installer",
       "to": "stage_vps_staging",
       "rel": "supports"
+    },
+    {
+      "from": "channel_discovery_spec",
+      "to": "configured_channel_discovery",
+      "rel": "calibrates"
+    },
+    {
+      "from": "configured_channel_discovery",
+      "to": "channel_discovery_result",
+      "rel": "produces"
+    },
+    {
+      "from": "channel_discovery_result",
+      "to": "discovered_channel",
+      "rel": "offers"
+    },
+    {
+      "from": "discovered_channel",
+      "to": "setup_channel_registration",
+      "rel": "selected_in"
+    },
+    {
+      "from": "setup_channel_registration",
+      "to": "social_account",
+      "rel": "derives"
+    },
+    {
+      "from": "setup_channel_registration",
+      "to": "browser_identity",
+      "rel": "derives"
+    },
+    {
+      "from": "setup_channel_registration",
+      "to": "session_health",
+      "rel": "records_observation_as"
+    },
+    {
+      "from": "setup_channel_registration",
+      "to": "channel_source_binding",
+      "rel": "binds"
+    },
+    {
+      "from": "channel_source_binding",
+      "to": "social_account",
+      "rel": "feeds"
+    },
+    {
+      "from": "channel_source_binding_store",
+      "to": "channel_source_binding",
+      "rel": "persists"
+    },
+    {
+      "from": "chromium_executable_resolver",
+      "to": "chromium_cdp_runtime",
+      "rel": "resolves_executable_for"
+    },
+    {
+      "from": "chromium_cdp_runtime",
+      "to": "configured_channel_discovery",
+      "rel": "provides_session_to"
+    },
+    {
+      "from": "channel_discovery_port",
+      "to": "configured_channel_discovery",
+      "rel": "implemented_by"
     }
   ],
   "invariants": [
@@ -2064,6 +2174,12 @@
     "the same release SHA must pass FABIAN_MAC before VPS_STAGING",
     "the same release SHA must pass VPS_STAGING before VPS_PRODUCTION_READY",
     "macOS and VPS installers keep final publishing disabled by default",
-    "social passwords and 2FA secrets are never stored in workspace registry or setup UI configuration"
+    "social passwords and 2FA secrets are never stored in workspace registry or setup UI configuration",
+    "a social_account may only be registered from a discovered_channel present in its channel_discovery_result",
+    "channel_discovery_result must be HEALTHY before any discovered_channel is selectable",
+    "an uncalibrated channel_discovery_spec must refuse to run rather than guess selectors",
+    "each social_account has at most one channel_source_binding",
+    "a source folder may feed several social_accounts (cross-posting) but never ambiguously one",
+    "browser executable resolution must be platform-derived, never a fixed path"
   ]
 }

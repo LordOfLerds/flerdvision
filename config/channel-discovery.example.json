@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "_comment": "Selectors are calibrated against the real surface on an authorized account. Until then every entry stays UNVERIFIED and ConfiguredChannelDiscovery refuses to run it. Do not fill these in from memory or documentation.",
+  "specs": [
+    {
+      "specId": "instagram-channel-discovery-v1",
+      "platform": "instagram",
+      "calibrationStatus": "UNVERIFIED",
+      "spec": {
+        "platform": "instagram",
+        "probeUrl": "https://www.instagram.com/accounts/edit/",
+        "channelItemSelector": "__CALIBRATE__",
+        "channelKeyAttribute": "__CALIBRATE__",
+        "handleSelector": "__CALIBRATE__",
+        "displayNameSelector": "__CALIBRATE__",
+        "authUrlIncludes": ["/accounts/login"],
+        "challengeUrlIncludes": ["/challenge"],
+        "settleMs": 1200
+      }
+    },
+    {
+      "specId": "tiktok-channel-discovery-v1",
+      "platform": "tiktok",
+      "calibrationStatus": "UNVERIFIED",
+      "spec": {
+        "platform": "tiktok",
+        "probeUrl": "https://www.tiktok.com/setting",
+        "channelItemSelector": "__CALIBRATE__",
+        "channelKeyAttribute": "__CALIBRATE__",
+        "handleSelector": "__CALIBRATE__",
+        "displayNameSelector": "__CALIBRATE__",
+        "authUrlIncludes": ["/login"],
+        "challengeUrlIncludes": ["/captcha", "/verify"],
+        "settleMs": 1200
+      }
+    },
+    {
+      "specId": "youtube-channel-discovery-v1",
+      "platform": "youtube",
+      "calibrationStatus": "UNVERIFIED",
+      "_comment": "The one platform where a single login genuinely offers several channels. channelItemSelector must match the channel-switcher entries, not the active channel alone.",
+      "spec": {
+        "platform": "youtube",
+        "probeUrl": "https://www.youtube.com/account",
+        "channelItemSelector": "__CALIBRATE__",
+        "channelKeyAttribute": "__CALIBRATE__",
+        "handleSelector": "__CALIBRATE__",
+        "displayNameSelector": "__CALIBRATE__",
+        "detailSelector": "__CALIBRATE__",
+        "authUrlIncludes": ["accounts.google.com"],
+        "challengeUrlIncludes": ["/challenge", "/signin/v2/challenge"],
+        "settleMs": 1500
+      }
+    }
+  ]
+}
