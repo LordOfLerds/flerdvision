@@ -1,7 +1,7 @@
 # HANDOFF — current repository state
 
 ## Current phase
-W8 — private/test-account E2E **engineering harness implemented and locally/synthetically verified**. Real private test-host/account calibration, one permitted publish, verification, cleanup and failure campaign remain the current gate. W9 customer canary is still blocked.
+W8A/W8 — self-service productization is now implemented locally. The next real promotion gate is **LUCA_MAC** on the user's actual Mac, followed by a clean independent **FABIAN_MAC** acceptance and only then **VPS_STAGING**. Real private account calibration/publish evidence has still not been generated. W9 customer canary remains blocked.
 
 ## Implemented
 - W0 architecture graph and reverse-trace model,
@@ -74,6 +74,14 @@ W8 — private/test-account E2E **engineering harness implemented and locally/sy
 - explicit AI provider modes separating subscription CLI pilot use from API/service production use,
 - 105 automated tests passing at current W8 engineering checkpoint.
 
+- W8A master workspace registry with physically separate DB/profile/evidence/config/cache roots per workspace,
+- idempotent workspace installer/runtime initialization,
+- localhost-only self-service setup UI for workspace, Drive-root mapping, social-account registration and isolated login browser launch,
+- allowlisted self-service Test Lab (no arbitrary shell execution),
+- release qualification service enforcing LUCA_MAC -> FABIAN_MAC -> VPS_STAGING -> VPS_PRODUCTION_READY for the same release SHA,
+- macOS and VPS staging installers that keep final publishing disabled,
+- 114 automated tests passing at the current W8A checkpoint,
+
 ## Safety correction made in W1
 `PUBLISH_UNCERTAIN -> READY` was removed. An uncertain irreversible outcome must reconcile through `VERIFYING` before any retry path exists.
 
@@ -90,7 +98,12 @@ The current isolated SQLite adapter uses Node 22.16 `node:sqlite`, which emits a
 These remain blocked by wave order.
 
 ## Next implementation order
-Finish W8 on the intended private test host: human login/2FA -> exact identity -> real UI calibration -> three PREPARE_ONLY passes -> privacy attestation -> one short-lived permit -> one private publish -> W5 verification -> cleanup -> real-host failure campaign. Do not start W9 before all these gates are green.
+1. Run `ops/install-mac.sh` on Luca's actual Mac and qualify `LUCA_MAC` through the self-service UI/Test Lab.
+2. Calibrate and run the real private Instagram/TikTok W8 campaign there.
+3. Run the same release from a clean workspace on Fabian's Mac and qualify `FABIAN_MAC` without copying Luca's runtime.
+4. Only then install the same release on VPS staging, repeat E2E/failure/restart tests and qualify `VPS_STAGING`.
+
+Real W8 host sequence: human login/2FA -> exact identity -> real UI calibration -> three PREPARE_ONLY passes -> privacy attestation -> one short-lived permit -> one private publish -> W5 verification -> cleanup -> real-host failure campaign. Do not start W9 before all these gates are green.
 
 ## W3 environment note
 The build container applies a Chromium administrator navigation policy to some local/data URLs. No real social site was accessed. W4 uses real installed Chromium against synthetic DOM fixtures for native file input, form fields, screenshots and final-boundary safety. Real social-session bootstrap and selector calibration remain W8 operator-host acceptance steps.

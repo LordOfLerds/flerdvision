@@ -1,0 +1,6 @@
+{
+  "workspaceId": "luca",
+  "displayName": "Luca",
+  "timezone": "Europe/Vienna",
+  "note": "Passwords, 2FA, browser cookies and Drive credentials do not belong in this file."
+}

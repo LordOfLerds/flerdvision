@@ -42,6 +42,10 @@
 - Operations notifications use the durable outbox; do not call a bot transport as the source of truth.
 - Ops UI stays private by default (`127.0.0.1`) and state-changing actions require authentication + CSRF protection.
 - Production customer accounts are forbidden until all gates in `docs/06-GO-LIVE-GATES.md` are satisfied.
+- Each user/workspace owns a physically separate SQLite DB, browser-profile root and evidence root; do not introduce cross-workspace shared social state.
+- Host qualification order is release-SHA strict: `LUCA_MAC -> FABIAN_MAC -> VPS_STAGING -> VPS_PRODUCTION_READY`; do not relabel build-container tests as a real host pass.
+- Self-service Test Lab may execute only repository-defined allowlisted commands; never execute a user/AI-provided shell string.
+- macOS/VPS installation keeps `ALLOW_FINAL_PUBLISH=false`; live W8 authorization remains one-shot and test-only.
 
 ## Change discipline
 - New external system => new adapter behind an existing/new port, not domain leakage.

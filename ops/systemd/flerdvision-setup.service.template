@@ -1,0 +1,20 @@
+[Unit]
+Description=Flerdvision private self-service setup UI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__FLERDVISION_USER__
+WorkingDirectory=__REPO_ROOT__
+EnvironmentFile=__ENV_FILE__
+ExecStart=/usr/bin/env npm run setup-ui -- --runtime-root "__RUNTIME_ROOT__" --repo-root "__REPO_ROOT__" --host 127.0.0.1 --port 8788 --chromium "__CHROMIUM__"
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=__RUNTIME_ROOT__
+
+[Install]
+WantedBy=multi-user.target

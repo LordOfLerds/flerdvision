@@ -1,5 +1,5 @@
 {
-  "version": 10,
+  "version": 11,
   "nodes": [
     {
       "id": "external_source",
@@ -705,6 +705,106 @@
       "id": "demo_drive_e2e_root",
       "kind": "external",
       "label": "Demo Google Drive E2E Root"
+    },
+    {
+      "id": "workspace_registry",
+      "kind": "control",
+      "label": "Workspace Registry"
+    },
+    {
+      "id": "workspace",
+      "kind": "domain",
+      "label": "Workspace"
+    },
+    {
+      "id": "workspace_runtime_layout",
+      "kind": "application",
+      "label": "Workspace Runtime Layout"
+    },
+    {
+      "id": "workspace_database",
+      "kind": "boundary",
+      "label": "Workspace-isolated SQLite DB"
+    },
+    {
+      "id": "workspace_browser_profiles",
+      "kind": "boundary",
+      "label": "Workspace-isolated Browser Profiles"
+    },
+    {
+      "id": "workspace_evidence",
+      "kind": "boundary",
+      "label": "Workspace-isolated Evidence"
+    },
+    {
+      "id": "workspace_config",
+      "kind": "boundary",
+      "label": "Workspace Config Root"
+    },
+    {
+      "id": "workspace_service",
+      "kind": "application",
+      "label": "Workspace Service"
+    },
+    {
+      "id": "self_service_ui",
+      "kind": "adapter",
+      "label": "Self-Service Setup UI"
+    },
+    {
+      "id": "test_lab",
+      "kind": "application",
+      "label": "Self-Service Test Lab"
+    },
+    {
+      "id": "fixed_test_runner",
+      "kind": "adapter",
+      "label": "Allowlisted Fixed Test Runner"
+    },
+    {
+      "id": "release_qualification",
+      "kind": "domain",
+      "label": "Release Qualification Run"
+    },
+    {
+      "id": "release_qualification_gate",
+      "kind": "domain",
+      "label": "Qualification Gate Result"
+    },
+    {
+      "id": "release_qualification_service",
+      "kind": "application",
+      "label": "Release Qualification Service"
+    },
+    {
+      "id": "stage_luca_mac",
+      "kind": "promotion_stage",
+      "label": "LUCA_MAC"
+    },
+    {
+      "id": "stage_fabian_mac",
+      "kind": "promotion_stage",
+      "label": "FABIAN_MAC"
+    },
+    {
+      "id": "stage_vps_staging",
+      "kind": "promotion_stage",
+      "label": "VPS_STAGING"
+    },
+    {
+      "id": "stage_vps_production_ready",
+      "kind": "promotion_stage",
+      "label": "VPS_PRODUCTION_READY"
+    },
+    {
+      "id": "mac_installer",
+      "kind": "adapter",
+      "label": "macOS Installer"
+    },
+    {
+      "id": "vps_installer",
+      "kind": "adapter",
+      "label": "VPS Installer"
     }
   ],
   "edges": [
@@ -1757,6 +1857,146 @@
       "from": "e2e_secret_visibility_policy",
       "to": "e2e_permit_service",
       "rel": "constrains_secret_live_permits"
+    },
+    {
+      "from": "workspace_registry",
+      "to": "workspace",
+      "rel": "contains"
+    },
+    {
+      "from": "workspace_service",
+      "to": "workspace_registry",
+      "rel": "writes"
+    },
+    {
+      "from": "workspace_service",
+      "to": "workspace_runtime_layout",
+      "rel": "initializes"
+    },
+    {
+      "from": "workspace_runtime_layout",
+      "to": "workspace_database",
+      "rel": "isolates"
+    },
+    {
+      "from": "workspace_runtime_layout",
+      "to": "workspace_browser_profiles",
+      "rel": "isolates"
+    },
+    {
+      "from": "workspace_runtime_layout",
+      "to": "workspace_evidence",
+      "rel": "isolates"
+    },
+    {
+      "from": "workspace_runtime_layout",
+      "to": "workspace_config",
+      "rel": "isolates"
+    },
+    {
+      "from": "workspace_database",
+      "to": "sqlite_control_plane",
+      "rel": "hosts_per_workspace"
+    },
+    {
+      "from": "workspace_browser_profiles",
+      "to": "browser_identity",
+      "rel": "stores_sessions_for"
+    },
+    {
+      "from": "workspace_evidence",
+      "to": "verification_evidence",
+      "rel": "stores_artifacts_for"
+    },
+    {
+      "from": "self_service_ui",
+      "to": "workspace_service",
+      "rel": "uses"
+    },
+    {
+      "from": "self_service_ui",
+      "to": "workspace_database",
+      "rel": "configures_accounts_in"
+    },
+    {
+      "from": "self_service_ui",
+      "to": "test_lab",
+      "rel": "runs"
+    },
+    {
+      "from": "test_lab",
+      "to": "fixed_test_runner",
+      "rel": "executes_via"
+    },
+    {
+      "from": "release_qualification_service",
+      "to": "release_qualification",
+      "rel": "manages"
+    },
+    {
+      "from": "release_qualification",
+      "to": "release_qualification_gate",
+      "rel": "requires"
+    },
+    {
+      "from": "release_qualification",
+      "to": "stage_luca_mac",
+      "rel": "qualifies_at"
+    },
+    {
+      "from": "release_qualification",
+      "to": "stage_fabian_mac",
+      "rel": "qualifies_at"
+    },
+    {
+      "from": "release_qualification",
+      "to": "stage_vps_staging",
+      "rel": "qualifies_at"
+    },
+    {
+      "from": "release_qualification",
+      "to": "stage_vps_production_ready",
+      "rel": "qualifies_at"
+    },
+    {
+      "from": "stage_luca_mac",
+      "to": "stage_fabian_mac",
+      "rel": "must_pass_before"
+    },
+    {
+      "from": "stage_fabian_mac",
+      "to": "stage_vps_staging",
+      "rel": "must_pass_before"
+    },
+    {
+      "from": "stage_vps_staging",
+      "to": "stage_vps_production_ready",
+      "rel": "must_pass_before"
+    },
+    {
+      "from": "mac_installer",
+      "to": "workspace_service",
+      "rel": "bootstraps"
+    },
+    {
+      "from": "mac_installer",
+      "to": "stage_luca_mac",
+      "rel": "supports"
+    },
+    {
+      "from": "mac_installer",
+      "to": "stage_fabian_mac",
+      "rel": "supports"
+    },
+    {
+      "from": "vps_installer",
+      "to": "workspace_service",
+      "rel": "bootstraps"
+    },
+    {
+      "from": "vps_installer",
+      "to": "stage_vps_staging",
+      "rel": "supports"
     }
   ],
   "invariants": [
@@ -1816,6 +2056,14 @@
     "W8 is not complete after one Instagram publish; all mandatory Instagram/TikTok campaign variants must satisfy their required prepare-only coverage",
     "Instagram Trial Reel is never eligible for a zero-viewer secret-live permit because Trial distribution targets non-followers",
     "TikTok secret-live E2E may use only the per-post Only you audience mode; Followers, Friends and Everyone remain prepare-only during zero-viewer testing",
-    "the real demo Drive tree is test-only, contains no customer material and remains an ingress adapter fixture rather than a domain dependency"
+    "the real demo Drive tree is test-only, contains no customer material and remains an ingress adapter fixture rather than a domain dependency",
+    "each workspace uses a physically separate SQLite database and browser-profile root",
+    "workspace ids cannot escape the configured runtime root",
+    "self-service Test Lab executes only repository-defined allowlisted tests",
+    "the same release SHA must pass LUCA_MAC before FABIAN_MAC",
+    "the same release SHA must pass FABIAN_MAC before VPS_STAGING",
+    "the same release SHA must pass VPS_STAGING before VPS_PRODUCTION_READY",
+    "macOS and VPS installers keep final publishing disabled by default",
+    "social passwords and 2FA secrets are never stored in workspace registry or setup UI configuration"
   ]
 }

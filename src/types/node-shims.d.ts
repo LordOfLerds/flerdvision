@@ -22,6 +22,7 @@ declare const process: {
   argv: string[];
   env: Record<string, string | undefined>;
   versions: { node: string };
+  cwd(): string;
   exitCode?: number;
   on(event: "SIGINT" | "SIGTERM", listener: () => void): void;
 };

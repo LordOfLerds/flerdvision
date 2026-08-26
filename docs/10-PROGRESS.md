@@ -15,6 +15,7 @@ This file is the repository-local progress source of truth. Update it at every i
 | W6 | Notifications + operations | DONE — local/synthetic verification |
 | W7 | AI repair engineering loop | DONE — local/synthetic verification; provider-specific invocation deferred to deployment/W8 |
 | W8 | Private/test-account E2E + failure campaign | IN PROGRESS — engineering harness/local synthetic acceptance done; real private-account acceptance pending |
+| W8A | Self-service productization + host promotion | DONE locally — real LUCA_MAC acceptance pending |
 | W9 | Customer canary | BLOCKED until W0–W8 green |
 | W10 | Metrics automation | NOT STARTED |
 
@@ -370,3 +371,37 @@ Complete W8 on the intended private test host. W9 customer canary remains blocke
 - Mandatory campaign matrix added: Instagram normal Reel + Trial Reel; TikTok Only you / Followers / Friends / Everyone.
 - Secret-live eligibility is fail-closed: IG normal Reel on private zero-follower account and TikTok Only you only.
 - Real account execution remains pending; code/harness is not equivalent to a completed W8 live acceptance.
+
+
+## W8A self-service productization acceptance
+
+- [x] physically isolated per-workspace database/profile/evidence/cache/config/log roots
+- [x] master registry stores metadata only, not social sessions
+- [x] workspace IDs/path traversal fail closed
+- [x] same logical account IDs can exist safely in separate workspace DBs
+- [x] localhost-only self-service setup UI
+- [x] Drive root mapping without storing Drive credential
+- [x] social-account + BrowserIdentity registration without storing passwords/2FA
+- [x] isolated ordinary-login browser launch/close from setup UI
+- [x] allowlisted Test Lab with fixed commands only
+- [x] macOS installer + dry-run validation
+- [x] VPS staging installer + dry-run validation
+- [x] release qualification order LUCA_MAC -> FABIAN_MAC -> VPS_STAGING -> VPS_PRODUCTION_READY
+- [x] architecture graph v11 updated with workspace/promotion forward and reverse connections
+- [x] full automated suite green
+- [ ] actual Luca Mac installer/host preflight — external host pending
+- [ ] actual Fabian Mac independent user acceptance — external host pending after Luca pass
+- [ ] actual VPS staging install/E2E/failure campaign — pending after Fabian pass
+
+## W8A automated evidence
+
+- TypeScript build: PASS
+- W8A-specific tests: **6 passed / 0 failed**
+- Full suite: **114 passed / 0 failed**
+- macOS installer: syntax PASS + isolated dry-run PASS; **not executed on Luca's real Mac yet**
+- VPS installer: syntax PASS + isolated dry-run PASS; **not executed on the target VPS yet**
+- Self-service HTTP flow: auth -> workspace -> Drive mapping -> social account -> Test Lab contract PASS
+- Customer publishing: still blocked
+
+## W8A plan correction
+Engineering-harness completion is not the same as a usable product. W8A adds a self-service boundary and clean-host promotion chain before real platform acceptance. Luca's and Fabian's machines must generate their own evidence; neither may reuse/copied browser profiles or workspace DBs from another host.
