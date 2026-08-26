@@ -3,6 +3,7 @@ import type { PublicationIntentStorePort } from "../domain/control-plane-ports.j
 import type { PublishContext } from "../domain/ports.js";
 import { assertFinalPublishAllowed } from "../domain/safety.js";
 import type { VerificationEvidence } from "../domain/model.js";
+import type { OperationalPublishGatePort } from "../domain/operations-ports.js";
 import type {
   FinalActionInvokerPort,
   PublishAttemptStorePort,
@@ -26,7 +27,8 @@ export class DurableFinalActionService {
   constructor(
     private readonly store: FinalActionStore,
     private readonly invoker: FinalActionInvokerPort,
-    private readonly now: () => string = () => new Date().toISOString()
+    private readonly now: () => string = () => new Date().toISOString(),
+    private readonly operationalGate?: OperationalPublishGatePort
   ) {}
 
   async execute(
@@ -44,6 +46,7 @@ export class DurableFinalActionService {
     if (record.state !== "PREPARING") throw new FinalActionLifecycleError(`Intent ${intentId} must be PREPARING, got ${record.state}`);
 
     assertFinalPublishAllowed(record.intent, context);
+    this.operationalGate?.assertAllowed(record.intent);
 
     // This write occurs BEFORE the actual UI action. A hard crash after this
     // line is deliberately treated as potentially published.

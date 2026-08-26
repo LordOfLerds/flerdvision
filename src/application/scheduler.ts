@@ -1,6 +1,7 @@
 import type { Instant } from "../domain/model.js";
 import type { Actor, ScheduleReservation, StoredPublicationIntent } from "../domain/control-plane.js";
 import type { PublicationIntentStorePort, ScheduleStorePort } from "../domain/control-plane-ports.js";
+import type { OperationalPublishGatePort } from "../domain/operations-ports.js";
 import {
   buildReservation,
   businessDateForInstant,
@@ -43,14 +44,20 @@ export interface ClaimedWork {
 }
 
 export class DueWorkClaimer {
-  constructor(private readonly store: PublicationIntentStorePort & ScheduleStorePort & {
-    acquireLease: import("../domain/control-plane-ports.js").LeaseStorePort["acquireLease"];
-    releaseLease: import("../domain/control-plane-ports.js").LeaseStorePort["releaseLease"];
-  }) {}
+  constructor(
+    private readonly store: PublicationIntentStorePort & ScheduleStorePort & {
+      acquireLease: import("../domain/control-plane-ports.js").LeaseStorePort["acquireLease"];
+      releaseLease: import("../domain/control-plane-ports.js").LeaseStorePort["releaseLease"];
+    },
+    private readonly operationalGate?: OperationalPublishGatePort
+  ) {}
 
   claimNext(ownerId: string, now: Instant, ttlSeconds: number): ClaimedWork | null {
     const workerActor: Actor = { type: "worker", id: ownerId };
     for (const reservation of this.store.listDueReservations(now)) {
+      const candidate = this.store.getIntent(reservation.intentId);
+      if (!candidate) continue;
+      if (this.operationalGate && !this.operationalGate.evaluate(candidate.intent).allowed) continue;
       const resourceKey = `publication-intent:${reservation.intentId}`;
       const lease = this.store.acquireLease(resourceKey, ownerId, now, ttlSeconds, workerActor);
       if (!lease) continue;

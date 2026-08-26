@@ -66,7 +66,7 @@ Exit split: local/synthetic prepare kernel is green in W4; repeated real-platfor
 
 Exit: synthetic and injected post-click failures never duplicate content.
 
-## W6 — Notifications & operations
+## W6 — Notifications & operations [DONE — LOCAL/SYNTHETIC VERIFICATION]
 - current bot adapter,
 - readiness summary,
 - incident notification with evidence link,

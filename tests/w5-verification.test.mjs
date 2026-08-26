@@ -78,7 +78,7 @@ test("migration 5 creates append-only verification tables", () => {
   const store = new SqliteControlPlaneStore(dbPath);
   try {
     const versions = new DatabaseSync(dbPath).prepare("SELECT version FROM schema_migrations ORDER BY version").all().map((r) => Number(r.version));
-    assert.deepEqual(versions, [1, 2, 3, 4, 5]);
+    assert.deepEqual(versions.slice(0, 5), [1, 2, 3, 4, 5]);
   } finally {
     store.close();
     rmSync(dir, { recursive: true, force: true });

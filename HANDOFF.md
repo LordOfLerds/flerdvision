@@ -1,7 +1,7 @@
 # HANDOFF — current repository state
 
 ## Current phase
-W5 — verification/reconciliation **implemented under local/synthetic verification**. W6 operations/notifications is next; real platform selector/final-action calibration remains a W8 private/test-account gate.
+W6 — operations/notifications **implemented under local/synthetic verification**. W7 AI repair engineering loop is next; real platform selector/final-action calibration remains a W8 private/test-account gate.
 
 ## Implemented
 - W0 architecture graph and reverse-trace model,
@@ -48,7 +48,14 @@ W5 — verification/reconciliation **implemented under local/synthetic verificat
 - manual operator verifier for published/not-published evidence,
 - declarative profile verifier that requires a known-ready profile surface before negative evidence,
 - private verification screenshot/DOM/manual proof sink,
-- 66 automated tests passing at W5 full-suite checkpoint.
+- W6 migration 6 with durable incidents, human actions, kill switches and notification outbox,
+- deterministic incident projector with dedupe/reopen semantics,
+- global/account/platform kill-switch gate at work claim + irreversible boundary,
+- human recovery service with safe Resume/Waive constraints,
+- generic current-bot webhook notification adapter with idempotency key,
+- 08:30 readiness + 17:30 completion operations cadence in Europe/Vienna,
+- localhost-only Basic-auth + CSRF Ops UI with recovery guidance,
+- 84 automated tests passing at W6 full-suite checkpoint.
 
 ## Safety correction made in W1
 `PUBLISH_UNCERTAIN -> READY` was removed. An uncertain irreversible outcome must reconcile through `VERIFYING` before any retry path exists.
@@ -58,9 +65,8 @@ The current isolated SQLite adapter uses Node 22.16 `node:sqlite`, which emits a
 
 ## Intentionally not implemented yet
 - real Google Drive credential/bootstrap and live folder scan,
-- exact current bot/checkmark receiver integration,
+- exact production bot/checkmark receiver URL/auth configuration,
 - calibrated real Instagram/TikTok/YouTube selectors and live prepare-only account run,
-- current bot/notification operations UI (W6),
 - AI repair engineering loop (W7),
 - calibrated real final-action invoker and real private/test-account E2E (W8),
 - final-publish capability on any customer account.
@@ -68,7 +74,7 @@ The current isolated SQLite adapter uses Node 22.16 `node:sqlite`, which emits a
 These remain blocked by wave order.
 
 ## Next implementation order
-W6 operations/bot integration -> W7 AI repair -> W8 private/test-account real selector/final-action calibration + E2E.
+W7 AI repair -> W8 private/test-account real selector/final-action calibration + E2E.
 
 ## W3 environment note
 The build container applies a Chromium administrator navigation policy to some local/data URLs. No real social site was accessed. W4 uses real installed Chromium against synthetic DOM fixtures for native file input, form fields, screenshots and final-boundary safety. Real social-session bootstrap and selector calibration remain W8 operator-host acceptance steps.

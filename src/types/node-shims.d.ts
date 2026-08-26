@@ -79,3 +79,29 @@ declare module "node:stream" {
 declare module "node:stream/promises" {
   export function pipeline(...streams: unknown[]): Promise<void>;
 }
+
+declare const Buffer: {
+  from(value: string, encoding?: string): { toString(encoding?: string): string };
+};
+
+declare module "node:http" {
+  export interface IncomingMessage {
+    method?: string;
+    url?: string;
+    headers: Record<string, string | string[] | undefined>;
+    on(event: "data", listener: (chunk: { toString(): string }) => void): this;
+    on(event: "end", listener: () => void): this;
+  }
+  export interface ServerResponse {
+    statusCode: number;
+    setHeader(name: string, value: string): void;
+    end(data?: string): void;
+  }
+  export interface AddressInfo { port: number; address: string; family: string; }
+  export interface Server {
+    listen(port: number, host: string, callback?: () => void): this;
+    close(callback?: (error?: Error) => void): this;
+    address(): AddressInfo | string | null;
+  }
+  export function createServer(handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>): Server;
+}

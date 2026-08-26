@@ -6,7 +6,8 @@
 - W3 browser identity subsystem: **done under local verification**
 - W4 PREPARE_ONLY platform UI kernel/adapters: **implemented under local/synthetic verification**
 - W5 verification/reconciliation: **done under local/synthetic verification**
-- Automated tests: **70 passed / 0 failed** at W5 checkpoint
+- W6 operations/notifications: **done under local/synthetic verification**
+- Automated tests: **84 passed / 0 failed** at W6 checkpoint
 - Real platform selector/calibration and real final-action invoker: **deferred to private W8 E2E**
 - Real social-account publishing: **not wired and intentionally blocked**
 
@@ -42,10 +43,11 @@ Every node is traceable backward to its source and forward to its targets.
 10. `docs/12-W3-BROWSER-IDENTITY.md`
 11. `docs/13-W4-PREPARE-ONLY.md`
 12. `docs/14-W5-VERIFICATION-AND-RECONCILIATION.md`
+13. `docs/15-W6-OPERATIONS-AND-NOTIFICATIONS.md`
 
 ## Current code
 
-The repository now contains the durable control plane, replaceable ingress/disposition adapters, persistent browser identities, a PREPARE_ONLY platform UI kernel, and durable W5 publish-attempt/evidence/reconciliation semantics. The W4 publisher still contains no irreversible final social action; W5 adds the guarded lifecycle contract and verification machinery, but no real social final-action invoker is wired. Real platform selectors remain explicitly uncalibrated until W8 private/test-account E2E.
+The repository now contains the durable control plane, replaceable ingress/disposition adapters, persistent browser identities, a PREPARE_ONLY platform UI kernel, W5 publish-attempt/evidence/reconciliation semantics, and W6 incidents/notifications/human recovery/kill switches. The W4 publisher still contains no irreversible final social action; W5 adds the guarded lifecycle contract and W6 gates it operationally, but no real social final-action invoker is wired. Real platform selectors remain explicitly uncalibrated until W8 private/test-account E2E.
 
 ```bash
 npm run check

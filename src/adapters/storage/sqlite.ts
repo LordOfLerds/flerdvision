@@ -15,6 +15,17 @@ import type { BrowserIdentityStorePort } from "../../domain/browser-identity-por
 import type { PlatformCapabilityProbe } from "../../domain/platform-ui.js";
 import type { PlatformCapabilityStorePort } from "../../domain/platform-ui-ports.js";
 import type { PublishAttemptStorePort, VerificationStorePort } from "../../domain/verification-ports.js";
+import type { OperationsStorePort } from "../../domain/operations-ports.js";
+import type {
+  HumanActionRecord,
+  Incident,
+  IncidentCandidate,
+  KillSwitch,
+  KillSwitchScopeType,
+  NotificationDelivery,
+  NotificationMessage,
+  NotificationReceipt
+} from "../../domain/operations.js";
 import type { PublicationState } from "../../domain/states.js";
 import { transition as assertTransition } from "../../domain/states.js";
 import type {
@@ -230,6 +241,74 @@ interface VerifiedPublicationRow {
   evidence_ids_json: string;
 }
 
+interface IncidentRow {
+  incident_id: string;
+  fingerprint: string;
+  kind: Incident["kind"];
+  severity: Incident["severity"];
+  title: string;
+  summary: string;
+  scope_json: string;
+  evidence_refs_json: string;
+  metadata_json: string;
+  status: Incident["status"];
+  opened_at: string;
+  last_observed_at: string;
+  occurrence_count: number;
+  acknowledged_at: string | null;
+  acknowledged_by: string | null;
+  resolved_at: string | null;
+  resolved_by: string | null;
+  resolution_note: string | null;
+}
+
+interface HumanActionRow {
+  sequence: number;
+  action_id: string;
+  kind: HumanActionRecord["kind"];
+  occurred_at: string;
+  operator_id: string;
+  incident_id: string | null;
+  intent_id: string | null;
+  note: string | null;
+  payload_json: string;
+}
+
+interface KillSwitchRow {
+  scope_type: KillSwitchScopeType;
+  scope_key: string;
+  enabled: number;
+  reason: string;
+  updated_at: string;
+  updated_by: string;
+}
+
+interface NotificationMessageRow {
+  notification_id: string;
+  dedupe_key: string;
+  kind: NotificationMessage["kind"];
+  severity: NotificationMessage["severity"];
+  created_at: string;
+  subject: string;
+  body: string;
+  incident_id: string | null;
+  intent_id: string | null;
+  account_id: string | null;
+  metadata_json: string;
+}
+
+interface NotificationDeliveryRow {
+  notification_id: string;
+  channel_key: string;
+  status: NotificationDelivery["status"];
+  attempts: number;
+  created_at: string;
+  updated_at: string;
+  last_attempt_at: string | null;
+  external_message_id: string | null;
+  error: string | null;
+}
+
 export class IdempotencyConflictError extends Error {}
 export class ScheduleConflictError extends Error {}
 export class IntentNotFoundError extends Error {}
@@ -242,6 +321,10 @@ export class PublishAttemptConflictError extends Error {}
 export class VerificationEvidenceConflictError extends Error {}
 export class VerificationDecisionConflictError extends Error {}
 export class VerifiedPublicationConflictError extends Error {}
+export class IncidentConflictError extends Error {}
+export class HumanActionConflictError extends Error {}
+export class KillSwitchConflictError extends Error {}
+export class NotificationConflictError extends Error {}
 
 function asIso(instant: Instant): Instant {
   const date = new Date(instant);
@@ -477,6 +560,87 @@ function verifiedPublicationFromRow(row: VerifiedPublicationRow): VerifiedPublic
   return publication;
 }
 
+function incidentFromRow(row: IncidentRow): Incident {
+  const incident: Incident = {
+    incidentId: row.incident_id,
+    fingerprint: row.fingerprint,
+    kind: row.kind,
+    severity: row.severity,
+    title: row.title,
+    summary: row.summary,
+    scope: JSON.parse(row.scope_json) as Incident["scope"],
+    evidenceRefs: JSON.parse(row.evidence_refs_json) as string[],
+    metadata: JSON.parse(row.metadata_json) as Record<string, string>,
+    status: row.status,
+    openedAt: row.opened_at,
+    lastObservedAt: row.last_observed_at,
+    occurrenceCount: row.occurrence_count
+  };
+  if (row.acknowledged_at !== null) Object.assign(incident, { acknowledgedAt: row.acknowledged_at });
+  if (row.acknowledged_by !== null) Object.assign(incident, { acknowledgedBy: row.acknowledged_by });
+  if (row.resolved_at !== null) Object.assign(incident, { resolvedAt: row.resolved_at });
+  if (row.resolved_by !== null) Object.assign(incident, { resolvedBy: row.resolved_by });
+  if (row.resolution_note !== null) Object.assign(incident, { resolutionNote: row.resolution_note });
+  return incident;
+}
+
+function humanActionFromRow(row: HumanActionRow): HumanActionRecord {
+  const action: HumanActionRecord = {
+    actionId: row.action_id,
+    kind: row.kind,
+    occurredAt: row.occurred_at,
+    operatorId: row.operator_id,
+    payload: JSON.parse(row.payload_json) as Record<string, string>
+  };
+  if (row.incident_id !== null) Object.assign(action, { incidentId: row.incident_id });
+  if (row.intent_id !== null) Object.assign(action, { intentId: row.intent_id });
+  if (row.note !== null) Object.assign(action, { note: row.note });
+  return action;
+}
+
+function killSwitchFromRow(row: KillSwitchRow): KillSwitch {
+  return {
+    scopeType: row.scope_type,
+    scopeKey: row.scope_key,
+    enabled: row.enabled === 1,
+    reason: row.reason,
+    updatedAt: row.updated_at,
+    updatedBy: row.updated_by
+  };
+}
+
+function notificationMessageFromRow(row: NotificationMessageRow): NotificationMessage {
+  const message: NotificationMessage = {
+    notificationId: row.notification_id,
+    dedupeKey: row.dedupe_key,
+    kind: row.kind,
+    severity: row.severity,
+    createdAt: row.created_at,
+    subject: row.subject,
+    body: row.body,
+    metadata: JSON.parse(row.metadata_json) as Record<string, string>
+  };
+  if (row.incident_id !== null) Object.assign(message, { incidentId: row.incident_id });
+  if (row.intent_id !== null) Object.assign(message, { intentId: row.intent_id });
+  if (row.account_id !== null) Object.assign(message, { accountId: row.account_id });
+  return message;
+}
+
+function notificationDeliveryFromRow(row: NotificationDeliveryRow): NotificationDelivery {
+  const delivery: NotificationDelivery = {
+    notificationId: row.notification_id,
+    channelKey: row.channel_key,
+    status: row.status,
+    attempts: row.attempts,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+  if (row.last_attempt_at !== null) Object.assign(delivery, { lastAttemptAt: row.last_attempt_at });
+  if (row.external_message_id !== null) Object.assign(delivery, { externalMessageId: row.external_message_id });
+  if (row.error !== null) Object.assign(delivery, { error: row.error });
+  return delivery;
+}
+
 function sameSocialAccount(existing: SocialAccount, candidate: SocialAccount): boolean {
   return (existing.creatorId ?? null) === (candidate.creatorId ?? null) &&
     existing.platform === candidate.platform &&
@@ -546,7 +710,7 @@ function sameVerifiedPublication(existing: VerifiedPublication, candidate: Verif
     JSON.stringify([...existing.evidenceIds]) === JSON.stringify([...candidate.evidenceIds]);
 }
 
-export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressStorePort, BrowserIdentityStorePort, PlatformCapabilityStorePort, PublishAttemptStorePort, VerificationStorePort {
+export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressStorePort, BrowserIdentityStorePort, PlatformCapabilityStorePort, PublishAttemptStorePort, VerificationStorePort, OperationsStorePort {
   private readonly db: DatabaseSync;
 
   constructor(databasePath: string) {
@@ -902,6 +1066,118 @@ export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressSt
         `);
         this.db.prepare("INSERT INTO schema_migrations(version, name, applied_at) VALUES (?, ?, ?)")
           .run(5, "publish attempts verification evidence and reconciliation", new Date().toISOString());
+      });
+    }
+
+    const migrationSix = this.db.prepare("SELECT version FROM schema_migrations WHERE version = 6").get();
+    if (!migrationSix) {
+      this.transaction(() => {
+        this.db.exec(`
+          CREATE TABLE incidents (
+            incident_id TEXT PRIMARY KEY,
+            fingerprint TEXT NOT NULL UNIQUE,
+            kind TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            title TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            scope_json TEXT NOT NULL,
+            evidence_refs_json TEXT NOT NULL,
+            metadata_json TEXT NOT NULL,
+            status TEXT NOT NULL,
+            opened_at TEXT NOT NULL,
+            last_observed_at TEXT NOT NULL,
+            occurrence_count INTEGER NOT NULL CHECK(occurrence_count >= 1),
+            acknowledged_at TEXT,
+            acknowledged_by TEXT,
+            resolved_at TEXT,
+            resolved_by TEXT,
+            resolution_note TEXT
+          );
+
+          CREATE INDEX idx_incidents_status_severity ON incidents(status, severity, last_observed_at);
+
+          CREATE TABLE human_actions (
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+            action_id TEXT NOT NULL UNIQUE,
+            kind TEXT NOT NULL,
+            occurred_at TEXT NOT NULL,
+            operator_id TEXT NOT NULL,
+            incident_id TEXT REFERENCES incidents(incident_id) ON DELETE RESTRICT,
+            intent_id TEXT REFERENCES publication_intents(intent_id) ON DELETE RESTRICT,
+            note TEXT,
+            payload_json TEXT NOT NULL
+          );
+
+          CREATE INDEX idx_human_actions_intent ON human_actions(intent_id, occurred_at, sequence);
+          CREATE INDEX idx_human_actions_incident ON human_actions(incident_id, occurred_at, sequence);
+
+          CREATE TRIGGER human_actions_no_update
+          BEFORE UPDATE ON human_actions
+          BEGIN
+            SELECT RAISE(ABORT, 'human_actions is append-only');
+          END;
+
+          CREATE TRIGGER human_actions_no_delete
+          BEFORE DELETE ON human_actions
+          BEGIN
+            SELECT RAISE(ABORT, 'human_actions is append-only');
+          END;
+
+          CREATE TABLE kill_switches (
+            scope_type TEXT NOT NULL,
+            scope_key TEXT NOT NULL,
+            enabled INTEGER NOT NULL CHECK(enabled IN (0, 1)),
+            reason TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            updated_by TEXT NOT NULL,
+            PRIMARY KEY(scope_type, scope_key)
+          );
+
+          CREATE INDEX idx_kill_switch_enabled ON kill_switches(enabled, scope_type, scope_key);
+
+          CREATE TABLE notification_messages (
+            notification_id TEXT PRIMARY KEY,
+            dedupe_key TEXT NOT NULL UNIQUE,
+            kind TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            subject TEXT NOT NULL,
+            body TEXT NOT NULL,
+            incident_id TEXT REFERENCES incidents(incident_id) ON DELETE RESTRICT,
+            intent_id TEXT REFERENCES publication_intents(intent_id) ON DELETE RESTRICT,
+            account_id TEXT,
+            metadata_json TEXT NOT NULL
+          );
+
+          CREATE TRIGGER notification_messages_no_update
+          BEFORE UPDATE ON notification_messages
+          BEGIN
+            SELECT RAISE(ABORT, 'notification_messages is append-only');
+          END;
+
+          CREATE TRIGGER notification_messages_no_delete
+          BEFORE DELETE ON notification_messages
+          BEGIN
+            SELECT RAISE(ABORT, 'notification_messages is append-only');
+          END;
+
+          CREATE TABLE notification_deliveries (
+            notification_id TEXT NOT NULL REFERENCES notification_messages(notification_id) ON DELETE RESTRICT,
+            channel_key TEXT NOT NULL,
+            status TEXT NOT NULL,
+            attempts INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            last_attempt_at TEXT,
+            external_message_id TEXT,
+            error TEXT,
+            PRIMARY KEY(notification_id, channel_key)
+          );
+
+          CREATE INDEX idx_notification_delivery_status ON notification_deliveries(status, updated_at);
+        `);
+        this.db.prepare("INSERT INTO schema_migrations(version, name, applied_at) VALUES (?, ?, ?)")
+          .run(6, "operations incidents notifications and kill switches", new Date().toISOString());
       });
     }
   }
@@ -2044,6 +2320,266 @@ export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressSt
   listVerifiedPublications(): readonly VerifiedPublication[] {
     return (this.db.prepare("SELECT * FROM verified_publications ORDER BY verified_at, sequence").all() as VerifiedPublicationRow[])
       .map(verifiedPublicationFromRow);
+  }
+
+
+  createOrRefreshIncident(candidate: IncidentCandidate, actor: Actor): { created: boolean; reopened: boolean; incident: Incident } {
+    return this.transaction(() => {
+      const existingRow = this.db.prepare("SELECT * FROM incidents WHERE fingerprint = ?").get(candidate.fingerprint) as IncidentRow | undefined;
+      const observedAt = asIso(candidate.observedAt);
+      if (existingRow) {
+        const existing = incidentFromRow(existingRow);
+        if (observedAt <= existing.lastObservedAt && existing.status !== "RESOLVED") return { created: false, reopened: false, incident: existing };
+        const status: Incident["status"] = existing.status === "RESOLVED" ? "OPEN" : existing.status;
+        const count = existing.occurrenceCount + (observedAt > existing.lastObservedAt ? 1 : 0);
+        this.db.prepare(`
+          UPDATE incidents
+          SET kind = ?, severity = ?, title = ?, summary = ?, scope_json = ?, evidence_refs_json = ?, metadata_json = ?,
+              status = ?, last_observed_at = ?, occurrence_count = ?,
+              acknowledged_at = CASE WHEN ? = 'OPEN' THEN NULL ELSE acknowledged_at END,
+              acknowledged_by = CASE WHEN ? = 'OPEN' THEN NULL ELSE acknowledged_by END,
+              resolved_at = CASE WHEN ? = 'OPEN' THEN NULL ELSE resolved_at END,
+              resolved_by = CASE WHEN ? = 'OPEN' THEN NULL ELSE resolved_by END,
+              resolution_note = CASE WHEN ? = 'OPEN' THEN NULL ELSE resolution_note END
+          WHERE incident_id = ?
+        `).run(
+          candidate.kind, candidate.severity, candidate.title, candidate.summary,
+          JSON.stringify(candidate.scope), JSON.stringify([...(candidate.evidenceRefs ?? [])]), JSON.stringify(candidate.metadata ?? {}),
+          status, observedAt, count, status, status, status, status, status, existing.incidentId
+        );
+        this.appendEvent({
+          aggregateType: "incident", aggregateId: existing.incidentId,
+          eventType: existing.status === "RESOLVED" ? "incident.reopened" : "incident.refreshed",
+          occurredAt: observedAt, actor,
+          payload: { fingerprint: candidate.fingerprint, kind: candidate.kind, occurrenceCount: count }
+        });
+        return { created: false, reopened: existing.status === "RESOLVED", incident: this.getIncident(existing.incidentId)! };
+      }
+
+      const incidentId = newEventId("incident");
+      this.db.prepare(`
+        INSERT INTO incidents(
+          incident_id, fingerprint, kind, severity, title, summary, scope_json, evidence_refs_json, metadata_json,
+          status, opened_at, last_observed_at, occurrence_count
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, 1)
+      `).run(
+        incidentId, candidate.fingerprint, candidate.kind, candidate.severity, candidate.title, candidate.summary,
+        JSON.stringify(candidate.scope), JSON.stringify([...(candidate.evidenceRefs ?? [])]), JSON.stringify(candidate.metadata ?? {}),
+        observedAt, observedAt
+      );
+      this.appendEvent({
+        aggregateType: "incident", aggregateId: incidentId, eventType: "incident.opened",
+        occurredAt: observedAt, actor,
+        payload: { fingerprint: candidate.fingerprint, kind: candidate.kind, severity: candidate.severity }
+      });
+      return { created: true, reopened: false, incident: this.getIncident(incidentId)! };
+    });
+  }
+
+  getIncident(incidentId: string): Incident | null {
+    const row = this.db.prepare("SELECT * FROM incidents WHERE incident_id = ?").get(incidentId) as IncidentRow | undefined;
+    return row ? incidentFromRow(row) : null;
+  }
+
+  listIncidents(statuses?: readonly Incident["status"][]): readonly Incident[] {
+    if (!statuses || statuses.length === 0) {
+      return (this.db.prepare("SELECT * FROM incidents ORDER BY last_observed_at DESC, incident_id").all() as IncidentRow[]).map(incidentFromRow);
+    }
+    const placeholders = statuses.map(() => "?").join(",");
+    return (this.db.prepare(`SELECT * FROM incidents WHERE status IN (${placeholders}) ORDER BY last_observed_at DESC, incident_id`).all(...statuses) as IncidentRow[]).map(incidentFromRow);
+  }
+
+  acknowledgeIncident(incidentId: string, at: Instant, operatorId: string, note?: string): Incident {
+    return this.transaction(() => {
+      const existing = this.getIncident(incidentId);
+      if (!existing) throw new IncidentConflictError(`Unknown incident: ${incidentId}`);
+      if (existing.status === "RESOLVED") throw new IncidentConflictError(`Incident ${incidentId} is already resolved`);
+      if (existing.status === "ACKNOWLEDGED") return existing;
+      const timestamp = asIso(at);
+      this.db.prepare("UPDATE incidents SET status = 'ACKNOWLEDGED', acknowledged_at = ?, acknowledged_by = ? WHERE incident_id = ?")
+        .run(timestamp, operatorId, incidentId);
+      this.appendEvent({
+        aggregateType: "incident", aggregateId: incidentId, eventType: "incident.acknowledged",
+        occurredAt: timestamp, actor: { type: "operator", id: operatorId },
+        payload: note ? { note } : {}
+      });
+      return this.getIncident(incidentId)!;
+    });
+  }
+
+  resolveIncident(incidentId: string, at: Instant, operatorId: string, note: string): Incident {
+    return this.transaction(() => {
+      const existing = this.getIncident(incidentId);
+      if (!existing) throw new IncidentConflictError(`Unknown incident: ${incidentId}`);
+      if (existing.status === "RESOLVED") return existing;
+      const timestamp = asIso(at);
+      this.db.prepare(`
+        UPDATE incidents SET status = 'RESOLVED', resolved_at = ?, resolved_by = ?, resolution_note = ?
+        WHERE incident_id = ?
+      `).run(timestamp, operatorId, note, incidentId);
+      this.appendEvent({
+        aggregateType: "incident", aggregateId: incidentId, eventType: "incident.resolved",
+        occurredAt: timestamp, actor: { type: "operator", id: operatorId }, payload: { note }
+      });
+      return this.getIncident(incidentId)!;
+    });
+  }
+
+  recordHumanAction(action: HumanActionRecord, actor: Actor): HumanActionRecord {
+    return this.transaction(() => {
+      const existingRow = this.db.prepare("SELECT * FROM human_actions WHERE action_id = ?").get(action.actionId) as HumanActionRow | undefined;
+      if (existingRow) {
+        const existing = humanActionFromRow(existingRow);
+        if (JSON.stringify(existing) !== JSON.stringify(action)) throw new HumanActionConflictError(`Human action ${action.actionId} conflicts with existing record`);
+        return existing;
+      }
+      const normalizedAt = asIso(action.occurredAt);
+      this.db.prepare(`
+        INSERT INTO human_actions(action_id, kind, occurred_at, operator_id, incident_id, intent_id, note, payload_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        action.actionId, action.kind, normalizedAt, action.operatorId, action.incidentId ?? null, action.intentId ?? null,
+        action.note ?? null, JSON.stringify(action.payload)
+      );
+      this.appendEvent({
+        aggregateType: "human_action", aggregateId: action.actionId, eventType: `human_action.${action.kind.toLowerCase()}`,
+        occurredAt: normalizedAt, actor,
+        payload: { operatorId: action.operatorId, incidentId: action.incidentId ?? null, intentId: action.intentId ?? null }
+      });
+      const row = this.db.prepare("SELECT * FROM human_actions WHERE action_id = ?").get(action.actionId) as HumanActionRow;
+      return humanActionFromRow(row);
+    });
+  }
+
+  listHumanActions(intentId?: string, incidentId?: string): readonly HumanActionRecord[] {
+    const filters: string[] = [];
+    const params: string[] = [];
+    if (intentId) { filters.push("intent_id = ?"); params.push(intentId); }
+    if (incidentId) { filters.push("incident_id = ?"); params.push(incidentId); }
+    let sql = "SELECT * FROM human_actions";
+    if (filters.length > 0) sql += ` WHERE ${filters.join(" AND ")}`;
+    sql += " ORDER BY occurred_at, sequence";
+    return (this.db.prepare(sql).all(...params) as HumanActionRow[]).map(humanActionFromRow);
+  }
+
+  setKillSwitch(switchState: KillSwitch, actor: Actor): KillSwitch {
+    return this.transaction(() => {
+      const timestamp = asIso(switchState.updatedAt);
+      this.db.prepare(`
+        INSERT INTO kill_switches(scope_type, scope_key, enabled, reason, updated_at, updated_by)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(scope_type, scope_key) DO UPDATE SET
+          enabled = excluded.enabled,
+          reason = excluded.reason,
+          updated_at = excluded.updated_at,
+          updated_by = excluded.updated_by
+      `).run(switchState.scopeType, switchState.scopeKey, switchState.enabled ? 1 : 0, switchState.reason, timestamp, switchState.updatedBy);
+      this.appendEvent({
+        aggregateType: "kill_switch", aggregateId: `${switchState.scopeType}:${switchState.scopeKey}`,
+        eventType: switchState.enabled ? "kill_switch.enabled" : "kill_switch.disabled",
+        occurredAt: timestamp, actor,
+        payload: { scopeType: switchState.scopeType, scopeKey: switchState.scopeKey, reason: switchState.reason }
+      });
+      return this.getKillSwitch(switchState.scopeType, switchState.scopeKey)!;
+    });
+  }
+
+  getKillSwitch(scopeType: KillSwitchScopeType, scopeKey: string): KillSwitch | null {
+    const row = this.db.prepare("SELECT * FROM kill_switches WHERE scope_type = ? AND scope_key = ?").get(scopeType, scopeKey) as KillSwitchRow | undefined;
+    return row ? killSwitchFromRow(row) : null;
+  }
+
+  listKillSwitches(enabledOnly = false): readonly KillSwitch[] {
+    const sql = enabledOnly
+      ? "SELECT * FROM kill_switches WHERE enabled = 1 ORDER BY scope_type, scope_key"
+      : "SELECT * FROM kill_switches ORDER BY scope_type, scope_key";
+    return (this.db.prepare(sql).all() as KillSwitchRow[]).map(killSwitchFromRow);
+  }
+
+  enqueueNotification(message: NotificationMessage, channelKeys: readonly string[], actor: Actor): readonly NotificationDelivery[] {
+    if (channelKeys.length === 0) return [];
+    return this.transaction(() => {
+      const existingByDedupe = this.db.prepare("SELECT * FROM notification_messages WHERE dedupe_key = ?").get(message.dedupeKey) as NotificationMessageRow | undefined;
+      let notificationId = message.notificationId;
+      if (existingByDedupe) {
+        notificationId = existingByDedupe.notification_id;
+      } else {
+        const existingById = this.db.prepare("SELECT * FROM notification_messages WHERE notification_id = ?").get(message.notificationId) as NotificationMessageRow | undefined;
+        if (existingById) throw new NotificationConflictError(`Notification id ${message.notificationId} already exists with another dedupe key`);
+        const timestamp = asIso(message.createdAt);
+        this.db.prepare(`
+          INSERT INTO notification_messages(notification_id, dedupe_key, kind, severity, created_at, subject, body, incident_id, intent_id, account_id, metadata_json)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          message.notificationId, message.dedupeKey, message.kind, message.severity, timestamp, message.subject, message.body,
+          message.incidentId ?? null, message.intentId ?? null, message.accountId ?? null, JSON.stringify(message.metadata)
+        );
+        this.appendEvent({
+          aggregateType: "notification", aggregateId: message.notificationId, eventType: "notification.enqueued",
+          occurredAt: timestamp, actor, payload: { dedupeKey: message.dedupeKey, kind: message.kind, channels: [...channelKeys] }
+        });
+      }
+
+      const createdAt = existingByDedupe?.created_at ?? asIso(message.createdAt);
+      for (const channelKey of [...new Set(channelKeys)]) {
+        this.db.prepare(`
+          INSERT OR IGNORE INTO notification_deliveries(notification_id, channel_key, status, attempts, created_at, updated_at)
+          VALUES (?, ?, 'PENDING', 0, ?, ?)
+        `).run(notificationId, channelKey, createdAt, createdAt);
+      }
+      return (this.db.prepare("SELECT * FROM notification_deliveries WHERE notification_id = ? ORDER BY channel_key").all(notificationId) as NotificationDeliveryRow[]).map(notificationDeliveryFromRow);
+    });
+  }
+
+  getNotification(notificationId: string): NotificationMessage | null {
+    const row = this.db.prepare("SELECT * FROM notification_messages WHERE notification_id = ?").get(notificationId) as NotificationMessageRow | undefined;
+    return row ? notificationMessageFromRow(row) : null;
+  }
+
+  listNotificationDeliveries(statuses?: readonly NotificationDelivery["status"][]): readonly NotificationDelivery[] {
+    if (!statuses || statuses.length === 0) {
+      return (this.db.prepare("SELECT * FROM notification_deliveries ORDER BY created_at, notification_id, channel_key").all() as NotificationDeliveryRow[]).map(notificationDeliveryFromRow);
+    }
+    const placeholders = statuses.map(() => "?").join(",");
+    return (this.db.prepare(`SELECT * FROM notification_deliveries WHERE status IN (${placeholders}) ORDER BY updated_at, notification_id, channel_key`).all(...statuses) as NotificationDeliveryRow[]).map(notificationDeliveryFromRow);
+  }
+
+  markNotificationSent(notificationId: string, channelKey: string, at: Instant, receipt: NotificationReceipt, actor: Actor): NotificationDelivery {
+    return this.transaction(() => {
+      const row = this.db.prepare("SELECT * FROM notification_deliveries WHERE notification_id = ? AND channel_key = ?").get(notificationId, channelKey) as NotificationDeliveryRow | undefined;
+      if (!row) throw new NotificationConflictError(`Unknown notification delivery ${notificationId}/${channelKey}`);
+      if (row.status === "SENT") return notificationDeliveryFromRow(row);
+      const timestamp = asIso(at);
+      this.db.prepare(`
+        UPDATE notification_deliveries SET status = 'SENT', attempts = attempts + 1, updated_at = ?, last_attempt_at = ?, external_message_id = ?, error = NULL
+        WHERE notification_id = ? AND channel_key = ?
+      `).run(timestamp, timestamp, receipt.externalMessageId ?? null, notificationId, channelKey);
+      this.appendEvent({
+        aggregateType: "notification", aggregateId: notificationId, eventType: "notification.sent",
+        occurredAt: timestamp, actor, payload: { channelKey, externalMessageId: receipt.externalMessageId ?? null }
+      });
+      const updated = this.db.prepare("SELECT * FROM notification_deliveries WHERE notification_id = ? AND channel_key = ?").get(notificationId, channelKey) as NotificationDeliveryRow;
+      return notificationDeliveryFromRow(updated);
+    });
+  }
+
+  markNotificationFailed(notificationId: string, channelKey: string, at: Instant, error: string, actor: Actor): NotificationDelivery {
+    return this.transaction(() => {
+      const row = this.db.prepare("SELECT * FROM notification_deliveries WHERE notification_id = ? AND channel_key = ?").get(notificationId, channelKey) as NotificationDeliveryRow | undefined;
+      if (!row) throw new NotificationConflictError(`Unknown notification delivery ${notificationId}/${channelKey}`);
+      if (row.status === "SENT") return notificationDeliveryFromRow(row);
+      const timestamp = asIso(at);
+      this.db.prepare(`
+        UPDATE notification_deliveries SET status = 'FAILED', attempts = attempts + 1, updated_at = ?, last_attempt_at = ?, error = ?
+        WHERE notification_id = ? AND channel_key = ?
+      `).run(timestamp, timestamp, error, notificationId, channelKey);
+      this.appendEvent({
+        aggregateType: "notification", aggregateId: notificationId, eventType: "notification.failed",
+        occurredAt: timestamp, actor, payload: { channelKey, error }
+      });
+      const updated = this.db.prepare("SELECT * FROM notification_deliveries WHERE notification_id = ? AND channel_key = ?").get(notificationId, channelKey) as NotificationDeliveryRow;
+      return notificationDeliveryFromRow(updated);
+    });
   }
 
 }

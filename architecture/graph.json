@@ -1,5 +1,5 @@
 {
-  "version": 6,
+  "version": 7,
   "nodes": [
     {
       "id": "external_source",
@@ -420,6 +420,106 @@
       "id": "irreversible_boundary_record",
       "kind": "boundary",
       "label": "Durable Irreversible Boundary Record"
+    },
+    {
+      "id": "human_action",
+      "kind": "domain",
+      "label": "HumanActionRecord"
+    },
+    {
+      "id": "kill_switch",
+      "kind": "domain",
+      "label": "KillSwitch"
+    },
+    {
+      "id": "notification_message",
+      "kind": "domain",
+      "label": "NotificationMessage"
+    },
+    {
+      "id": "incident_store_port",
+      "kind": "port",
+      "label": "IncidentStorePort"
+    },
+    {
+      "id": "human_action_store_port",
+      "kind": "port",
+      "label": "HumanActionStorePort"
+    },
+    {
+      "id": "kill_switch_store_port",
+      "kind": "port",
+      "label": "KillSwitchStorePort"
+    },
+    {
+      "id": "operational_publish_gate_port",
+      "kind": "port",
+      "label": "OperationalPublishGatePort"
+    },
+    {
+      "id": "notification_outbox_port",
+      "kind": "port",
+      "label": "NotificationOutboxPort"
+    },
+    {
+      "id": "notification_port",
+      "kind": "port",
+      "label": "NotificationPort"
+    },
+    {
+      "id": "operations_incident_projector",
+      "kind": "application",
+      "label": "OperationsIncidentProjector"
+    },
+    {
+      "id": "operations_cycle_service",
+      "kind": "application",
+      "label": "OperationsCycleService"
+    },
+    {
+      "id": "daily_operations_service",
+      "kind": "application",
+      "label": "DailyOperationsService"
+    },
+    {
+      "id": "human_recovery_service",
+      "kind": "application",
+      "label": "HumanRecoveryService"
+    },
+    {
+      "id": "kill_switch_service",
+      "kind": "application",
+      "label": "KillSwitchService"
+    },
+    {
+      "id": "kill_switch_gate",
+      "kind": "application",
+      "label": "KillSwitchGate"
+    },
+    {
+      "id": "incident_notification_service",
+      "kind": "application",
+      "label": "IncidentNotificationService"
+    },
+    {
+      "id": "notification_dispatcher",
+      "kind": "application",
+      "label": "NotificationDispatcher"
+    },
+    {
+      "id": "due_work_claimer",
+      "kind": "application",
+      "label": "DueWorkClaimer"
+    },
+    {
+      "id": "webhook_notification_adapter",
+      "kind": "adapter",
+      "label": "WebhookNotificationAdapter"
+    },
+    {
+      "id": "ops_http_server",
+      "kind": "adapter",
+      "label": "OpsHttpServer"
     }
   ],
   "edges": [
@@ -1032,6 +1132,176 @@
       "from": "restart_recovery",
       "to": "publish_attempt_store_port",
       "rel": "marks_uncertain_after_boundary"
+    },
+    {
+      "from": "session_health",
+      "to": "operations_incident_projector",
+      "rel": "projects_failure_state"
+    },
+    {
+      "from": "publication_intent",
+      "to": "operations_incident_projector",
+      "rel": "projects_blocked_or_uncertain_state"
+    },
+    {
+      "from": "source_observation",
+      "to": "operations_incident_projector",
+      "rel": "projects_blocked_source"
+    },
+    {
+      "from": "operations_incident_projector",
+      "to": "incident_store_port",
+      "rel": "writes"
+    },
+    {
+      "from": "incident_store_port",
+      "to": "incident",
+      "rel": "persists"
+    },
+    {
+      "from": "sqlite_control_plane",
+      "to": "incident_store_port",
+      "rel": "implements"
+    },
+    {
+      "from": "sqlite_control_plane",
+      "to": "human_action_store_port",
+      "rel": "implements"
+    },
+    {
+      "from": "sqlite_control_plane",
+      "to": "kill_switch_store_port",
+      "rel": "implements"
+    },
+    {
+      "from": "sqlite_control_plane",
+      "to": "notification_outbox_port",
+      "rel": "implements"
+    },
+    {
+      "from": "human_recovery_service",
+      "to": "incident_store_port",
+      "rel": "acknowledges_and_resolves"
+    },
+    {
+      "from": "human_recovery_service",
+      "to": "human_action_store_port",
+      "rel": "audits_operator_action"
+    },
+    {
+      "from": "human_recovery_service",
+      "to": "publication_intent",
+      "rel": "guards_resume_or_waive"
+    },
+    {
+      "from": "human_action_store_port",
+      "to": "human_action",
+      "rel": "persists_append_only"
+    },
+    {
+      "from": "kill_switch_service",
+      "to": "kill_switch_store_port",
+      "rel": "writes"
+    },
+    {
+      "from": "kill_switch_service",
+      "to": "human_action_store_port",
+      "rel": "audits_operator_change"
+    },
+    {
+      "from": "kill_switch_store_port",
+      "to": "kill_switch",
+      "rel": "persists"
+    },
+    {
+      "from": "kill_switch_gate",
+      "to": "kill_switch_store_port",
+      "rel": "reads"
+    },
+    {
+      "from": "kill_switch_gate",
+      "to": "operational_publish_gate_port",
+      "rel": "implements"
+    },
+    {
+      "from": "due_work_claimer",
+      "to": "operational_publish_gate_port",
+      "rel": "checks_before_claim"
+    },
+    {
+      "from": "durable_final_action_service",
+      "to": "operational_publish_gate_port",
+      "rel": "checks_before_boundary"
+    },
+    {
+      "from": "operations_cycle_service",
+      "to": "operations_incident_projector",
+      "rel": "runs"
+    },
+    {
+      "from": "operations_cycle_service",
+      "to": "daily_operations_service",
+      "rel": "builds_daily_summaries"
+    },
+    {
+      "from": "operations_cycle_service",
+      "to": "incident_notification_service",
+      "rel": "enqueues_new_incidents"
+    },
+    {
+      "from": "incident_notification_service",
+      "to": "notification_outbox_port",
+      "rel": "enqueues"
+    },
+    {
+      "from": "notification_outbox_port",
+      "to": "notification_message",
+      "rel": "persists_before_delivery"
+    },
+    {
+      "from": "notification_dispatcher",
+      "to": "notification_outbox_port",
+      "rel": "reads_and_updates_delivery"
+    },
+    {
+      "from": "notification_dispatcher",
+      "to": "notification_port",
+      "rel": "dispatches_via"
+    },
+    {
+      "from": "webhook_notification_adapter",
+      "to": "notification_port",
+      "rel": "implements"
+    },
+    {
+      "from": "ops_http_server",
+      "to": "human_recovery_service",
+      "rel": "invokes_guarded_actions"
+    },
+    {
+      "from": "ops_http_server",
+      "to": "kill_switch_service",
+      "rel": "controls"
+    },
+    {
+      "from": "ops_http_server",
+      "to": "daily_operations_service",
+      "rel": "renders"
+    },
+    {
+      "from": "incident",
+      "to": "incident_notification_service",
+      "rel": "triggers_notification"
+    },
+    {
+      "from": "human_action",
+      "to": "publication_intent",
+      "rel": "audits_control_of"
+    },
+    {
+      "from": "kill_switch",
+      "to": "publication_intent",
+      "rel": "may_block"
     }
   ],
   "invariants": [
@@ -1058,6 +1328,16 @@
     "one publication_intent can have at most one verified_publication",
     "any incomplete positive publication signal blocks automatic retry",
     "automatic SAFE_TO_RETRY requires conservative negative evidence quorum or explicit authorized manual absence evidence",
-    "negative profile evidence requires a known-ready profile surface before absence can be asserted"
+    "negative profile evidence requires a known-ready profile surface before absence can be asserted",
+    "human incident acknowledgement or resolution is never publication verification",
+    "PUBLISH_UNCERTAIN cannot be bypassed by human Resume and remains governed by reconciliation",
+    "kill switches block due-work claim and are re-checked before irreversible-boundary entry",
+    "a kill switch does not claim to cancel an action that already crossed the irreversible boundary",
+    "human Resume requires a healthy browser identity and an unexpired original schedule window",
+    "human actions are append-only audit records",
+    "notification messages are persisted before delivery and deduplicated by stable keys",
+    "repeated projection of one underlying incident observation must not create alert spam",
+    "a resolved incident recurrence reopens and creates a new notification occurrence",
+    "Ops UI binds privately by default and state-changing actions require authentication and CSRF protection"
   ]
 }

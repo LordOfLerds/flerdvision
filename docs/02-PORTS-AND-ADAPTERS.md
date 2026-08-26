@@ -72,18 +72,25 @@ Implemented W5 services/adapters:
 
 The real social final-action invoker and real platform verification selectors remain intentionally unwired until W8 private/test-account calibration. Confirmation behavior can evolve without changing intent/publish semantics.
 
-## E. Notifications
+## E. Operations & notifications
 
-Domain port: `NotificationPort`.
+Domain/application ports implemented in W6:
+- `IncidentStorePort` — durable deduplicated incident state,
+- `HumanActionStorePort` — append-only operator action history,
+- `KillSwitchStorePort` / `OperationalPublishGatePort` — global/account/platform emergency stops,
+- `NotificationOutboxPort` — durable message/delivery state,
+- `NotificationPort` — replaceable delivery transport.
 
-Adapters:
-- existing bot/channel,
-- Telegram/Discord/Slack later,
-- email,
-- web dashboard,
-- test recorder.
+Implemented services/adapters:
+- `OperationsIncidentProjector`,
+- `OperationsCycleService`,
+- `HumanRecoveryService`,
+- `KillSwitchService` + `KillSwitchGate`,
+- `NotificationDispatcher`,
+- generic `WebhookNotificationAdapter`,
+- localhost-only `OpsHttpServer`.
 
-Only incidents, readiness summaries and completion summaries should interrupt users by default.
+The existing bot remains an adapter. A human/bot acknowledgement is operational evidence only and never publication verification. Only incidents, readiness summaries and completion summaries interrupt users by default.
 
 ## F. Persistence
 

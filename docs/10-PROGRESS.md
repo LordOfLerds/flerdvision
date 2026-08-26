@@ -12,7 +12,7 @@ This file is the repository-local progress source of truth. Update it at every i
 | W3 | Browser identity subsystem | DONE — local verification |
 | W4 | Platform adapters PREPARE_ONLY | DONE — local/synthetic verification; live calibration deferred to W8 |
 | W5 | Verification + uncertainty reconciliation | DONE — local/synthetic verification |
-| W6 | Notifications + operations | NOT STARTED |
+| W6 | Notifications + operations | DONE — local/synthetic verification |
 | W7 | AI repair engineering loop | NOT STARTED |
 | W8 | Private/test-account E2E + failure campaign | NOT STARTED |
 | W9 | Customer canary | BLOCKED until W0–W8 green |
@@ -221,3 +221,53 @@ W5 implements the durable final-action lifecycle and invoker port, but no real I
 
 ## Next wave
 W6: notifications/operations, existing bot adapter, readiness/incident/completion reports, human resume/skip/waive controls, kill switch and minimal ops UI.
+
+
+## W6 acceptance
+
+- [x] migration 6 for incidents, human actions, kill switches and notification outbox
+- [x] deterministic incident projector from durable runtime state
+- [x] incident fingerprint dedupe / reopen semantics
+- [x] append-only human operator action history
+- [x] global/account/platform kill switches
+- [x] kill switch checked before due-work claim
+- [x] kill switch checked before irreversible publish boundary
+- [x] human resume requires healthy browser identity and still-valid original window
+- [x] PUBLISH_UNCERTAIN cannot be bypassed by human Resume
+- [x] explicit operator Waive action with reason
+- [x] durable notification outbox with dedupe key and retry metadata
+- [x] generic webhook/current-bot notification adapter
+- [x] 08:30 readiness summary in Europe/Vienna
+- [x] 17:30 completion/incomplete summary in Europe/Vienna
+- [x] minimal localhost-only Ops UI with Basic auth + CSRF
+- [x] deterministic recovery guidance in Ops UI
+- [x] optional protected browser-session link seam
+- [x] full suite green
+
+## W6 automated evidence
+
+- TypeScript build: PASS
+- W6-specific tests: **14 passed / 0 failed**
+- Full suite: **84 passed / 0 failed** at W6 checkpoint
+- Notification webhook contract/idempotency-header test: PASS
+- Local HTTP Ops UI auth + CSRF action test: PASS
+- Kill switch blocks worker claim: PASS
+- Kill switch blocks irreversible boundary entry: PASS
+- Reopened incident generates a new occurrence notification without duplicate spam: PASS
+- Real customer bot receiver: **not configured**
+- Real social final-action invocation: **not wired**
+- Customer publishing: **blocked**
+
+## W6 plan changes
+
+### Incident recurrence semantics hardened
+A resolved incident that later recurs reopens the same incident identity, increments the occurrence counter and produces a new deduplicated notification occurrence. Repeated polling of the same observation does not spam.
+
+### Missed-window projection survives guard ordering
+W6 reads the durable BLOCKED transition reason as well as currently missed SCHEDULED reservations, so a missed-window incident is still visible if the W1 MissedWindowGuard ran before the operations projector.
+
+### Kill-switch semantics made explicit
+A kill switch blocks new work claims and is re-checked immediately before durable irreversible-boundary entry. It does not claim to cancel an action that already crossed that boundary.
+
+### Bot remains an adapter
+The exact current bot/checkmark transport is still intentionally not guessed. W6 provides a tested generic webhook bridge with idempotency keys; deployment can plug the real receiver into that port without changing operations or publish semantics.

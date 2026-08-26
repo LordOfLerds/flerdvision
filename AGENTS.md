@@ -25,6 +25,11 @@
 - Video bytes are immutable in the publishing system unless a future explicit content-processing contract says otherwise.
 - Re-observing the same source object with a changed media fingerprint is a conflict and must fail closed; never silently replace accepted content.
 - `Europe/Vienna` is the business scheduling timezone.
+- Human incident acknowledgement/resolution never counts as publication verification.
+- `PUBLISH_UNCERTAIN` cannot be bypassed by an Ops UI Resume action; only W5 reconciliation can open a retry path.
+- Global/account/platform kill switches must gate due-work claim and be re-checked immediately before irreversible-boundary entry.
+- Operations notifications use the durable outbox; do not call a bot transport as the source of truth.
+- Ops UI stays private by default (`127.0.0.1`) and state-changing actions require authentication + CSRF protection.
 - Production customer accounts are forbidden until all gates in `docs/06-GO-LIVE-GATES.md` are satisfied.
 
 ## Change discipline
