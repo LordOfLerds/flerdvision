@@ -8,7 +8,9 @@
     "clean": "rm -rf dist",
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && node --test tests/*.test.mjs",
-    "check": "npm run test"
+    "check": "npm run test",
+    "admin": "npm run build && node dist/cli/admin.js",
+    "test:w1": "npm run build && node --test tests/w1-*.test.mjs"
   },
   "engines": {
     "node": ">=22"

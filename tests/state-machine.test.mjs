@@ -15,3 +15,9 @@ test("uncertain publish can reconcile through VERIFYING", () => {
 test("verified publication is terminal", () => {
   assert.equal(canTransition("VERIFIED", "READY"), false);
 });
+
+
+test("uncertain publish cannot return to READY without reconciliation", () => {
+  assert.equal(canTransition("PUBLISH_UNCERTAIN", "READY"), false);
+  assert.throws(() => transition("PUBLISH_UNCERTAIN", "READY"), InvalidTransitionError);
+});

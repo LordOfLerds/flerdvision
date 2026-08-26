@@ -2,7 +2,7 @@
 
 Build everything required for a reliable release before enabling live customer publishing.
 
-## W0 — Canonical model & repo [CURRENT]
+## W0 — Canonical model & repo [DONE]
 - domain graph,
 - ports/adapters boundaries,
 - state machines,
@@ -12,7 +12,7 @@ Build everything required for a reliable release before enabling live customer p
 
 Exit: architecture can be handed to another engineer/agent without oral context.
 
-## W1 — Durable control plane
+## W1 — Durable control plane [DONE — LOCAL VERIFICATION]
 - SQLite schema + migrations,
 - append-only transition/event log,
 - repositories,
@@ -24,7 +24,7 @@ Exit: architecture can be handed to another engineer/agent without oral context.
 
 Exit: simulated jobs survive process/server restarts exactly once at the intent level.
 
-## W2 — Pluggable ingress & source acknowledgement
+## W2 — Pluggable ingress & source acknowledgement [NEXT]
 - Drive read-only discovery adapter,
 - configurable path interpreter for current creator/week/day schema,
 - fixture source,

@@ -1,3 +1,13 @@
+## Current implementation status
+
+- W0 canonical architecture: **done**
+- W1 durable control plane: **done under local verification**
+- Automated tests: **21 passed / 0 failed**
+- W2 pluggable ingress/disposition: **next**
+- Real social-account publishing: **not implemented and intentionally blocked**
+
+See `docs/10-PROGRESS.md` and `docs/10-W1-DURABLE-CONTROL-PLANE.md`.
+
 # Flerdvision
 
 Architecture-first repository for a **UI-native social publishing system** using normal user logins. Social platform APIs are intentionally outside the publishing path.

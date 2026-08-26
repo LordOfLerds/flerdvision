@@ -1,54 +1,318 @@
 {
-  "version": 1,
+  "version": 2,
   "nodes": [
-    {"id":"external_source","kind":"boundary","label":"External Source"},
-    {"id":"source_observation","kind":"domain","label":"SourceObservation"},
-    {"id":"content_item","kind":"domain","label":"ContentItem"},
-    {"id":"distribution_plan","kind":"domain","label":"DistributionPlan"},
-    {"id":"publication_intent","kind":"domain","label":"PublicationIntent"},
-    {"id":"schedule_reservation","kind":"domain","label":"ScheduleReservation"},
-    {"id":"publish_attempt","kind":"domain","label":"PublishAttempt"},
-    {"id":"verification_evidence","kind":"domain","label":"VerificationEvidence"},
-    {"id":"verified_publication","kind":"domain","label":"VerifiedPublication"},
-    {"id":"metric_snapshot","kind":"domain","label":"MetricSnapshot"},
-    {"id":"creator","kind":"domain","label":"Creator"},
-    {"id":"social_account","kind":"domain","label":"SocialAccount"},
-    {"id":"browser_identity","kind":"domain","label":"BrowserIdentity"},
-    {"id":"session_health","kind":"domain","label":"SessionHealth"},
-    {"id":"routing_policy","kind":"policy","label":"RoutingPolicy"},
-    {"id":"slot_policy","kind":"policy","label":"SlotPolicy"},
-    {"id":"incident","kind":"domain","label":"Incident"},
-    {"id":"evidence_bundle","kind":"domain","label":"EvidenceBundle"},
-    {"id":"repair_proposal","kind":"engineering","label":"RepairProposal"},
-    {"id":"test_evidence","kind":"engineering","label":"TestEvidence"},
-    {"id":"release","kind":"engineering","label":"Release"},
-    {"id":"notification_sink","kind":"port","label":"NotificationPort"},
-    {"id":"source_disposition","kind":"port","label":"SourceDispositionPort"}
+    {
+      "id": "external_source",
+      "kind": "boundary",
+      "label": "External Source"
+    },
+    {
+      "id": "source_observation",
+      "kind": "domain",
+      "label": "SourceObservation"
+    },
+    {
+      "id": "content_item",
+      "kind": "domain",
+      "label": "ContentItem"
+    },
+    {
+      "id": "distribution_plan",
+      "kind": "domain",
+      "label": "DistributionPlan"
+    },
+    {
+      "id": "publication_intent",
+      "kind": "domain",
+      "label": "PublicationIntent"
+    },
+    {
+      "id": "schedule_reservation",
+      "kind": "domain",
+      "label": "ScheduleReservation"
+    },
+    {
+      "id": "publish_attempt",
+      "kind": "domain",
+      "label": "PublishAttempt"
+    },
+    {
+      "id": "verification_evidence",
+      "kind": "domain",
+      "label": "VerificationEvidence"
+    },
+    {
+      "id": "verified_publication",
+      "kind": "domain",
+      "label": "VerifiedPublication"
+    },
+    {
+      "id": "metric_snapshot",
+      "kind": "domain",
+      "label": "MetricSnapshot"
+    },
+    {
+      "id": "creator",
+      "kind": "domain",
+      "label": "Creator"
+    },
+    {
+      "id": "social_account",
+      "kind": "domain",
+      "label": "SocialAccount"
+    },
+    {
+      "id": "browser_identity",
+      "kind": "domain",
+      "label": "BrowserIdentity"
+    },
+    {
+      "id": "session_health",
+      "kind": "domain",
+      "label": "SessionHealth"
+    },
+    {
+      "id": "routing_policy",
+      "kind": "policy",
+      "label": "RoutingPolicy"
+    },
+    {
+      "id": "slot_policy",
+      "kind": "policy",
+      "label": "SlotPolicy"
+    },
+    {
+      "id": "incident",
+      "kind": "domain",
+      "label": "Incident"
+    },
+    {
+      "id": "evidence_bundle",
+      "kind": "domain",
+      "label": "EvidenceBundle"
+    },
+    {
+      "id": "repair_proposal",
+      "kind": "engineering",
+      "label": "RepairProposal"
+    },
+    {
+      "id": "test_evidence",
+      "kind": "engineering",
+      "label": "TestEvidence"
+    },
+    {
+      "id": "release",
+      "kind": "engineering",
+      "label": "Release"
+    },
+    {
+      "id": "notification_sink",
+      "kind": "port",
+      "label": "NotificationPort"
+    },
+    {
+      "id": "source_disposition",
+      "kind": "port",
+      "label": "SourceDispositionPort"
+    },
+    {
+      "id": "control_plane_store",
+      "kind": "port",
+      "label": "ControlPlaneStorePort"
+    },
+    {
+      "id": "sqlite_control_plane",
+      "kind": "adapter",
+      "label": "SqliteControlPlaneStore"
+    },
+    {
+      "id": "event_log",
+      "kind": "infrastructure",
+      "label": "AppendOnlyEventLog"
+    },
+    {
+      "id": "worker_lease",
+      "kind": "domain",
+      "label": "WorkerLease"
+    },
+    {
+      "id": "restart_recovery",
+      "kind": "application",
+      "label": "RestartRecoveryService"
+    },
+    {
+      "id": "admin_read_model",
+      "kind": "application",
+      "label": "ControlPlaneAdminReadModel"
+    }
   ],
   "edges": [
-    {"from":"external_source","to":"source_observation","rel":"observed_as"},
-    {"from":"source_observation","to":"content_item","rel":"accepted_as"},
-    {"from":"content_item","to":"distribution_plan","rel":"planned_by"},
-    {"from":"distribution_plan","to":"publication_intent","rel":"expands_to"},
-    {"from":"publication_intent","to":"schedule_reservation","rel":"reserved_at"},
-    {"from":"publication_intent","to":"publish_attempt","rel":"executed_by"},
-    {"from":"publish_attempt","to":"verification_evidence","rel":"produces_or_triggers"},
-    {"from":"verification_evidence","to":"verified_publication","rel":"proves"},
-    {"from":"verified_publication","to":"metric_snapshot","rel":"measured_by"},
-    {"from":"creator","to":"social_account","rel":"owns_or_assigns"},
-    {"from":"social_account","to":"browser_identity","rel":"operated_by"},
-    {"from":"browser_identity","to":"session_health","rel":"has"},
-    {"from":"creator","to":"routing_policy","rel":"configured_by"},
-    {"from":"routing_policy","to":"distribution_plan","rel":"determines"},
-    {"from":"slot_policy","to":"schedule_reservation","rel":"constrains"},
-    {"from":"publish_attempt","to":"incident","rel":"may_raise"},
-    {"from":"incident","to":"evidence_bundle","rel":"captures"},
-    {"from":"evidence_bundle","to":"repair_proposal","rel":"diagnosed_into"},
-    {"from":"repair_proposal","to":"test_evidence","rel":"validated_by"},
-    {"from":"test_evidence","to":"release","rel":"promotes_to"},
-    {"from":"verified_publication","to":"source_disposition","rel":"may_trigger"},
-    {"from":"incident","to":"notification_sink","rel":"notifies"},
-    {"from":"verified_publication","to":"notification_sink","rel":"summarized_to"}
+    {
+      "from": "external_source",
+      "to": "source_observation",
+      "rel": "observed_as"
+    },
+    {
+      "from": "source_observation",
+      "to": "content_item",
+      "rel": "accepted_as"
+    },
+    {
+      "from": "content_item",
+      "to": "distribution_plan",
+      "rel": "planned_by"
+    },
+    {
+      "from": "distribution_plan",
+      "to": "publication_intent",
+      "rel": "expands_to"
+    },
+    {
+      "from": "publication_intent",
+      "to": "schedule_reservation",
+      "rel": "reserved_at"
+    },
+    {
+      "from": "publication_intent",
+      "to": "publish_attempt",
+      "rel": "executed_by"
+    },
+    {
+      "from": "publish_attempt",
+      "to": "verification_evidence",
+      "rel": "produces_or_triggers"
+    },
+    {
+      "from": "verification_evidence",
+      "to": "verified_publication",
+      "rel": "proves"
+    },
+    {
+      "from": "verified_publication",
+      "to": "metric_snapshot",
+      "rel": "measured_by"
+    },
+    {
+      "from": "creator",
+      "to": "social_account",
+      "rel": "owns_or_assigns"
+    },
+    {
+      "from": "social_account",
+      "to": "browser_identity",
+      "rel": "operated_by"
+    },
+    {
+      "from": "browser_identity",
+      "to": "session_health",
+      "rel": "has"
+    },
+    {
+      "from": "creator",
+      "to": "routing_policy",
+      "rel": "configured_by"
+    },
+    {
+      "from": "routing_policy",
+      "to": "distribution_plan",
+      "rel": "determines"
+    },
+    {
+      "from": "slot_policy",
+      "to": "schedule_reservation",
+      "rel": "constrains"
+    },
+    {
+      "from": "publish_attempt",
+      "to": "incident",
+      "rel": "may_raise"
+    },
+    {
+      "from": "incident",
+      "to": "evidence_bundle",
+      "rel": "captures"
+    },
+    {
+      "from": "evidence_bundle",
+      "to": "repair_proposal",
+      "rel": "diagnosed_into"
+    },
+    {
+      "from": "repair_proposal",
+      "to": "test_evidence",
+      "rel": "validated_by"
+    },
+    {
+      "from": "test_evidence",
+      "to": "release",
+      "rel": "promotes_to"
+    },
+    {
+      "from": "verified_publication",
+      "to": "source_disposition",
+      "rel": "may_trigger"
+    },
+    {
+      "from": "incident",
+      "to": "notification_sink",
+      "rel": "notifies"
+    },
+    {
+      "from": "verified_publication",
+      "to": "notification_sink",
+      "rel": "summarized_to"
+    },
+    {
+      "from": "sqlite_control_plane",
+      "to": "control_plane_store",
+      "rel": "implements"
+    },
+    {
+      "from": "publication_intent",
+      "to": "control_plane_store",
+      "rel": "persisted_through"
+    },
+    {
+      "from": "schedule_reservation",
+      "to": "control_plane_store",
+      "rel": "persisted_through"
+    },
+    {
+      "from": "publication_intent",
+      "to": "event_log",
+      "rel": "state_changes_recorded_in"
+    },
+    {
+      "from": "schedule_reservation",
+      "to": "event_log",
+      "rel": "changes_recorded_in"
+    },
+    {
+      "from": "worker_lease",
+      "to": "event_log",
+      "rel": "changes_recorded_in"
+    },
+    {
+      "from": "worker_lease",
+      "to": "publication_intent",
+      "rel": "guards_single_worker_for"
+    },
+    {
+      "from": "restart_recovery",
+      "to": "publication_intent",
+      "rel": "reconciles_after_restart"
+    },
+    {
+      "from": "restart_recovery",
+      "to": "worker_lease",
+      "rel": "reaps_expired"
+    },
+    {
+      "from": "admin_read_model",
+      "to": "control_plane_store",
+      "rel": "reads"
+    }
   ],
   "invariants": [
     "verified_publication requires positive verification_evidence",
@@ -58,6 +322,7 @@
     "uncertain irreversible outcome must reconcile before retry",
     "source disposition cannot be the primary proof of publication",
     "unknown creator/account/UI state fails closed",
-    "AI repair cannot bypass authentication or policy controls"
+    "AI repair cannot bypass authentication or policy controls",
+    "uncertain publication cannot transition directly to retry-ready state"
   ]
 }
