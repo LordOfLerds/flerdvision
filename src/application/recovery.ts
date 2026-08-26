@@ -1,6 +1,7 @@
 import type { Instant } from "../domain/model.js";
 import type { Actor } from "../domain/control-plane.js";
 import type { LeaseStorePort, PublicationIntentStorePort, ScheduleStorePort } from "../domain/control-plane-ports.js";
+import type { PublishAttemptStorePort } from "../domain/verification-ports.js";
 import { MissedWindowGuard } from "./scheduler.js";
 
 export interface RecoveryReport {
@@ -11,8 +12,10 @@ export interface RecoveryReport {
   skippedWithActiveLease: readonly string[];
 }
 
+type RecoveryStore = PublicationIntentStorePort & LeaseStorePort & ScheduleStorePort & Partial<Pick<PublishAttemptStorePort, "listPublishAttempts" | "markAttemptUncertain">>;
+
 export class RestartRecoveryService {
-  constructor(private readonly store: PublicationIntentStorePort & LeaseStorePort & ScheduleStorePort) {}
+  constructor(private readonly store: RecoveryStore) {}
 
   recover(now: Instant, actor: Actor = { type: "system", id: "restart-recovery" }): RecoveryReport {
     const expiredLeasesReaped = this.store.reapExpiredLeases(now, actor);
@@ -38,13 +41,24 @@ export class RestartRecoveryService {
         );
         safePrepareRollbacks.push(record.intent.intentId);
       } else {
-        this.store.transitionIntent(
-          record.intent.intentId,
-          "PUBLISH_UNCERTAIN",
-          now,
-          actor,
-          "restart_after_irreversible_boundary_requires_reconciliation"
-        );
+        const attempts = this.store.listPublishAttempts?.(record.intent.intentId) ?? [];
+        const latest = attempts.at(-1);
+        if (latest && latest.irreversibleBoundaryEnteredAt && this.store.markAttemptUncertain) {
+          this.store.markAttemptUncertain(
+            latest.attemptId,
+            now,
+            actor,
+            "restart_after_irreversible_boundary_requires_reconciliation"
+          );
+        } else {
+          this.store.transitionIntent(
+            record.intent.intentId,
+            "PUBLISH_UNCERTAIN",
+            now,
+            actor,
+            "restart_after_irreversible_boundary_requires_reconciliation"
+          );
+        }
         uncertainMarked.push(record.intent.intentId);
       }
     }

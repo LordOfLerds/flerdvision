@@ -1,9 +1,9 @@
 import { SqliteControlPlaneStore } from "../adapters/storage/sqlite.js";
-import { ControlPlaneAdminReadModel, IngressAdminReadModel } from "../application/read-model.js";
+import { ControlPlaneAdminReadModel, IngressAdminReadModel, VerificationAdminReadModel } from "../application/read-model.js";
 import { RestartRecoveryService } from "../application/recovery.js";
 
 function usage(): never {
-  console.error("Usage: node dist/cli/admin.js <summary|intents|events INTENT_ID|sources|content|dispositions|source-events OBSERVATION_ID|recover> [--db PATH]");
+  console.error("Usage: node dist/cli/admin.js <summary|intents|events INTENT_ID|sources|content|dispositions|source-events OBSERVATION_ID|verification INTENT_ID|recover> [--db PATH]");
   process.exitCode = 2;
   throw new Error("invalid arguments");
 }
@@ -24,6 +24,7 @@ if (!command) usage();
 const store = new SqliteControlPlaneStore(databasePath(args));
 const read = new ControlPlaneAdminReadModel(store);
 const ingressRead = new IngressAdminReadModel(store);
+const verificationRead = new VerificationAdminReadModel(store);
 
 try {
   const now = new Date().toISOString();
@@ -45,6 +46,10 @@ try {
     const observationId = args[1];
     if (!observationId || observationId === "--db") usage();
     console.log(JSON.stringify(store.listEvents("source_observation", observationId), null, 2));
+  } else if (command === "verification") {
+    const intentId = args[1];
+    if (!intentId || intentId === "--db") usage();
+    console.log(JSON.stringify(verificationRead.intent(intentId), null, 2));
   } else if (command === "recover") {
     console.log(JSON.stringify(new RestartRecoveryService(store).recover(now), null, 2));
   } else {

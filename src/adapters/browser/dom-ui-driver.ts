@@ -165,6 +165,16 @@ export class BrowserDomUiDriver {
     return target.descriptor;
   }
 
+  async attribute(locators: readonly UiLocator[], attributeName: string, timeoutMs?: number): Promise<string | null> {
+    if (!/^[a-zA-Z_:][-a-zA-Z0-9_:.]*$/.test(attributeName)) throw new UiActionExecutionError(`Unsafe attribute name: ${attributeName}`);
+    const target = await this.locate(locators, timeoutMs ?? 10_000, true);
+    const selector = `[data-flerdvision-node=${JSON.stringify(target.token)}]`;
+    return this.session.evaluate<string | null>(`(() => {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      return el ? el.getAttribute(${JSON.stringify(attributeName)}) : null;
+    })()`);
+  }
+
   async execute(action: UiActionSpec, value?: string, forbiddenClickLocators: readonly UiLocator[] = []): Promise<string | undefined> {
     if (action.action === "wait" || action.action === "assert_visible") {
       const target = await this.locate(action.locators, action.timeoutMs ?? 10_000, true);

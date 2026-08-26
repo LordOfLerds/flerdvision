@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "nodes": [
     {
       "id": "external_source",
@@ -355,6 +355,71 @@
       "id": "platform_ui_spec_config",
       "kind": "config",
       "label": "Calibrated PlatformUiSpec"
+    },
+    {
+      "id": "verification_decision",
+      "kind": "domain",
+      "label": "VerificationDecision"
+    },
+    {
+      "id": "verification_store_port",
+      "kind": "port",
+      "label": "VerificationStorePort"
+    },
+    {
+      "id": "publish_attempt_store_port",
+      "kind": "port",
+      "label": "PublishAttemptStorePort"
+    },
+    {
+      "id": "final_action_invoker_port",
+      "kind": "port",
+      "label": "FinalActionInvokerPort"
+    },
+    {
+      "id": "verification_evidence_collector_port",
+      "kind": "port",
+      "label": "VerificationEvidenceCollectorPort"
+    },
+    {
+      "id": "verification_artifact_sink_port",
+      "kind": "port",
+      "label": "VerificationArtifactSinkPort"
+    },
+    {
+      "id": "durable_final_action_service",
+      "kind": "application",
+      "label": "DurableFinalActionService"
+    },
+    {
+      "id": "reconciliation_service",
+      "kind": "application",
+      "label": "ReconciliationService"
+    },
+    {
+      "id": "composite_reconciliation_policy",
+      "kind": "domain",
+      "label": "CompositeReconciliationPolicy"
+    },
+    {
+      "id": "manual_verifier_adapter",
+      "kind": "adapter",
+      "label": "ManualVerifierAdapter"
+    },
+    {
+      "id": "declarative_profile_verifier",
+      "kind": "adapter",
+      "label": "DeclarativeProfileVerificationCollector"
+    },
+    {
+      "id": "local_verification_artifact_sink",
+      "kind": "adapter",
+      "label": "LocalVerificationArtifactSink"
+    },
+    {
+      "id": "irreversible_boundary_record",
+      "kind": "boundary",
+      "label": "Durable Irreversible Boundary Record"
     }
   ],
   "edges": [
@@ -862,6 +927,111 @@
       "from": "sqlite_control_plane",
       "to": "platform_capability_store_port",
       "rel": "implements"
+    },
+    {
+      "from": "publish_attempt",
+      "to": "irreversible_boundary_record",
+      "rel": "enters_before_final_action"
+    },
+    {
+      "from": "irreversible_boundary_record",
+      "to": "final_action_invoker_port",
+      "rel": "must_precede"
+    },
+    {
+      "from": "durable_final_action_service",
+      "to": "publish_attempt_store_port",
+      "rel": "persists_boundary_via"
+    },
+    {
+      "from": "durable_final_action_service",
+      "to": "final_action_invoker_port",
+      "rel": "invokes_after_boundary"
+    },
+    {
+      "from": "final_action_invoker_port",
+      "to": "verification_evidence",
+      "rel": "may_emit_receipt"
+    },
+    {
+      "from": "publish_attempt_store_port",
+      "to": "publish_attempt",
+      "rel": "persists"
+    },
+    {
+      "from": "verification_evidence",
+      "to": "verification_decision",
+      "rel": "evaluated_into"
+    },
+    {
+      "from": "verification_decision",
+      "to": "verified_publication",
+      "rel": "may_authorize"
+    },
+    {
+      "from": "reconciliation_service",
+      "to": "verification_evidence_collector_port",
+      "rel": "collects_through"
+    },
+    {
+      "from": "reconciliation_service",
+      "to": "verification_store_port",
+      "rel": "persists_evidence_and_decision"
+    },
+    {
+      "from": "reconciliation_service",
+      "to": "composite_reconciliation_policy",
+      "rel": "evaluates_with"
+    },
+    {
+      "from": "verification_store_port",
+      "to": "verification_evidence",
+      "rel": "persists"
+    },
+    {
+      "from": "verification_store_port",
+      "to": "verification_decision",
+      "rel": "persists"
+    },
+    {
+      "from": "verification_store_port",
+      "to": "verified_publication",
+      "rel": "persists"
+    },
+    {
+      "from": "manual_verifier_adapter",
+      "to": "verification_store_port",
+      "rel": "records_operator_evidence"
+    },
+    {
+      "from": "declarative_profile_verifier",
+      "to": "verification_evidence_collector_port",
+      "rel": "implements"
+    },
+    {
+      "from": "declarative_profile_verifier",
+      "to": "verification_artifact_sink_port",
+      "rel": "captures_proof_via"
+    },
+    {
+      "from": "local_verification_artifact_sink",
+      "to": "verification_artifact_sink_port",
+      "rel": "implements"
+    },
+    {
+      "from": "sqlite_control_plane",
+      "to": "publish_attempt_store_port",
+      "rel": "implements"
+    },
+    {
+      "from": "sqlite_control_plane",
+      "to": "verification_store_port",
+      "rel": "implements"
+    },
+    {
+      "from": "restart_recovery",
+      "to": "publish_attempt_store_port",
+      "rel": "marks_uncertain_after_boundary"
     }
   ],
   "invariants": [
@@ -881,6 +1051,13 @@
     "every reversible click is checked against the final-action boundary",
     "real platform UI execution requires an explicitly calibrated selector spec",
     "prepared media is SHA-256 fingerprinted after local materialization",
-    "prepare evidence artifacts are runtime-only and never committed to git"
+    "prepare evidence artifacts are runtime-only and never committed to git",
+    "durable irreversible-boundary entry is persisted before any final UI action can be invoked",
+    "post-boundary failure or crash is uncertain and can never be classified as safely failed",
+    "verification evidence and decisions are append-only",
+    "one publication_intent can have at most one verified_publication",
+    "any incomplete positive publication signal blocks automatic retry",
+    "automatic SAFE_TO_RETRY requires conservative negative evidence quorum or explicit authorized manual absence evidence",
+    "negative profile evidence requires a known-ready profile surface before absence can be asserted"
   ]
 }

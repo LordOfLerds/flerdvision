@@ -12,14 +12,14 @@
 - The current Google Drive folder layout is an **adapter concern**, never a domain schema.
 - The current human/bot "posted" acknowledgement is an **adapter concern**, never proof by itself.
 - A `PublishAttempt` is not a `VerifiedPublication`.
-- On uncertain outcome, transition to `PUBLISH_UNCERTAIN`; never blindly retry an irreversible publish action.
-- Every irreversible action requires: durable intent, idempotency key, target account allowlist, active publish gate, and pre-action evidence snapshot.
+- On uncertain outcome, transition to `PUBLISH_UNCERTAIN`; never blindly retry an irreversible publish action. `SAFE_TO_RETRY` requires conservative negative evidence quorum or an explicit authorized human absence confirmation.
+- Every irreversible action requires: durable intent, durable prepared attempt, persisted irreversible-boundary entry, idempotency key, target account allowlist, active publish gate, and pre-action evidence snapshot.
 - Unknown UI, CAPTCHA, 2FA, account warnings, copyright/policy warnings, or identity ambiguity => fail closed and escalate.
 - AI may diagnose and propose code patches; AI must not free-form click production accounts or bypass platform controls.
 - Browser session data, cookies, credentials, customer media and evidence artifacts are never committed to git.
 - One browser profile belongs to exactly one BrowserIdentity; concurrent profile/identity use is forbidden.
 - A platform publisher must pass the exact-account `AccountIdentityGuard`; merely being logged in is insufficient.
-- W4 PREPARE_ONLY code must contain no working final publish action; `invokeFinalAction` remains unavailable until a later explicit release decision.
+- The W4 PREPARE_ONLY publisher must contain no working final publish action. Any later final action must pass through `DurableFinalActionService`, which persists irreversible-boundary entry before an invoker can act; no real social final-action invoker is wired before W8.
 - Every reversible click must be runtime-checked against the configured final-action boundary.
 - Real platform UI specs must be explicitly CALIBRATED; never promote placeholder/unverified selectors to a live account.
 - Video bytes are immutable in the publishing system unless a future explicit content-processing contract says otherwise.

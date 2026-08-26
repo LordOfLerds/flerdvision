@@ -39,7 +39,7 @@ export interface WorkerLease {
 export interface AuditEvent {
   sequence: number;
   eventId: UUID;
-  aggregateType: "publication_intent" | "schedule_reservation" | "worker_lease" | "source_observation" | "content_item" | "source_disposition" | "social_account" | "browser_identity" | "session_health" | "platform_capability" | "system";
+  aggregateType: "publication_intent" | "schedule_reservation" | "worker_lease" | "source_observation" | "content_item" | "source_disposition" | "social_account" | "browser_identity" | "session_health" | "platform_capability" | "publish_attempt" | "verification_evidence" | "verification_decision" | "verified_publication" | "system";
   aggregateId: string;
   eventType: string;
   occurredAt: Instant;

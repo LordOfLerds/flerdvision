@@ -11,7 +11,7 @@ This file is the repository-local progress source of truth. Update it at every i
 | W2 | Pluggable ingress + source acknowledgement | DONE — local verification |
 | W3 | Browser identity subsystem | DONE — local verification |
 | W4 | Platform adapters PREPARE_ONLY | DONE — local/synthetic verification; live calibration deferred to W8 |
-| W5 | Verification + uncertainty reconciliation | NEXT |
+| W5 | Verification + uncertainty reconciliation | DONE — local/synthetic verification |
 | W6 | Notifications + operations | NOT STARTED |
 | W7 | AI repair engineering loop | NOT STARTED |
 | W8 | Private/test-account E2E + failure campaign | NOT STARTED |
@@ -179,5 +179,45 @@ The build environment could not reliably fetch new npm dependencies during W3, w
 ## W4 plan change
 The original W4 exit criterion mentioned live prepare-only runs. Real account/browser calibration is intentionally deferred to W8 because the rollout requirement is to finish and harden the code before touching the user's private test account. W9 remains blocked until those real W8 runs pass.
 
+## W5 acceptance
+
+- [x] migration 5 for PublishAttempt / VerificationEvidence / VerificationDecision / VerifiedPublication
+- [x] durable irreversible-boundary entry stored before final invocation
+- [x] append-only verification evidence
+- [x] append-only verification decisions
+- [x] one immutable VerifiedPublication per intent
+- [x] receipt + profile positive verification quorum
+- [x] positive incomplete signals block automatic retry
+- [x] conservative multi-check negative retry quorum
+- [x] manual operator published / not-published verifier
+- [x] PUBLISH_UNCERTAIN reconciliation through VERIFYING
+- [x] SAFE_TO_RETRY lands in RETRY_WAIT, never directly READY
+- [x] restart after durable boundary marks persisted attempt uncertain
+- [x] declarative profile verifier requires profile-ready proof before negative evidence
+- [x] private screenshot/DOM/manual verification artifact sink
+- [x] full suite green
+
+## W5 automated evidence
+
+- TypeScript build: PASS
+- W5-specific tests: **16 passed / 0 failed**
+- Full suite: **70 passed / 0 failed**
+- Real installed Chromium profile positive/negative verification fixture: PASS
+- Simulated post-click exception: one final invocation only; second invocation blocked
+- Hard-restart after irreversible boundary: intent + attempt become uncertain
+- Real social final-action invocation: **not wired**
+- Customer publishing: **blocked**
+
+## W5 plan changes
+
+### Boundary timestamp split
+W5 distinguishes durable `irreversibleBoundaryEnteredAt` from `finalActionInvokedAt`. The first is persisted before the UI action; this intentionally creates false uncertainty rather than duplicate-post risk if the process dies between the durable write and the click.
+
+### Negative evidence is stronger than simple absence
+A missing post selector is not negative proof unless the profile surface first reaches a configured known-ready state. Default retry policy requires three negative observations over ten minutes and at least ten minutes after boundary entry; an incomplete positive signal always blocks automatic retry.
+
+### Final UI action remains W8-calibrated
+W5 implements the durable final-action lifecycle and invoker port, but no real Instagram/TikTok/YouTube final-action invoker is wired. Real selectors/action are calibrated only on the private/test account in W8.
+
 ## Next wave
-W5: durable PublishAttempt / VerificationEvidence / VerifiedPublication persistence, reconciliation rules for `PUBLISH_UNCERTAIN`, proof storage and deterministic retry eligibility.
+W6: notifications/operations, existing bot adapter, readiness/incident/completion reports, human resume/skip/waive controls, kill switch and minimal ops UI.

@@ -55,15 +55,22 @@ A publisher returns a **publish attempt result**, not "posted=true".
 
 ## D. Verification — intentionally open
 
-Domain port: `PublicationVerifierPort`.
+W5 splits verification into explicit ports:
+- `PublishAttemptStorePort` — durable prepared/boundary/final-action attempt lifecycle,
+- `FinalActionInvokerPort` — the **only** seam allowed to perform the final UI action after durable boundary entry,
+- `VerificationEvidenceCollectorPort` — profile/UI/manual evidence collectors,
+- `VerificationStorePort` — append-only evidence/decision + immutable publication storage,
+- `VerificationArtifactSinkPort` — runtime screenshot/DOM/manual proof storage.
 
-Strategies can be composed:
-- `ProfileEvidenceVerifier`: navigate to target profile and find matching new post.
-- `UiReceiptVerifier`: use platform success UI as supporting evidence.
-- `ManualAckVerifier`: explicit operator confirmation.
-- `CompositeVerifier`: require a policy-defined evidence quorum.
+Implemented W5 services/adapters:
+- `DurableFinalActionService` — persists irreversible boundary before calling an invoker,
+- `ReconciliationService` — `PUBLISH_UNCERTAIN -> VERIFYING -> VERIFIED|RETRY_WAIT|PUBLISH_UNCERTAIN`,
+- `CompositeReconciliationPolicy` — receipt/profile positive quorum + conservative negative retry quorum,
+- `DeclarativeProfileVerificationCollector` — only emits negative evidence after profile-ready proof,
+- `ManualVerifierAdapter` — explicit operator published/not-published evidence,
+- `LocalVerificationArtifactSink` — private runtime proof files.
 
-This is the seam that lets confirmation behavior evolve later.
+The real social final-action invoker and real platform verification selectors remain intentionally unwired until W8 private/test-account calibration. Confirmation behavior can evolve without changing intent/publish semantics.
 
 ## E. Notifications
 

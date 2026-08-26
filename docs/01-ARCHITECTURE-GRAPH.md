@@ -13,6 +13,7 @@ ExternalSource
   -> ScheduleReservation
   -> PublishAttempt
   -> VerificationEvidence
+  -> VerificationDecision
   -> VerifiedPublication
   -> MetricSnapshot
 
@@ -43,10 +44,13 @@ The deterministic interpretation of "where this content should go". Built from c
 One target publication: content + platform + account + format + copy version + intended schedule. This is the unit of idempotency.
 
 ### PublishAttempt
-One execution against a user interface. It records what was attempted and the pre/post evidence. It is never success by definition.
+One execution against a user interface. It records release SHA, browser identity, exact media SHA-256 and the irreversible-boundary timestamps. `irreversibleBoundaryEnteredAt` is persisted **before** the actual final UI action. It is never success by definition.
 
 ### VerificationEvidence
-A typed claim with evidence, confidence and provenance: e.g. profile permalink found, thumbnail/title match, success receipt, manual approval.
+An append-only typed observation with provenance: e.g. profile permalink found, profile match, success receipt, conservative negative profile check, or authorized manual verification.
+
+### VerificationDecision
+An append-only policy verdict (`VERIFIED`, `SAFE_TO_RETRY`, `UNCERTAIN`) that names exactly which evidence IDs were considered sufficient for that verdict.
 
 ### VerifiedPublication
 Created only when a verifier policy concludes that required evidence proves the post exists on the intended account.
@@ -69,7 +73,12 @@ Given a `SourceObservation`, operators must be able to answer:
 
 ## Graph invariants
 
-- No `VerifiedPublication` without `VerificationEvidence`.
+- No `VerifiedPublication` without persisted evidence references.
+- A durable irreversible-boundary record must exist before a final UI action invoker can run.
+- Post-boundary failure/crash is uncertain, never safely failed.
+- One PublicationIntent has at most one immutable VerifiedPublication.
+- Incomplete positive publication evidence blocks automatic retry.
+- Negative absence evidence is valid only after a known-ready profile surface and policy quorum.
 - No `PublishAttempt` without `PublicationIntent`.
 - No `PublicationIntent` without accepted `ContentItem` provenance.
 - One intent has one stable idempotency key independent of retries.

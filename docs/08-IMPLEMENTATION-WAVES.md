@@ -56,7 +56,7 @@ Exit: every test account can be opened/validated reliably after reboot.
 
 Exit split: local/synthetic prepare kernel is green in W4; repeated real-platform prepare-only runs occur in W8 on the private/test account before any customer canary.
 
-## W5 — Verification & uncertainty
+## W5 — Verification & uncertainty [DONE — LOCAL/SYNTHETIC VERIFICATION]
 - UI receipt evidence,
 - profile/post evidence,
 - composite verification policy,

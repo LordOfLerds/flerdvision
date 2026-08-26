@@ -1,7 +1,7 @@
 # HANDOFF — current repository state
 
 ## Current phase
-W4 — PREPARE_ONLY platform UI subsystem **implemented under local/synthetic verification**. W5 verification/reconciliation is next; real platform selector calibration remains a W8 test-account gate.
+W5 — verification/reconciliation **implemented under local/synthetic verification**. W6 operations/notifications is next; real platform selector/final-action calibration remains a W8 private/test-account gate.
 
 ## Implemented
 - W0 architecture graph and reverse-trace model,
@@ -38,7 +38,17 @@ W4 — PREPARE_ONLY platform UI subsystem **implemented under local/synthetic ve
 - screenshot + DOM + metadata + action-journal prepare evidence,
 - runtime final-button click guard and publisher with physically absent final action,
 - calibrated platform UI spec contract and validation CLI.
-- 54 automated tests passing at W4 full-suite checkpoint.
+- W5 migration 5 with durable PublishAttempt persistence,
+- durable irreversible-boundary entry persisted before final-action invocation,
+- append-only verification evidence and decision history,
+- immutable one-publication-per-intent VerifiedPublication record,
+- conservative positive verification quorum and negative retry quorum,
+- PUBLISH_UNCERTAIN reconciliation service,
+- restart recovery that marks both intent and persisted attempt uncertain,
+- manual operator verifier for published/not-published evidence,
+- declarative profile verifier that requires a known-ready profile surface before negative evidence,
+- private verification screenshot/DOM/manual proof sink,
+- 66 automated tests passing at W5 full-suite checkpoint.
 
 ## Safety correction made in W1
 `PUBLISH_UNCERTAIN -> READY` was removed. An uncertain irreversible outcome must reconcile through `VERIFYING` before any retry path exists.
@@ -50,13 +60,15 @@ The current isolated SQLite adapter uses Node 22.16 `node:sqlite`, which emits a
 - real Google Drive credential/bootstrap and live folder scan,
 - exact current bot/checkmark receiver integration,
 - calibrated real Instagram/TikTok/YouTube selectors and live prepare-only account run,
-- durable verification/reconciliation evidence store (W5),
-- final-publish capability on any real account.
+- current bot/notification operations UI (W6),
+- AI repair engineering loop (W7),
+- calibrated real final-action invoker and real private/test-account E2E (W8),
+- final-publish capability on any customer account.
 
 These remain blocked by wave order.
 
 ## Next implementation order
-W5 verification/reconciliation -> W6 operations/bot integration -> W7 AI repair -> W8 private/test-account real selector calibration + E2E.
+W6 operations/bot integration -> W7 AI repair -> W8 private/test-account real selector/final-action calibration + E2E.
 
 ## W3 environment note
 The build container applies a Chromium administrator navigation policy to some local/data URLs. No real social site was accessed. W4 uses real installed Chromium against synthetic DOM fixtures for native file input, form fields, screenshots and final-boundary safety. Real social-session bootstrap and selector calibration remain W8 operator-host acceptance steps.

@@ -1,10 +1,20 @@
 import { DatabaseSync } from "node:sqlite";
-import type { ContentItem, PublicationIntent, SourceObservation, Instant } from "../../domain/model.js";
+import type {
+  ContentItem,
+  PublicationIntent,
+  PublishAttempt,
+  SourceObservation,
+  VerificationDecision,
+  VerificationEvidence,
+  VerifiedPublication,
+  Instant
+} from "../../domain/model.js";
 import type { BrowserIdentity, SessionHealthCheck, SocialAccount, StoredBrowserIdentity, StoredSocialAccount } from "../../domain/browser-identity.js";
 import { normalizeSocialHandle } from "../../domain/browser-identity.js";
 import type { BrowserIdentityStorePort } from "../../domain/browser-identity-ports.js";
 import type { PlatformCapabilityProbe } from "../../domain/platform-ui.js";
 import type { PlatformCapabilityStorePort } from "../../domain/platform-ui-ports.js";
+import type { PublishAttemptStorePort, VerificationStorePort } from "../../domain/verification-ports.js";
 import type { PublicationState } from "../../domain/states.js";
 import { transition as assertTransition } from "../../domain/states.js";
 import type {
@@ -171,6 +181,55 @@ interface PlatformCapabilityProbeRow {
   note: string | null;
 }
 
+interface PublishAttemptRow {
+  attempt_id: string;
+  intent_id: string;
+  browser_identity_id: string;
+  release_sha: string;
+  started_at: string;
+  irreversible_boundary_entered_at: string | null;
+  final_action_invoked_at: string | null;
+  finished_at: string | null;
+  result: PublishAttempt["result"];
+  media_sha256: string | null;
+  preparation_artifact_refs_json: string;
+  reached_final_action_boundary: number;
+}
+
+interface VerificationEvidenceRow {
+  sequence: number;
+  evidence_id: string;
+  intent_id: string;
+  attempt_id: string | null;
+  kind: VerificationEvidence["kind"];
+  observed_at: string;
+  positive: number;
+  locator: string | null;
+  artifact_ref: string | null;
+  note: string | null;
+}
+
+interface VerificationDecisionRow {
+  sequence: number;
+  decision_id: string;
+  intent_id: string;
+  attempt_id: string | null;
+  decided_at: string;
+  outcome: VerificationDecision["outcome"];
+  policy_name: string;
+  evidence_ids_json: string;
+  reason: string;
+}
+
+interface VerifiedPublicationRow {
+  sequence: number;
+  publication_id: string;
+  intent_id: string;
+  verified_at: string;
+  permalink: string | null;
+  evidence_ids_json: string;
+}
+
 export class IdempotencyConflictError extends Error {}
 export class ScheduleConflictError extends Error {}
 export class IntentNotFoundError extends Error {}
@@ -179,6 +238,10 @@ export class SourceDecisionConflictError extends Error {}
 export class ContentConflictError extends Error {}
 export class SocialAccountConflictError extends Error {}
 export class BrowserIdentityConflictError extends Error {}
+export class PublishAttemptConflictError extends Error {}
+export class VerificationEvidenceConflictError extends Error {}
+export class VerificationDecisionConflictError extends Error {}
+export class VerifiedPublicationConflictError extends Error {}
 
 function asIso(instant: Instant): Instant {
   const date = new Date(instant);
@@ -356,6 +419,64 @@ function platformCapabilityProbeFromRow(row: PlatformCapabilityProbeRow): Platfo
   return probe;
 }
 
+function publishAttemptFromRow(row: PublishAttemptRow): PublishAttempt {
+  const attempt: PublishAttempt = {
+    attemptId: row.attempt_id,
+    intentId: row.intent_id,
+    browserIdentityId: row.browser_identity_id,
+    releaseSha: row.release_sha,
+    startedAt: row.started_at,
+    result: row.result,
+    preparationArtifactRefs: JSON.parse(row.preparation_artifact_refs_json) as string[],
+    reachedFinalActionBoundary: row.reached_final_action_boundary === 1
+  };
+  if (row.irreversible_boundary_entered_at !== null) Object.assign(attempt, { irreversibleBoundaryEnteredAt: row.irreversible_boundary_entered_at });
+  if (row.final_action_invoked_at !== null) Object.assign(attempt, { finalActionInvokedAt: row.final_action_invoked_at });
+  if (row.finished_at !== null) Object.assign(attempt, { finishedAt: row.finished_at });
+  if (row.media_sha256 !== null) Object.assign(attempt, { mediaSha256: row.media_sha256 });
+  return attempt;
+}
+
+function verificationEvidenceFromRow(row: VerificationEvidenceRow): VerificationEvidence {
+  const evidence: VerificationEvidence = {
+    evidenceId: row.evidence_id,
+    intentId: row.intent_id,
+    kind: row.kind,
+    observedAt: row.observed_at,
+    positive: row.positive === 1
+  };
+  if (row.attempt_id !== null) Object.assign(evidence, { attemptId: row.attempt_id });
+  if (row.locator !== null) Object.assign(evidence, { locator: row.locator });
+  if (row.artifact_ref !== null) Object.assign(evidence, { artifactRef: row.artifact_ref });
+  if (row.note !== null) Object.assign(evidence, { note: row.note });
+  return evidence;
+}
+
+function verificationDecisionFromRow(row: VerificationDecisionRow): VerificationDecision {
+  const decision: VerificationDecision = {
+    decisionId: row.decision_id,
+    intentId: row.intent_id,
+    decidedAt: row.decided_at,
+    outcome: row.outcome,
+    policyName: row.policy_name,
+    evidenceIds: JSON.parse(row.evidence_ids_json) as string[],
+    reason: row.reason
+  };
+  if (row.attempt_id !== null) Object.assign(decision, { attemptId: row.attempt_id });
+  return decision;
+}
+
+function verifiedPublicationFromRow(row: VerifiedPublicationRow): VerifiedPublication {
+  const publication: VerifiedPublication = {
+    publicationId: row.publication_id,
+    intentId: row.intent_id,
+    verifiedAt: row.verified_at,
+    evidenceIds: JSON.parse(row.evidence_ids_json) as string[]
+  };
+  if (row.permalink !== null) Object.assign(publication, { permalink: row.permalink });
+  return publication;
+}
+
 function sameSocialAccount(existing: SocialAccount, candidate: SocialAccount): boolean {
   return (existing.creatorId ?? null) === (candidate.creatorId ?? null) &&
     existing.platform === candidate.platform &&
@@ -387,7 +508,45 @@ function sameIntentPayload(existing: PublicationIntent, candidate: PublicationIn
   );
 }
 
-export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressStorePort, BrowserIdentityStorePort, PlatformCapabilityStorePort {
+function samePreparedAttempt(existing: PublishAttempt, candidate: PublishAttempt): boolean {
+  return existing.intentId === candidate.intentId &&
+    existing.browserIdentityId === candidate.browserIdentityId &&
+    existing.releaseSha === candidate.releaseSha &&
+    asIso(existing.startedAt) === asIso(candidate.startedAt) &&
+    (existing.mediaSha256 ?? null) === (candidate.mediaSha256 ?? null) &&
+    JSON.stringify([...(existing.preparationArtifactRefs ?? [])]) === JSON.stringify([...(candidate.preparationArtifactRefs ?? [])]) &&
+    Boolean(existing.reachedFinalActionBoundary) === Boolean(candidate.reachedFinalActionBoundary);
+}
+
+function sameVerificationEvidence(existing: VerificationEvidence, candidate: VerificationEvidence): boolean {
+  return existing.intentId === candidate.intentId &&
+    (existing.attemptId ?? null) === (candidate.attemptId ?? null) &&
+    existing.kind === candidate.kind &&
+    asIso(existing.observedAt) === asIso(candidate.observedAt) &&
+    existing.positive === candidate.positive &&
+    (existing.locator ?? null) === (candidate.locator ?? null) &&
+    (existing.artifactRef ?? null) === (candidate.artifactRef ?? null) &&
+    (existing.note ?? null) === (candidate.note ?? null);
+}
+
+function sameVerificationDecision(existing: VerificationDecision, candidate: VerificationDecision): boolean {
+  return existing.intentId === candidate.intentId &&
+    (existing.attemptId ?? null) === (candidate.attemptId ?? null) &&
+    asIso(existing.decidedAt) === asIso(candidate.decidedAt) &&
+    existing.outcome === candidate.outcome &&
+    existing.policyName === candidate.policyName &&
+    JSON.stringify([...existing.evidenceIds]) === JSON.stringify([...candidate.evidenceIds]) &&
+    existing.reason === candidate.reason;
+}
+
+function sameVerifiedPublication(existing: VerifiedPublication, candidate: VerifiedPublication): boolean {
+  return existing.intentId === candidate.intentId &&
+    asIso(existing.verifiedAt) === asIso(candidate.verifiedAt) &&
+    (existing.permalink ?? null) === (candidate.permalink ?? null) &&
+    JSON.stringify([...existing.evidenceIds]) === JSON.stringify([...candidate.evidenceIds]);
+}
+
+export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressStorePort, BrowserIdentityStorePort, PlatformCapabilityStorePort, PublishAttemptStorePort, VerificationStorePort {
   private readonly db: DatabaseSync;
 
   constructor(databasePath: string) {
@@ -638,6 +797,111 @@ export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressSt
         `);
         this.db.prepare("INSERT INTO schema_migrations(version, name, applied_at) VALUES (?, ?, ?)")
           .run(4, "platform UI capability probes", new Date().toISOString());
+      });
+    }
+
+    const migrationFive = this.db.prepare("SELECT version FROM schema_migrations WHERE version = 5").get();
+    if (!migrationFive) {
+      this.transaction(() => {
+        this.db.exec(`
+          CREATE TABLE publish_attempts (
+            attempt_id TEXT PRIMARY KEY,
+            intent_id TEXT NOT NULL REFERENCES publication_intents(intent_id) ON DELETE RESTRICT,
+            browser_identity_id TEXT NOT NULL,
+            release_sha TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            irreversible_boundary_entered_at TEXT,
+            final_action_invoked_at TEXT,
+            finished_at TEXT,
+            result TEXT NOT NULL,
+            media_sha256 TEXT,
+            preparation_artifact_refs_json TEXT NOT NULL,
+            reached_final_action_boundary INTEGER NOT NULL CHECK(reached_final_action_boundary IN (0, 1))
+          );
+
+          CREATE INDEX idx_publish_attempt_intent_time
+            ON publish_attempts(intent_id, started_at, attempt_id);
+
+          CREATE TABLE verification_evidence (
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+            evidence_id TEXT NOT NULL UNIQUE,
+            intent_id TEXT NOT NULL REFERENCES publication_intents(intent_id) ON DELETE RESTRICT,
+            attempt_id TEXT REFERENCES publish_attempts(attempt_id) ON DELETE RESTRICT,
+            kind TEXT NOT NULL,
+            observed_at TEXT NOT NULL,
+            positive INTEGER NOT NULL CHECK(positive IN (0, 1)),
+            locator TEXT,
+            artifact_ref TEXT,
+            note TEXT
+          );
+
+          CREATE INDEX idx_verification_evidence_intent_time
+            ON verification_evidence(intent_id, observed_at, sequence);
+          CREATE INDEX idx_verification_evidence_attempt_time
+            ON verification_evidence(attempt_id, observed_at, sequence);
+
+          CREATE TRIGGER verification_evidence_no_update
+          BEFORE UPDATE ON verification_evidence
+          BEGIN
+            SELECT RAISE(ABORT, 'verification_evidence is append-only');
+          END;
+
+          CREATE TRIGGER verification_evidence_no_delete
+          BEFORE DELETE ON verification_evidence
+          BEGIN
+            SELECT RAISE(ABORT, 'verification_evidence is append-only');
+          END;
+
+          CREATE TABLE verification_decisions (
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+            decision_id TEXT NOT NULL UNIQUE,
+            intent_id TEXT NOT NULL REFERENCES publication_intents(intent_id) ON DELETE RESTRICT,
+            attempt_id TEXT REFERENCES publish_attempts(attempt_id) ON DELETE RESTRICT,
+            decided_at TEXT NOT NULL,
+            outcome TEXT NOT NULL,
+            policy_name TEXT NOT NULL,
+            evidence_ids_json TEXT NOT NULL,
+            reason TEXT NOT NULL
+          );
+
+          CREATE INDEX idx_verification_decision_intent_time
+            ON verification_decisions(intent_id, decided_at, sequence);
+
+          CREATE TRIGGER verification_decision_no_update
+          BEFORE UPDATE ON verification_decisions
+          BEGIN
+            SELECT RAISE(ABORT, 'verification_decisions is append-only');
+          END;
+
+          CREATE TRIGGER verification_decision_no_delete
+          BEFORE DELETE ON verification_decisions
+          BEGIN
+            SELECT RAISE(ABORT, 'verification_decisions is append-only');
+          END;
+
+          CREATE TABLE verified_publications (
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+            publication_id TEXT NOT NULL UNIQUE,
+            intent_id TEXT NOT NULL UNIQUE REFERENCES publication_intents(intent_id) ON DELETE RESTRICT,
+            verified_at TEXT NOT NULL,
+            permalink TEXT,
+            evidence_ids_json TEXT NOT NULL
+          );
+
+          CREATE TRIGGER verified_publication_no_update
+          BEFORE UPDATE ON verified_publications
+          BEGIN
+            SELECT RAISE(ABORT, 'verified_publications is append-only');
+          END;
+
+          CREATE TRIGGER verified_publication_no_delete
+          BEFORE DELETE ON verified_publications
+          BEGIN
+            SELECT RAISE(ABORT, 'verified_publications is append-only');
+          END;
+        `);
+        this.db.prepare("INSERT INTO schema_migrations(version, name, applied_at) VALUES (?, ?, ?)")
+          .run(5, "publish attempts verification evidence and reconciliation", new Date().toISOString());
       });
     }
   }
@@ -1501,6 +1765,285 @@ export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressSt
       ? this.db.prepare("SELECT * FROM platform_capability_probes WHERE account_id = ? ORDER BY probed_at, sequence").all(accountId) as PlatformCapabilityProbeRow[]
       : this.db.prepare("SELECT * FROM platform_capability_probes ORDER BY probed_at, sequence").all() as PlatformCapabilityProbeRow[];
     return rows.map(platformCapabilityProbeFromRow);
+  }
+
+
+  recordPreparedAttempt(attempt: PublishAttempt, actor: Actor): PublishAttempt {
+    if (attempt.result !== "prepared") throw new PublishAttemptConflictError("Prepared attempt must have result=prepared");
+    if (!attempt.reachedFinalActionBoundary) throw new PublishAttemptConflictError("Prepared attempt must have reached the final-action boundary");
+    if (attempt.irreversibleBoundaryEnteredAt || attempt.finalActionInvokedAt) {
+      throw new PublishAttemptConflictError("Prepared attempt cannot already contain irreversible-action timestamps");
+    }
+    return this.transaction(() => {
+      const intent = this.getIntent(attempt.intentId);
+      if (!intent) throw new PublishAttemptConflictError(`Unknown publication intent: ${attempt.intentId}`);
+      const identity = this.getBrowserIdentity(attempt.browserIdentityId);
+      if (!identity) throw new PublishAttemptConflictError(`Unknown browser identity: ${attempt.browserIdentityId}`);
+      if (identity.identity.accountId !== intent.intent.accountId) {
+        throw new PublishAttemptConflictError("Publish attempt browser identity does not belong to the intent account");
+      }
+      const existingRow = this.db.prepare("SELECT * FROM publish_attempts WHERE attempt_id = ?").get(attempt.attemptId) as PublishAttemptRow | undefined;
+      if (existingRow) {
+        const existing = publishAttemptFromRow(existingRow);
+        if (!samePreparedAttempt(existing, attempt)) {
+          throw new PublishAttemptConflictError(`Publish attempt ${attempt.attemptId} already exists with different data`);
+        }
+        return existing;
+      }
+      this.db.prepare(`
+        INSERT INTO publish_attempts(
+          attempt_id, intent_id, browser_identity_id, release_sha, started_at,
+          irreversible_boundary_entered_at, final_action_invoked_at, finished_at,
+          result, media_sha256, preparation_artifact_refs_json, reached_final_action_boundary
+        ) VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?)
+      `).run(
+        attempt.attemptId,
+        attempt.intentId,
+        attempt.browserIdentityId,
+        attempt.releaseSha,
+        asIso(attempt.startedAt),
+        attempt.finishedAt ? asIso(attempt.finishedAt) : null,
+        attempt.result,
+        attempt.mediaSha256 ?? null,
+        JSON.stringify([...(attempt.preparationArtifactRefs ?? [])]),
+        attempt.reachedFinalActionBoundary ? 1 : 0
+      );
+      this.appendEvent({
+        aggregateType: "publish_attempt",
+        aggregateId: attempt.attemptId,
+        eventType: "publish_attempt.prepared",
+        occurredAt: attempt.finishedAt ?? attempt.startedAt,
+        actor,
+        payload: { intentId: attempt.intentId, releaseSha: attempt.releaseSha, mediaSha256: attempt.mediaSha256 ?? null }
+      });
+      const created = this.getPublishAttempt(attempt.attemptId);
+      if (!created) throw new Error(`Failed to reload publish attempt ${attempt.attemptId}`);
+      return created;
+    });
+  }
+
+  getPublishAttempt(attemptId: string): PublishAttempt | null {
+    const row = this.db.prepare("SELECT * FROM publish_attempts WHERE attempt_id = ?").get(attemptId) as PublishAttemptRow | undefined;
+    return row ? publishAttemptFromRow(row) : null;
+  }
+
+  listPublishAttempts(intentId?: string): readonly PublishAttempt[] {
+    const rows = intentId
+      ? this.db.prepare("SELECT * FROM publish_attempts WHERE intent_id = ? ORDER BY started_at, attempt_id").all(intentId) as PublishAttemptRow[]
+      : this.db.prepare("SELECT * FROM publish_attempts ORDER BY started_at, attempt_id").all() as PublishAttemptRow[];
+    return rows.map(publishAttemptFromRow);
+  }
+
+  enterIrreversibleBoundary(attemptId: string, at: Instant, actor: Actor): PublishAttempt {
+    return this.transaction(() => {
+      const attempt = this.getPublishAttempt(attemptId);
+      if (!attempt) throw new PublishAttemptConflictError(`Unknown publish attempt: ${attemptId}`);
+      if (attempt.result !== "prepared") throw new PublishAttemptConflictError(`Attempt ${attemptId} must be prepared before boundary entry, got ${attempt.result}`);
+      const intent = this.getIntentOrThrow(attempt.intentId);
+      if (intent.state !== "PREPARING") throw new PublishAttemptConflictError(`Intent ${attempt.intentId} must be PREPARING before boundary entry, got ${intent.state}`);
+      const timestamp = asIso(at);
+      const result = this.db.prepare(`
+        UPDATE publish_attempts
+        SET irreversible_boundary_entered_at = ?, result = 'boundary_entered'
+        WHERE attempt_id = ? AND result = 'prepared' AND irreversible_boundary_entered_at IS NULL
+      `).run(timestamp, attemptId);
+      if (result.changes !== 1) throw new PublishAttemptConflictError(`Concurrent boundary entry for ${attemptId}`);
+      this.appendEvent({
+        aggregateType: "publish_attempt", aggregateId: attemptId, eventType: "publish_attempt.irreversible_boundary_entered",
+        occurredAt: timestamp, actor, payload: { intentId: attempt.intentId }
+      });
+      this.transitionIntentInsideTransaction(attempt.intentId, "PUBLISHING", timestamp, actor, "irreversible_boundary_entered_before_ui_action");
+      return this.getPublishAttempt(attemptId)!;
+    });
+  }
+
+  markFinalActionInvoked(attemptId: string, at: Instant, actor: Actor): PublishAttempt {
+    return this.transaction(() => {
+      const attempt = this.getPublishAttempt(attemptId);
+      if (!attempt) throw new PublishAttemptConflictError(`Unknown publish attempt: ${attemptId}`);
+      if (attempt.result !== "boundary_entered") throw new PublishAttemptConflictError(`Attempt ${attemptId} must have entered boundary, got ${attempt.result}`);
+      const intent = this.getIntentOrThrow(attempt.intentId);
+      if (intent.state !== "PUBLISHING") throw new PublishAttemptConflictError(`Intent ${attempt.intentId} must be PUBLISHING, got ${intent.state}`);
+      const timestamp = asIso(at);
+      const result = this.db.prepare(`
+        UPDATE publish_attempts SET final_action_invoked_at = ?, finished_at = ?, result = 'final_action_invoked'
+        WHERE attempt_id = ? AND result = 'boundary_entered'
+      `).run(timestamp, timestamp, attemptId);
+      if (result.changes !== 1) throw new PublishAttemptConflictError(`Concurrent final-action update for ${attemptId}`);
+      this.appendEvent({
+        aggregateType: "publish_attempt", aggregateId: attemptId, eventType: "publish_attempt.final_action_invoked",
+        occurredAt: timestamp, actor, payload: { intentId: attempt.intentId }
+      });
+      this.transitionIntentInsideTransaction(attempt.intentId, "VERIFYING", timestamp, actor, "final_action_returned_control_to_worker");
+      return this.getPublishAttempt(attemptId)!;
+    });
+  }
+
+  markAttemptUncertain(attemptId: string, at: Instant, actor: Actor, reason: string): PublishAttempt {
+    return this.transaction(() => {
+      const attempt = this.getPublishAttempt(attemptId);
+      if (!attempt) throw new PublishAttemptConflictError(`Unknown publish attempt: ${attemptId}`);
+      if (!attempt.irreversibleBoundaryEnteredAt && attempt.result !== "boundary_entered" && attempt.result !== "final_action_invoked" && attempt.result !== "uncertain") {
+        throw new PublishAttemptConflictError(`Attempt ${attemptId} has not crossed the irreversible boundary`);
+      }
+      if (attempt.result === "uncertain") return attempt;
+      const timestamp = asIso(at);
+      this.db.prepare("UPDATE publish_attempts SET finished_at = ?, result = 'uncertain' WHERE attempt_id = ?")
+        .run(timestamp, attemptId);
+      this.appendEvent({
+        aggregateType: "publish_attempt", aggregateId: attemptId, eventType: "publish_attempt.uncertain",
+        occurredAt: timestamp, actor, payload: { intentId: attempt.intentId, reason }
+      });
+      const intent = this.getIntentOrThrow(attempt.intentId);
+      if (intent.state === "PUBLISHING" || intent.state === "VERIFYING") {
+        this.transitionIntentInsideTransaction(attempt.intentId, "PUBLISH_UNCERTAIN", timestamp, actor, reason);
+      } else if (intent.state !== "PUBLISH_UNCERTAIN") {
+        throw new PublishAttemptConflictError(`Cannot mark attempt uncertain while intent is ${intent.state}`);
+      }
+      return this.getPublishAttempt(attemptId)!;
+    });
+  }
+
+  markAttemptFailed(attemptId: string, at: Instant, actor: Actor, reason: string): PublishAttempt {
+    return this.transaction(() => {
+      const attempt = this.getPublishAttempt(attemptId);
+      if (!attempt) throw new PublishAttemptConflictError(`Unknown publish attempt: ${attemptId}`);
+      if (attempt.irreversibleBoundaryEnteredAt || attempt.result === "boundary_entered" || attempt.result === "final_action_invoked" || attempt.result === "uncertain") {
+        throw new PublishAttemptConflictError("A post-boundary failure must be marked uncertain, never safely failed");
+      }
+      const timestamp = asIso(at);
+      this.db.prepare("UPDATE publish_attempts SET finished_at = ?, result = 'failed' WHERE attempt_id = ?")
+        .run(timestamp, attemptId);
+      this.appendEvent({
+        aggregateType: "publish_attempt", aggregateId: attemptId, eventType: "publish_attempt.failed",
+        occurredAt: timestamp, actor, payload: { intentId: attempt.intentId, reason }
+      });
+      const intent = this.getIntentOrThrow(attempt.intentId);
+      if (intent.state === "PREPARING") this.transitionIntentInsideTransaction(attempt.intentId, "RETRY_WAIT", timestamp, actor, reason);
+      return this.getPublishAttempt(attemptId)!;
+    });
+  }
+
+  recordVerificationEvidence(evidence: VerificationEvidence, actor: Actor): VerificationEvidence {
+    return this.transaction(() => {
+      const intent = this.getIntent(evidence.intentId);
+      if (!intent) throw new VerificationEvidenceConflictError(`Unknown publication intent: ${evidence.intentId}`);
+      if (evidence.attemptId) {
+        const attempt = this.getPublishAttempt(evidence.attemptId);
+        if (!attempt) throw new VerificationEvidenceConflictError(`Unknown publish attempt: ${evidence.attemptId}`);
+        if (attempt.intentId !== evidence.intentId) throw new VerificationEvidenceConflictError("Verification evidence intent/attempt mismatch");
+      }
+      const existingRow = this.db.prepare("SELECT * FROM verification_evidence WHERE evidence_id = ?").get(evidence.evidenceId) as VerificationEvidenceRow | undefined;
+      if (existingRow) {
+        const existing = verificationEvidenceFromRow(existingRow);
+        if (!sameVerificationEvidence(existing, evidence)) throw new VerificationEvidenceConflictError(`Evidence ${evidence.evidenceId} conflicts with existing record`);
+        return existing;
+      }
+      const normalized: VerificationEvidence = { ...evidence, observedAt: asIso(evidence.observedAt) };
+      this.db.prepare(`
+        INSERT INTO verification_evidence(evidence_id, intent_id, attempt_id, kind, observed_at, positive, locator, artifact_ref, note)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        normalized.evidenceId, normalized.intentId, normalized.attemptId ?? null, normalized.kind, normalized.observedAt,
+        normalized.positive ? 1 : 0, normalized.locator ?? null, normalized.artifactRef ?? null, normalized.note ?? null
+      );
+      this.appendEvent({
+        aggregateType: "verification_evidence", aggregateId: normalized.evidenceId, eventType: "verification_evidence.recorded",
+        occurredAt: normalized.observedAt, actor,
+        payload: { intentId: normalized.intentId, attemptId: normalized.attemptId ?? null, kind: normalized.kind, positive: normalized.positive }
+      });
+      return normalized;
+    });
+  }
+
+  listVerificationEvidence(intentId: string, attemptId?: string): readonly VerificationEvidence[] {
+    const rows = attemptId
+      ? this.db.prepare("SELECT * FROM verification_evidence WHERE intent_id = ? AND attempt_id = ? ORDER BY observed_at, sequence").all(intentId, attemptId) as VerificationEvidenceRow[]
+      : this.db.prepare("SELECT * FROM verification_evidence WHERE intent_id = ? ORDER BY observed_at, sequence").all(intentId) as VerificationEvidenceRow[];
+    return rows.map(verificationEvidenceFromRow);
+  }
+
+  recordVerificationDecision(decision: VerificationDecision, actor: Actor): VerificationDecision {
+    return this.transaction(() => {
+      if (!this.getIntent(decision.intentId)) throw new VerificationDecisionConflictError(`Unknown publication intent: ${decision.intentId}`);
+      if (decision.attemptId) {
+        const attempt = this.getPublishAttempt(decision.attemptId);
+        if (!attempt || attempt.intentId !== decision.intentId) throw new VerificationDecisionConflictError("Verification decision intent/attempt mismatch");
+      }
+      for (const evidenceId of decision.evidenceIds) {
+        const evidenceRow = this.db.prepare("SELECT * FROM verification_evidence WHERE evidence_id = ?").get(evidenceId) as VerificationEvidenceRow | undefined;
+        if (!evidenceRow || evidenceRow.intent_id !== decision.intentId) {
+          throw new VerificationDecisionConflictError(`Decision references unknown/mismatched evidence ${evidenceId}`);
+        }
+      }
+      const existingRow = this.db.prepare("SELECT * FROM verification_decisions WHERE decision_id = ?").get(decision.decisionId) as VerificationDecisionRow | undefined;
+      if (existingRow) {
+        const existing = verificationDecisionFromRow(existingRow);
+        if (!sameVerificationDecision(existing, decision)) throw new VerificationDecisionConflictError(`Decision ${decision.decisionId} conflicts with existing record`);
+        return existing;
+      }
+      const normalized: VerificationDecision = { ...decision, decidedAt: asIso(decision.decidedAt) };
+      this.db.prepare(`
+        INSERT INTO verification_decisions(decision_id, intent_id, attempt_id, decided_at, outcome, policy_name, evidence_ids_json, reason)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        normalized.decisionId, normalized.intentId, normalized.attemptId ?? null, normalized.decidedAt,
+        normalized.outcome, normalized.policyName, JSON.stringify([...normalized.evidenceIds]), normalized.reason
+      );
+      this.appendEvent({
+        aggregateType: "verification_decision", aggregateId: normalized.decisionId, eventType: `verification_decision.${normalized.outcome.toLowerCase()}`,
+        occurredAt: normalized.decidedAt, actor,
+        payload: { intentId: normalized.intentId, attemptId: normalized.attemptId ?? null, evidenceIds: [...normalized.evidenceIds], reason: normalized.reason }
+      });
+      return normalized;
+    });
+  }
+
+  listVerificationDecisions(intentId: string): readonly VerificationDecision[] {
+    return (this.db.prepare("SELECT * FROM verification_decisions WHERE intent_id = ? ORDER BY decided_at, sequence").all(intentId) as VerificationDecisionRow[])
+      .map(verificationDecisionFromRow);
+  }
+
+  recordVerifiedPublication(publication: VerifiedPublication, actor: Actor): VerifiedPublication {
+    return this.transaction(() => {
+      if (!this.getIntent(publication.intentId)) throw new VerifiedPublicationConflictError(`Unknown publication intent: ${publication.intentId}`);
+      if (publication.evidenceIds.length === 0) throw new VerifiedPublicationConflictError("Verified publication requires evidence references");
+      for (const evidenceId of publication.evidenceIds) {
+        const evidenceRow = this.db.prepare("SELECT * FROM verification_evidence WHERE evidence_id = ?").get(evidenceId) as VerificationEvidenceRow | undefined;
+        if (!evidenceRow || evidenceRow.intent_id !== publication.intentId) {
+          throw new VerifiedPublicationConflictError(`Verified publication references unknown/mismatched evidence ${evidenceId}`);
+        }
+      }
+      const byIntent = this.db.prepare("SELECT * FROM verified_publications WHERE intent_id = ?").get(publication.intentId) as VerifiedPublicationRow | undefined;
+      if (byIntent) {
+        const existing = verifiedPublicationFromRow(byIntent);
+        if (!sameVerifiedPublication(existing, publication)) throw new VerifiedPublicationConflictError(`Intent ${publication.intentId} already has a different verified publication`);
+        return existing;
+      }
+      const byId = this.db.prepare("SELECT * FROM verified_publications WHERE publication_id = ?").get(publication.publicationId) as VerifiedPublicationRow | undefined;
+      if (byId) throw new VerifiedPublicationConflictError(`Publication id ${publication.publicationId} already belongs to another intent`);
+      const normalized: VerifiedPublication = { ...publication, verifiedAt: asIso(publication.verifiedAt) };
+      this.db.prepare(`
+        INSERT INTO verified_publications(publication_id, intent_id, verified_at, permalink, evidence_ids_json)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(normalized.publicationId, normalized.intentId, normalized.verifiedAt, normalized.permalink ?? null, JSON.stringify([...normalized.evidenceIds]));
+      this.appendEvent({
+        aggregateType: "verified_publication", aggregateId: normalized.publicationId, eventType: "verified_publication.recorded",
+        occurredAt: normalized.verifiedAt, actor,
+        payload: { intentId: normalized.intentId, permalink: normalized.permalink ?? null, evidenceIds: [...normalized.evidenceIds] }
+      });
+      return normalized;
+    });
+  }
+
+  getVerifiedPublication(intentId: string): VerifiedPublication | null {
+    const row = this.db.prepare("SELECT * FROM verified_publications WHERE intent_id = ?").get(intentId) as VerifiedPublicationRow | undefined;
+    return row ? verifiedPublicationFromRow(row) : null;
+  }
+
+  listVerifiedPublications(): readonly VerifiedPublication[] {
+    return (this.db.prepare("SELECT * FROM verified_publications ORDER BY verified_at, sequence").all() as VerifiedPublicationRow[])
+      .map(verifiedPublicationFromRow);
   }
 
 }

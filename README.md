@@ -5,10 +5,10 @@
 - W2 pluggable ingress/disposition: **done under local verification**
 - W3 browser identity subsystem: **done under local verification**
 - W4 PREPARE_ONLY platform UI kernel/adapters: **implemented under local/synthetic verification**
-- Automated tests: **54 passed / 0 failed**
-- Real platform selector calibration: **deferred to private W8 E2E**
-- W5 verification/reconciliation: **next**
-- Real social-account publishing: **not implemented and intentionally blocked**
+- W5 verification/reconciliation: **done under local/synthetic verification**
+- Automated tests: **70 passed / 0 failed** at W5 checkpoint
+- Real platform selector/calibration and real final-action invoker: **deferred to private W8 E2E**
+- Real social-account publishing: **not wired and intentionally blocked**
 
 See `docs/10-PROGRESS.md`, `docs/10-W1-DURABLE-CONTROL-PLANE.md`, and `docs/11-W2-PLUGGABLE-INGRESS.md`.
 
@@ -41,10 +41,11 @@ Every node is traceable backward to its source and forward to its targets.
 9. `docs/08-IMPLEMENTATION-WAVES.md`
 10. `docs/12-W3-BROWSER-IDENTITY.md`
 11. `docs/13-W4-PREPARE-ONLY.md`
+12. `docs/14-W5-VERIFICATION-AND-RECONCILIATION.md`
 
 ## Current code
 
-The repository now contains the durable control plane, replaceable ingress/disposition adapters, persistent browser identities, and a PREPARE_ONLY platform UI kernel for Instagram/TikTok/YouTube. Media upload/field preparation is implemented, but the W4 publisher contains no irreversible final social action. Real platform selectors remain explicitly uncalibrated until W8 private/test-account E2E.
+The repository now contains the durable control plane, replaceable ingress/disposition adapters, persistent browser identities, a PREPARE_ONLY platform UI kernel, and durable W5 publish-attempt/evidence/reconciliation semantics. The W4 publisher still contains no irreversible final social action; W5 adds the guarded lifecycle contract and verification machinery, but no real social final-action invoker is wired. Real platform selectors remain explicitly uncalibrated until W8 private/test-account E2E.
 
 ```bash
 npm run check

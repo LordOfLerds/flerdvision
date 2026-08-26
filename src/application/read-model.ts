@@ -3,6 +3,7 @@ import type { AuditEvent, ControlPlaneSummary, StoredPublicationIntent } from ".
 import type { ControlPlaneReadPort, EventLogPort, PublicationIntentStorePort, ScheduleStorePort } from "../domain/control-plane-ports.js";
 import type { IngressStorePort } from "../domain/ingress-ports.js";
 import type { SourceDispositionRecord, StoredContentItem, StoredSourceObservation } from "../domain/ingress.js";
+import type { PublishAttemptStorePort, VerificationStorePort } from "../domain/verification-ports.js";
 
 export interface IntentAdminView {
   record: StoredPublicationIntent;
@@ -54,5 +55,27 @@ export class IngressAdminReadModel {
     return this.store.listSourceObservations()
       .map((record) => this.store.getSourceDisposition(record.observation.observationId))
       .filter((record): record is SourceDispositionRecord => record !== null);
+  }
+}
+
+export interface VerificationAdminView {
+  intentId: string;
+  attempts: ReturnType<PublishAttemptStorePort["listPublishAttempts"]>;
+  evidence: ReturnType<VerificationStorePort["listVerificationEvidence"]>;
+  decisions: ReturnType<VerificationStorePort["listVerificationDecisions"]>;
+  publication: ReturnType<VerificationStorePort["getVerifiedPublication"]>;
+}
+
+export class VerificationAdminReadModel {
+  constructor(private readonly store: PublishAttemptStorePort & VerificationStorePort) {}
+
+  intent(intentId: string): VerificationAdminView {
+    return {
+      intentId,
+      attempts: this.store.listPublishAttempts(intentId),
+      evidence: this.store.listVerificationEvidence(intentId),
+      decisions: this.store.listVerificationDecisions(intentId),
+      publication: this.store.getVerifiedPublication(intentId)
+    };
   }
 }

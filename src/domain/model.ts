@@ -42,15 +42,29 @@ export interface PublicationIntent {
   idempotencyKey: string;
 }
 
+export type PublishAttemptResult =
+  | "not_started"
+  | "prepared"
+  | "boundary_entered"
+  | "final_action_invoked"
+  | "failed"
+  | "uncertain";
+
 export interface PublishAttempt {
   attemptId: UUID;
   intentId: UUID;
   browserIdentityId: string;
   releaseSha: string;
   startedAt: Instant;
+  /**
+   * Persisted BEFORE the UI action that may publish content. If the process dies
+   * after this timestamp, the outcome must be reconciled before any retry.
+   */
+  irreversibleBoundaryEnteredAt?: Instant;
+  /** Recorded only after the final UI action returns control to the worker. */
   finalActionInvokedAt?: Instant;
   finishedAt?: Instant;
-  result: "not_started" | "prepared" | "final_action_invoked" | "failed" | "uncertain";
+  result: PublishAttemptResult;
   mediaSha256?: string;
   preparationArtifactRefs?: readonly string[];
   reachedFinalActionBoundary?: boolean;
@@ -61,6 +75,7 @@ export type EvidenceKind =
   | "profile_permalink"
   | "profile_media_match"
   | "manual_confirmation"
+  | "manual_not_published"
   | "negative_profile_check";
 
 export interface VerificationEvidence {
@@ -73,6 +88,19 @@ export interface VerificationEvidence {
   locator?: string;
   artifactRef?: string;
   note?: string;
+}
+
+export type VerificationOutcome = "VERIFIED" | "SAFE_TO_RETRY" | "UNCERTAIN";
+
+export interface VerificationDecision {
+  decisionId: UUID;
+  intentId: UUID;
+  attemptId?: UUID;
+  decidedAt: Instant;
+  outcome: VerificationOutcome;
+  policyName: string;
+  evidenceIds: readonly UUID[];
+  reason: string;
 }
 
 export interface VerifiedPublication {

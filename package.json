@@ -15,7 +15,8 @@
     "browser": "npm run build && node dist/cli/browser.js",
     "test:w3": "npm run build && node --test tests/w3-*.test.mjs",
     "test:w4": "npm run build && node --test tests/w4-*.test.mjs",
-    "platform-ui": "npm run build && node dist/cli/platform-ui.js"
+    "platform-ui": "npm run build && node dist/cli/platform-ui.js",
+    "test:w5": "npm run build && node --test tests/w5-*.test.mjs"
   },
   "engines": {
     "node": ">=22"

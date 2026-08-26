@@ -30,6 +30,7 @@ PLANNED
 
 PUBLISHING/VERIFYING -> PUBLISH_UNCERTAIN
 recoverable failure -> RETRY_WAIT -> READY
+PUBLISH_UNCERTAIN -> VERIFYING -> RETRY_WAIT only after absence quorum
 risk/identity/auth/policy problem -> BLOCKED
 explicit skip -> WAIVED
 ```
@@ -41,7 +42,7 @@ explicit skip -> WAIVED
 When an irreversible click may have succeeded but proof is missing:
 1. do **not** click publish again,
 2. run reconciliation/verifier strategies,
-3. only after positive evidence of absence may policy return the intent to `READY`,
+3. only after conservative evidence of absence may policy move the intent to `RETRY_WAIT`; a later scheduler transition may return it to `READY`,
 4. otherwise escalate.
 
 ## Session lifecycle

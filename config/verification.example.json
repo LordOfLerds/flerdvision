@@ -1,0 +1,11 @@
+{
+  "policy": "composite_profile_receipt_and_conservative_negative_quorum",
+  "negativeChecksRequired": 3,
+  "minimumNegativeSpanSeconds": 600,
+  "minimumAgeAfterBoundarySeconds": 600,
+  "notes": [
+    "Any positive publish signal blocks automatic retry until resolved.",
+    "Manual absence confirmation is an explicit operator action, never AI-generated.",
+    "Real platform profile selectors are calibrated only in W8 on the private/test account."
+  ]
+}
