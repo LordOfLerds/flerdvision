@@ -1,0 +1,10 @@
+{
+  "timezone": "Europe/Vienna",
+  "slots": ["09:00", "11:00", "15:00", "17:00"],
+  "slotToleranceMinutes": 30,
+  "defaultDailyCapPerAccount": 4,
+  "minimumSpacingMinutesWhenExtraPostsAreAllowed": 240,
+  "unknownRoutingPolicy": "block",
+  "unknownUiPolicy": "block",
+  "publishVerificationPolicy": "profile_plus_receipt_or_manual"
+}

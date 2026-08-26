@@ -1,0 +1,14 @@
+{
+  "sourceId": "current_google_drive",
+  "adapter": "google_drive_folder",
+  "interpreter": {
+    "kind": "path_rules_v1",
+    "creatorSegment": 1,
+    "daySegmentPattern": "^(?<dayNumber>0[1-7])_(?<dayName>.+)$",
+    "unknownFolderPolicy": "block"
+  },
+  "disposition": {
+    "adapter": "noop",
+    "note": "Keep today's confirmation/write-back behavior replaceable until exact SOP is locked."
+  }
+}

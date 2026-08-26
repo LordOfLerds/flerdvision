@@ -1,0 +1,18 @@
+{
+  "creators": [
+    {
+      "creatorId": "creator_shala",
+      "displayName": "Shala",
+      "active": true,
+      "sourceAliases": ["06_Shala"],
+      "accounts": [
+        {
+          "accountId": "shala_instagram_primary",
+          "platform": "instagram",
+          "browserIdentityId": "browser_shala_instagram_primary",
+          "active": true
+        }
+      ]
+    }
+  ]
+}
