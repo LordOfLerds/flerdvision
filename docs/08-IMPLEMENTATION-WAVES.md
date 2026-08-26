@@ -34,7 +34,7 @@ Exit: simulated jobs survive process/server restarts exactly once at the intent 
 
 Exit: today's source schema works, but tests prove a second fake schema can plug in without core changes.
 
-## W3 — Browser identity subsystem [NEXT]
+## W3 — Browser identity subsystem [DONE — LOCAL VERIFICATION]
 - persistent profiles per account,
 - account registry,
 - headed bootstrap flow,
@@ -45,7 +45,7 @@ Exit: today's source schema works, but tests prove a second fake schema can plug
 
 Exit: every test account can be opened/validated reliably after reboot.
 
-## W4 — Platform adapters in PREPARE_ONLY
+## W4 — Platform adapters in PREPARE_ONLY [NEXT]
 - Instagram Web,
 - TikTok Web/Studio,
 - YouTube Studio,

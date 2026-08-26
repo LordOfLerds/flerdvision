@@ -3,8 +3,9 @@
 - W0 canonical architecture: **done**
 - W1 durable control plane: **done under local verification**
 - W2 pluggable ingress/disposition: **done under local verification**
-- Automated tests: **33 passed / 0 failed**
-- W3 browser identity subsystem: **next**
+- W3 browser identity subsystem: **done under local verification**
+- Automated tests: **42 passed / 0 failed**
+- W4 platform PREPARE_ONLY adapters: **next**
 - Real social-account publishing: **not implemented and intentionally blocked**
 
 See `docs/10-PROGRESS.md`, `docs/10-W1-DURABLE-CONTROL-PLANE.md`, and `docs/11-W2-PLUGGABLE-INGRESS.md`.
@@ -36,10 +37,11 @@ Every node is traceable backward to its source and forward to its targets.
 7. `docs/06-GO-LIVE-GATES.md`
 8. `docs/07-INCIDENTS-AND-AI-REPAIR.md`
 9. `docs/08-IMPLEMENTATION-WAVES.md`
+10. `docs/12-W3-BROWSER-IDENTITY.md`
 
 ## Current code
 
-The repository now contains the durable control plane plus replaceable ingress/disposition adapters. Google Drive discovery code is read-only by default; optional acknowledgement writers are not wired. Social platform/browser implementations are still absent, so no irreversible social action is currently possible.
+The repository now contains the durable control plane, replaceable ingress/disposition adapters, and a persistent browser-identity subsystem. Chromium profiles are isolated and guarded, but no Instagram/TikTok/YouTube upload adapter or irreversible social action exists yet.
 
 ```bash
 npm run check

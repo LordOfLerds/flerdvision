@@ -1,0 +1,16 @@
+{
+  "accounts": [
+    {
+      "accountId": "creator_example_instagram_primary",
+      "creatorId": "creator_example",
+      "platform": "instagram",
+      "expectedHandle": "example_handle",
+      "enabled": true,
+      "browserIdentity": {
+        "identityId": "browser_creator_example_instagram_primary",
+        "profileKey": "instagram/creator_example_primary",
+        "enabled": true
+      }
+    }
+  ]
+}

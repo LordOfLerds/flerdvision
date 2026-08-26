@@ -24,10 +24,10 @@ They can live on the same server initially.
 
 1. clone private repo,
 2. create `.env` from `.env.example`,
-3. create persistent runtime/profile/evidence directories,
-4. initialize DB/migrations,
+3. run `./ops/bootstrap-runtime.sh`,
+4. initialize DB/migrations by running any admin/browser command,
 5. start in `FLERDVISION_MODE=disabled`,
-6. run all tests.
+6. run `npm run check`.
 
 ## Phase 2 — Source setup
 
@@ -41,13 +41,15 @@ Current Drive integration starts read-only:
 ## Phase 3 — Account/browser bootstrap
 
 For each social account:
-1. create stable internal `account_id`,
-2. create isolated persistent browser profile,
-3. open headed browser through private operator access,
+1. create stable internal `account_id` and `browserIdentityId`,
+2. register non-secret identity metadata with `npm run browser -- register ...`,
+3. open the isolated persistent browser via `npm run browser -- bootstrap ...` through private operator access,
 4. human performs normal login and 2FA,
-5. verify target profile/account identity,
-6. record only non-secret metadata in DB,
+5. run a session probe and verify the exact target handle,
+6. `AccountIdentityGuard` must report `HEALTHY`,
 7. never commit cookies/profile data/passwords.
+
+Detailed W3 commands and invariants: `docs/12-W3-BROWSER-IDENTITY.md`.
 
 No password automation is required. The retained browser session is the runtime identity.
 

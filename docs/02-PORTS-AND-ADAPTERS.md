@@ -87,6 +87,21 @@ Future: PostgreSQL can replace it because orchestration depends on repository co
 
 ## G. Browser execution
 
-`BrowserWorker` is physically separable from `ControlPlane`.
+Domain/application ports now implemented:
+- `BrowserIdentityStorePort` — SocialAccount/BrowserIdentity/session-health persistence,
+- `BrowserRuntimePort` — launch an isolated persistent browser profile,
+- `BrowserProfileLockPort` — exclusive profile/identity ownership,
+- `SessionProbePort` — prove auth/account identity without embedding platform semantics in the domain.
 
-MVP may colocate both on one inexpensive server. Later the browser worker can move to a stable Austrian office connection/mini-PC while the control plane remains on a VPS. No domain change is required.
+Implemented W3 adapters/services:
+- `ChromiumCdpRuntimeAdapter`,
+- `FileBrowserProfileLockAdapter`,
+- `DurableBrowserProfileLockAdapter`,
+- `ConfiguredDomSessionProbe`,
+- `BrowserBootstrapService`,
+- `BrowserSessionHealthService`,
+- `AccountIdentityGuard`.
+
+`BrowserWorker` remains physically separable from `ControlPlane`. MVP may colocate both on one inexpensive server. Later the browser worker can move to a stable Austrian office connection/mini-PC while the control plane remains on a VPS. No domain change is required.
+
+W4 platform UI adapters must use the browser identity guard before media preparation.

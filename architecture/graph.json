@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "nodes": [
     {
       "id": "external_source",
@@ -205,6 +205,61 @@
       "id": "source_disposition_record",
       "kind": "domain",
       "label": "SourceDispositionRecord"
+    },
+    {
+      "id": "browser_identity_store_port",
+      "kind": "port",
+      "label": "BrowserIdentityStorePort"
+    },
+    {
+      "id": "browser_runtime_port",
+      "kind": "port",
+      "label": "BrowserRuntimePort"
+    },
+    {
+      "id": "browser_profile_lock_port",
+      "kind": "port",
+      "label": "BrowserProfileLockPort"
+    },
+    {
+      "id": "session_probe_port",
+      "kind": "port",
+      "label": "SessionProbePort"
+    },
+    {
+      "id": "browser_bootstrap_service",
+      "kind": "application",
+      "label": "BrowserBootstrapService"
+    },
+    {
+      "id": "session_health_service",
+      "kind": "application",
+      "label": "BrowserSessionHealthService"
+    },
+    {
+      "id": "account_identity_guard",
+      "kind": "application",
+      "label": "AccountIdentityGuard"
+    },
+    {
+      "id": "chromium_cdp_runtime",
+      "kind": "adapter",
+      "label": "ChromiumCdpRuntimeAdapter"
+    },
+    {
+      "id": "file_profile_lock",
+      "kind": "adapter",
+      "label": "FileBrowserProfileLockAdapter"
+    },
+    {
+      "id": "durable_profile_lock",
+      "kind": "adapter",
+      "label": "DurableBrowserProfileLockAdapter"
+    },
+    {
+      "id": "configured_dom_probe",
+      "kind": "adapter",
+      "label": "ConfiguredDomSessionProbe"
     }
   ],
   "edges": [
@@ -472,6 +527,101 @@
       "from": "source_disposition",
       "to": "source_disposition_record",
       "rel": "recorded_as"
+    },
+    {
+      "from": "social_account",
+      "to": "browser_identity_store_port",
+      "rel": "persisted_through"
+    },
+    {
+      "from": "browser_identity",
+      "to": "browser_identity_store_port",
+      "rel": "persisted_through"
+    },
+    {
+      "from": "session_health",
+      "to": "browser_identity_store_port",
+      "rel": "persisted_through"
+    },
+    {
+      "from": "sqlite_control_plane",
+      "to": "browser_identity_store_port",
+      "rel": "implements"
+    },
+    {
+      "from": "browser_bootstrap_service",
+      "to": "browser_identity_store_port",
+      "rel": "reads"
+    },
+    {
+      "from": "browser_bootstrap_service",
+      "to": "browser_runtime_port",
+      "rel": "launches_through"
+    },
+    {
+      "from": "browser_bootstrap_service",
+      "to": "browser_profile_lock_port",
+      "rel": "locks_through"
+    },
+    {
+      "from": "chromium_cdp_runtime",
+      "to": "browser_runtime_port",
+      "rel": "implements"
+    },
+    {
+      "from": "file_profile_lock",
+      "to": "browser_profile_lock_port",
+      "rel": "implements_local_exclusion"
+    },
+    {
+      "from": "durable_profile_lock",
+      "to": "browser_profile_lock_port",
+      "rel": "implements"
+    },
+    {
+      "from": "durable_profile_lock",
+      "to": "worker_lease",
+      "rel": "uses"
+    },
+    {
+      "from": "durable_profile_lock",
+      "to": "file_profile_lock",
+      "rel": "composes"
+    },
+    {
+      "from": "session_health_service",
+      "to": "session_probe_port",
+      "rel": "probes_through"
+    },
+    {
+      "from": "session_health_service",
+      "to": "browser_identity_store_port",
+      "rel": "records_through"
+    },
+    {
+      "from": "configured_dom_probe",
+      "to": "session_probe_port",
+      "rel": "implements"
+    },
+    {
+      "from": "session_health",
+      "to": "account_identity_guard",
+      "rel": "evaluated_by"
+    },
+    {
+      "from": "browser_identity",
+      "to": "account_identity_guard",
+      "rel": "checked_by"
+    },
+    {
+      "from": "account_identity_guard",
+      "to": "publish_attempt",
+      "rel": "gates"
+    },
+    {
+      "from": "browser_identity",
+      "to": "browser_runtime_port",
+      "rel": "launched_through"
     }
   ],
   "invariants": [
@@ -483,6 +633,9 @@
     "source disposition cannot be the primary proof of publication",
     "unknown creator/account/UI state fails closed",
     "AI repair cannot bypass authentication or policy controls",
-    "uncertain publication cannot transition directly to retry-ready state"
+    "uncertain publication cannot transition directly to retry-ready state",
+    "one browser profile key belongs to exactly one browser identity",
+    "browser identity use is exclusive through local lock and durable lease",
+    "publish preparation requires a healthy exact-account identity guard"
   ]
 }

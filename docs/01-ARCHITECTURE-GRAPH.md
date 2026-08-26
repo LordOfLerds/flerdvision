@@ -16,7 +16,7 @@ ExternalSource
   -> VerifiedPublication
   -> MetricSnapshot
 
-Creator -> SocialAccount -> BrowserIdentity -> SessionHealth
+Creator -> SocialAccount -> BrowserIdentity -> SessionHealth -> AccountIdentityGuard -> PublishAttempt
 Creator -> RoutingPolicy -> DistributionPlan
 PostingPolicy -> SlotPolicy -> ScheduleReservation
 
@@ -76,3 +76,6 @@ Given a `SourceObservation`, operators must be able to answer:
 - A source acknowledgement may lag publication; it never leads it.
 - Re-observing the same external object with a different media fingerprint is a conflict, never an implicit content update.
 - Source acknowledgement/disposition is not publication verification.
+- A BrowserIdentity maps to one SocialAccount and one isolated profile key.
+- A PublishAttempt may not prepare media unless AccountIdentityGuard has current positive exact-account evidence.
+- Browser-profile ownership is exclusive locally and durably.

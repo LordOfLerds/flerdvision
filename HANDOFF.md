@@ -1,7 +1,7 @@
 # HANDOFF — current repository state
 
 ## Current phase
-W2 — pluggable ingress/source acknowledgement **complete under local verification**. W3 is next.
+W3 — browser identity subsystem **complete under local verification**. W4 PREPARE_ONLY platform adapters are next.
 
 ## Implemented
 - W0 architecture graph and reverse-trace model,
@@ -23,7 +23,14 @@ W2 — pluggable ingress/source acknowledgement **complete under local verificat
 - duplicate/mutated-source protection,
 - noop/webhook/Drive-appProperties/composite disposition adapters,
 - durable source acknowledgement semantics,
-- 33 automated tests passing.
+- W3 durable SocialAccount/BrowserIdentity registry,
+- migration 3 + append-only session-health evidence,
+- filesystem + durable DB profile locking,
+- persistent Chromium runtime with localhost-only DevTools,
+- first-time browser registration/bootstrap CLI,
+- generic session probe + exact account identity guard,
+- real Chromium restart/persistent-cookie test and DOM health-probe test,
+- 42 automated tests passing at W3 full-suite checkpoint.
 
 ## Safety correction made in W1
 `PUBLISH_UNCERTAIN -> READY` was removed. An uncertain irreversible outcome must reconcile through `VERIFYING` before any retry path exists.
@@ -35,13 +42,15 @@ The current isolated SQLite adapter uses Node 22.16 `node:sqlite`, which emits a
 - real Google Drive credential/bootstrap and live folder scan,
 - exact current bot/checkmark receiver integration,
 - real Playwright platform adapters,
-- browser-account profiles/sessions,
 - final-publish capability on any real account.
 
 These remain blocked by wave order.
 
 ## Next implementation order
-W3 browser identities -> W4 PREPARE_ONLY adapters -> W5 verification -> W6 operations/bot integration.
+W4 PREPARE_ONLY adapters -> W5 verification -> W6 operations/bot integration -> W7 AI repair.
+
+## W3 environment note
+The build container applies a Chromium administrator navigation policy to some local/data URLs. No real social site was accessed. The W3 browser-profile/session mechanics are locally verified; live social-session bootstrap remains an operator-host acceptance step before W4/W8.
 
 ## Safety
 Do not enable customer publishing during W0–W8. Follow `docs/06-GO-LIVE-GATES.md`.

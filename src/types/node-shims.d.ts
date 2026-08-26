@@ -22,6 +22,7 @@ declare const process: {
   argv: string[];
   env: Record<string, string | undefined>;
   exitCode?: number;
+  on(event: "SIGINT" | "SIGTERM", listener: () => void): void;
 };
 
 declare module "node:crypto" {
@@ -30,4 +31,34 @@ declare module "node:crypto" {
     digest(encoding: "hex"): string;
   }
   export function createHash(algorithm: "sha256"): Hash;
+}
+
+declare module "node:fs" {
+  export function mkdirSync(path: string, options?: { recursive?: boolean; mode?: number }): string | undefined;
+  export function openSync(path: string, flags: string, mode?: number): number;
+  export function closeSync(fd: number): void;
+  export function writeFileSync(file: string | number, data: string, options?: string | { encoding?: string; mode?: number }): void;
+  export function readFileSync(path: string, encoding: "utf8"): string;
+  export function existsSync(path: string): boolean;
+  export function rmSync(path: string, options?: { force?: boolean; recursive?: boolean }): void;
+  export function mkdtempSync(prefix: string): string;
+  export function copyFileSync(source: string, destination: string): void;
+}
+
+declare module "node:path" {
+  export const sep: string;
+  export function resolve(...paths: string[]): string;
+  export function join(...paths: string[]): string;
+}
+
+declare module "node:child_process" {
+  export interface SpawnedProcess {
+    once(event: "exit", listener: (code?: number | null, signal?: string | null) => void): this;
+    kill(signal?: string): boolean;
+  }
+  export function spawn(command: string, args?: readonly string[], options?: { stdio?: string }): SpawnedProcess;
+}
+
+declare module "node:timers/promises" {
+  export function setTimeout<T = void>(delay?: number, value?: T): Promise<T>;
 }

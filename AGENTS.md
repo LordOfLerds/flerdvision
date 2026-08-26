@@ -17,6 +17,8 @@
 - Unknown UI, CAPTCHA, 2FA, account warnings, copyright/policy warnings, or identity ambiguity => fail closed and escalate.
 - AI may diagnose and propose code patches; AI must not free-form click production accounts or bypass platform controls.
 - Browser session data, cookies, credentials, customer media and evidence artifacts are never committed to git.
+- One browser profile belongs to exactly one BrowserIdentity; concurrent profile/identity use is forbidden.
+- A platform publisher must pass the exact-account `AccountIdentityGuard`; merely being logged in is insufficient.
 - Video bytes are immutable in the publishing system unless a future explicit content-processing contract says otherwise.
 - Re-observing the same source object with a changed media fingerprint is a conflict and must fail closed; never silently replace accepted content.
 - `Europe/Vienna` is the business scheduling timezone.

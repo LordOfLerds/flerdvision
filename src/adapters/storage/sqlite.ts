@@ -1,5 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
 import type { ContentItem, PublicationIntent, SourceObservation, Instant } from "../../domain/model.js";
+import type { BrowserIdentity, SessionHealthCheck, SocialAccount, StoredBrowserIdentity, StoredSocialAccount } from "../../domain/browser-identity.js";
+import { normalizeSocialHandle } from "../../domain/browser-identity.js";
+import type { BrowserIdentityStorePort } from "../../domain/browser-identity-ports.js";
 import type { PublicationState } from "../../domain/states.js";
 import { transition as assertTransition } from "../../domain/states.js";
 import type {
@@ -121,12 +124,47 @@ interface SourceDispositionRow {
   updated_at: string;
 }
 
+interface SocialAccountRow {
+  account_id: string;
+  creator_id: string | null;
+  platform: SocialAccount["platform"];
+  expected_handle: string;
+  enabled: number;
+  created_at: string;
+  updated_at: string;
+}
+
+interface BrowserIdentityRow {
+  identity_id: string;
+  account_id: string;
+  platform: BrowserIdentity["platform"];
+  profile_key: string;
+  expected_handle: string;
+  enabled: number;
+  created_at: string;
+  updated_at: string;
+}
+
+interface SessionHealthRow {
+  sequence: number;
+  check_id: string;
+  identity_id: string;
+  checked_at: string;
+  state: SessionHealthCheck["state"];
+  expected_handle: string;
+  observed_handle: string | null;
+  current_url: string | null;
+  note: string | null;
+}
+
 export class IdempotencyConflictError extends Error {}
 export class ScheduleConflictError extends Error {}
 export class IntentNotFoundError extends Error {}
 export class SourceObservationNotFoundError extends Error {}
 export class SourceDecisionConflictError extends Error {}
 export class ContentConflictError extends Error {}
+export class SocialAccountConflictError extends Error {}
+export class BrowserIdentityConflictError extends Error {}
 
 function asIso(instant: Instant): Instant {
   const date = new Date(instant);
@@ -249,6 +287,62 @@ function sourceDispositionFromRow(row: SourceDispositionRow): SourceDispositionR
   return record;
 }
 
+
+function socialAccountFromRow(row: SocialAccountRow): StoredSocialAccount {
+  const account: SocialAccount = {
+    accountId: row.account_id,
+    platform: row.platform,
+    expectedHandle: row.expected_handle,
+    enabled: row.enabled === 1
+  };
+  if (row.creator_id !== null) Object.assign(account, { creatorId: row.creator_id });
+  return { account, createdAt: row.created_at, updatedAt: row.updated_at };
+}
+
+function browserIdentityFromRow(row: BrowserIdentityRow): StoredBrowserIdentity {
+  return {
+    identity: {
+      identityId: row.identity_id,
+      accountId: row.account_id,
+      platform: row.platform,
+      profileKey: row.profile_key,
+      expectedHandle: row.expected_handle,
+      enabled: row.enabled === 1
+    },
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function sessionHealthFromRow(row: SessionHealthRow): SessionHealthCheck {
+  const check: SessionHealthCheck = {
+    checkId: row.check_id,
+    identityId: row.identity_id,
+    checkedAt: row.checked_at,
+    state: row.state,
+    expectedHandle: row.expected_handle
+  };
+  if (row.observed_handle !== null) Object.assign(check, { observedHandle: row.observed_handle });
+  if (row.current_url !== null) Object.assign(check, { currentUrl: row.current_url });
+  if (row.note !== null) Object.assign(check, { note: row.note });
+  return check;
+}
+
+function sameSocialAccount(existing: SocialAccount, candidate: SocialAccount): boolean {
+  return (existing.creatorId ?? null) === (candidate.creatorId ?? null) &&
+    existing.platform === candidate.platform &&
+    normalizeSocialHandle(existing.expectedHandle) === normalizeSocialHandle(candidate.expectedHandle) &&
+    existing.enabled === candidate.enabled;
+}
+
+function sameBrowserIdentity(existing: BrowserIdentity, candidate: BrowserIdentity): boolean {
+  return existing.accountId === candidate.accountId &&
+    existing.platform === candidate.platform &&
+    existing.profileKey === candidate.profileKey &&
+    normalizeSocialHandle(existing.expectedHandle) === normalizeSocialHandle(candidate.expectedHandle) &&
+    existing.enabled === candidate.enabled;
+}
+
 function stableMetadata(metadata: Readonly<Record<string, string>>): string {
   return JSON.stringify(Object.fromEntries(Object.entries(metadata).sort(([a], [b]) => a.localeCompare(b))));
 }
@@ -265,7 +359,7 @@ function sameIntentPayload(existing: PublicationIntent, candidate: PublicationIn
   );
 }
 
-export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressStorePort {
+export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressStorePort, BrowserIdentityStorePort {
   private readonly db: DatabaseSync;
 
   constructor(databasePath: string) {
@@ -420,6 +514,66 @@ export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressSt
         `);
         this.db.prepare("INSERT INTO schema_migrations(version, name, applied_at) VALUES (?, ?, ?)")
           .run(2, "pluggable ingress and source disposition", new Date().toISOString());
+      });
+    }
+
+    const migrationThree = this.db.prepare("SELECT version FROM schema_migrations WHERE version = 3").get();
+    if (!migrationThree) {
+      this.transaction(() => {
+        this.db.exec(`
+          CREATE TABLE social_accounts (
+            account_id TEXT PRIMARY KEY,
+            creator_id TEXT,
+            platform TEXT NOT NULL,
+            expected_handle TEXT NOT NULL,
+            enabled INTEGER NOT NULL CHECK(enabled IN (0, 1)),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+
+          CREATE INDEX idx_social_accounts_platform ON social_accounts(platform, enabled);
+
+          CREATE TABLE browser_identities (
+            identity_id TEXT PRIMARY KEY,
+            account_id TEXT NOT NULL UNIQUE REFERENCES social_accounts(account_id) ON DELETE RESTRICT,
+            platform TEXT NOT NULL,
+            profile_key TEXT NOT NULL UNIQUE,
+            expected_handle TEXT NOT NULL,
+            enabled INTEGER NOT NULL CHECK(enabled IN (0, 1)),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+
+          CREATE INDEX idx_browser_identity_platform ON browser_identities(platform, enabled);
+
+          CREATE TABLE session_health_checks (
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+            check_id TEXT NOT NULL UNIQUE,
+            identity_id TEXT NOT NULL REFERENCES browser_identities(identity_id) ON DELETE RESTRICT,
+            checked_at TEXT NOT NULL,
+            state TEXT NOT NULL,
+            expected_handle TEXT NOT NULL,
+            observed_handle TEXT,
+            current_url TEXT,
+            note TEXT
+          );
+
+          CREATE INDEX idx_session_health_identity_time ON session_health_checks(identity_id, checked_at DESC, sequence DESC);
+
+          CREATE TRIGGER session_health_no_update
+          BEFORE UPDATE ON session_health_checks
+          BEGIN
+            SELECT RAISE(ABORT, 'session_health_checks is append-only');
+          END;
+
+          CREATE TRIGGER session_health_no_delete
+          BEFORE DELETE ON session_health_checks
+          BEGIN
+            SELECT RAISE(ABORT, 'session_health_checks is append-only');
+          END;
+        `);
+        this.db.prepare("INSERT INTO schema_migrations(version, name, applied_at) VALUES (?, ?, ?)")
+          .run(3, "browser identity and session health", new Date().toISOString());
       });
     }
   }
@@ -1103,4 +1257,146 @@ export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressSt
       missedWindows: this.listMissedReservations(now).length
     };
   }
+
+  registerSocialAccount(account: SocialAccount, now: Instant, actor: Actor): { created: boolean; record: StoredSocialAccount } {
+    const normalized: SocialAccount = {
+      ...account,
+      expectedHandle: normalizeSocialHandle(account.expectedHandle)
+    };
+    return this.transaction(() => {
+      const existingRow = this.db.prepare("SELECT * FROM social_accounts WHERE account_id = ?").get(account.accountId) as SocialAccountRow | undefined;
+      if (existingRow) {
+        const existing = socialAccountFromRow(existingRow);
+        if (!sameSocialAccount(existing.account, normalized)) {
+          throw new SocialAccountConflictError(`Social account ${account.accountId} already exists with different configuration`);
+        }
+        return { created: false, record: existing };
+      }
+      const timestamp = asIso(now);
+      this.db.prepare(`
+        INSERT INTO social_accounts(account_id, creator_id, platform, expected_handle, enabled, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        normalized.accountId,
+        normalized.creatorId ?? null,
+        normalized.platform,
+        normalized.expectedHandle,
+        normalized.enabled ? 1 : 0,
+        timestamp,
+        timestamp
+      );
+      this.appendEvent({
+        aggregateType: "social_account", aggregateId: normalized.accountId, eventType: "social_account.registered",
+        occurredAt: timestamp, actor, payload: { platform: normalized.platform, enabled: normalized.enabled }
+      });
+      return { created: true, record: this.getSocialAccount(normalized.accountId)! };
+    });
+  }
+
+  getSocialAccount(accountId: string): StoredSocialAccount | null {
+    const row = this.db.prepare("SELECT * FROM social_accounts WHERE account_id = ?").get(accountId) as SocialAccountRow | undefined;
+    return row ? socialAccountFromRow(row) : null;
+  }
+
+  listSocialAccounts(): readonly StoredSocialAccount[] {
+    return (this.db.prepare("SELECT * FROM social_accounts ORDER BY account_id").all() as SocialAccountRow[]).map(socialAccountFromRow);
+  }
+
+  registerBrowserIdentity(identity: BrowserIdentity, now: Instant, actor: Actor): { created: boolean; record: StoredBrowserIdentity } {
+    const normalized: BrowserIdentity = { ...identity, expectedHandle: normalizeSocialHandle(identity.expectedHandle) };
+    return this.transaction(() => {
+      const account = this.getSocialAccount(identity.accountId);
+      if (!account) throw new BrowserIdentityConflictError(`Social account ${identity.accountId} must exist before browser identity registration`);
+      if (account.account.platform !== normalized.platform) {
+        throw new BrowserIdentityConflictError(`Browser identity platform ${normalized.platform} does not match account ${account.account.platform}`);
+      }
+      if (normalizeSocialHandle(account.account.expectedHandle) !== normalized.expectedHandle) {
+        throw new BrowserIdentityConflictError("Browser identity expectedHandle does not match social account expectedHandle");
+      }
+      if (!/^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,127}$/.test(normalized.profileKey) || normalized.profileKey.includes("..")) {
+        throw new BrowserIdentityConflictError(`Unsafe browser profile key: ${normalized.profileKey}`);
+      }
+
+      const existingRow = this.db.prepare("SELECT * FROM browser_identities WHERE identity_id = ?").get(identity.identityId) as BrowserIdentityRow | undefined;
+      if (existingRow) {
+        const existing = browserIdentityFromRow(existingRow);
+        if (!sameBrowserIdentity(existing.identity, normalized)) {
+          throw new BrowserIdentityConflictError(`Browser identity ${identity.identityId} already exists with different configuration`);
+        }
+        return { created: false, record: existing };
+      }
+      const profileOwner = this.db.prepare("SELECT * FROM browser_identities WHERE profile_key = ?").get(normalized.profileKey) as BrowserIdentityRow | undefined;
+      if (profileOwner) throw new BrowserIdentityConflictError(`Browser profile ${normalized.profileKey} already belongs to ${profileOwner.identity_id}`);
+      const accountOwner = this.db.prepare("SELECT * FROM browser_identities WHERE account_id = ?").get(normalized.accountId) as BrowserIdentityRow | undefined;
+      if (accountOwner) throw new BrowserIdentityConflictError(`Social account ${normalized.accountId} already has browser identity ${accountOwner.identity_id}`);
+
+      const timestamp = asIso(now);
+      this.db.prepare(`
+        INSERT INTO browser_identities(identity_id, account_id, platform, profile_key, expected_handle, enabled, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        normalized.identityId, normalized.accountId, normalized.platform, normalized.profileKey,
+        normalized.expectedHandle, normalized.enabled ? 1 : 0, timestamp, timestamp
+      );
+      this.appendEvent({
+        aggregateType: "browser_identity", aggregateId: normalized.identityId, eventType: "browser_identity.registered",
+        occurredAt: timestamp, actor, payload: { accountId: normalized.accountId, platform: normalized.platform, profileKey: normalized.profileKey }
+      });
+      return { created: true, record: this.getBrowserIdentity(normalized.identityId)! };
+    });
+  }
+
+  getBrowserIdentity(identityId: string): StoredBrowserIdentity | null {
+    const row = this.db.prepare("SELECT * FROM browser_identities WHERE identity_id = ?").get(identityId) as BrowserIdentityRow | undefined;
+    return row ? browserIdentityFromRow(row) : null;
+  }
+
+  listBrowserIdentities(): readonly StoredBrowserIdentity[] {
+    return (this.db.prepare("SELECT * FROM browser_identities ORDER BY identity_id").all() as BrowserIdentityRow[]).map(browserIdentityFromRow);
+  }
+
+  recordSessionHealth(check: SessionHealthCheck, actor: Actor): SessionHealthCheck {
+    return this.transaction(() => {
+      const identity = this.getBrowserIdentity(check.identityId);
+      if (!identity) throw new BrowserIdentityConflictError(`Unknown browser identity: ${check.identityId}`);
+      const normalizedExpected = normalizeSocialHandle(check.expectedHandle);
+      if (normalizedExpected !== normalizeSocialHandle(identity.identity.expectedHandle)) {
+        throw new BrowserIdentityConflictError("Session health expectedHandle does not match browser identity");
+      }
+      const normalizedObserved = check.observedHandle ? normalizeSocialHandle(check.observedHandle) : undefined;
+      const normalized: SessionHealthCheck = {
+        ...check,
+        checkedAt: asIso(check.checkedAt),
+        expectedHandle: normalizedExpected,
+        ...(normalizedObserved ? { observedHandle: normalizedObserved } : {})
+      };
+      this.db.prepare(`
+        INSERT INTO session_health_checks(check_id, identity_id, checked_at, state, expected_handle, observed_handle, current_url, note)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        normalized.checkId, normalized.identityId, normalized.checkedAt, normalized.state, normalized.expectedHandle,
+        normalized.observedHandle ?? null, normalized.currentUrl ?? null, normalized.note ?? null
+      );
+      this.appendEvent({
+        aggregateType: "session_health", aggregateId: normalized.identityId, eventType: "session_health.checked",
+        occurredAt: normalized.checkedAt, actor, payload: { state: normalized.state, observedHandle: normalized.observedHandle ?? null }
+      });
+      return normalized;
+    });
+  }
+
+  latestSessionHealth(identityId: string): SessionHealthCheck | null {
+    const row = this.db.prepare(`
+      SELECT * FROM session_health_checks WHERE identity_id = ? ORDER BY checked_at DESC, sequence DESC LIMIT 1
+    `).get(identityId) as SessionHealthRow | undefined;
+    return row ? sessionHealthFromRow(row) : null;
+  }
+
+  listSessionHealth(identityId?: string): readonly SessionHealthCheck[] {
+    const rows = identityId
+      ? this.db.prepare("SELECT * FROM session_health_checks WHERE identity_id = ? ORDER BY checked_at, sequence").all(identityId) as SessionHealthRow[]
+      : this.db.prepare("SELECT * FROM session_health_checks ORDER BY checked_at, sequence").all() as SessionHealthRow[];
+    return rows.map(sessionHealthFromRow);
+  }
+
 }

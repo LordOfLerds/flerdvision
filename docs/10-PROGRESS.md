@@ -9,8 +9,8 @@ This file is the repository-local progress source of truth. Update it at every i
 | W0 | Canonical model, graph, ports, safety states | DONE |
 | W1 | Durable control plane | DONE — local verification |
 | W2 | Pluggable ingress + source acknowledgement | DONE — local verification |
-| W3 | Browser identity subsystem | NEXT |
-| W4 | Platform adapters PREPARE_ONLY | NOT STARTED |
+| W3 | Browser identity subsystem | DONE — local verification |
+| W4 | Platform adapters PREPARE_ONLY | NEXT |
 | W5 | Verification + uncertainty reconciliation | NOT STARTED |
 | W6 | Notifications + operations | NOT STARTED |
 | W7 | AI repair engineering loop | NOT STARTED |
@@ -98,5 +98,49 @@ A generic webhook disposition adapter and optional Drive appProperties adapter e
 ### Week-date semantics remain explicit
 The known Drive screenshots do not establish the week-folder naming convention. The interpreter therefore accepts explicit business date/week start configuration and does not guess based on current date.
 
+## W3 acceptance
+
+- [x] durable social-account registry
+- [x] one persistent BrowserIdentity per account
+- [x] unique browser profile key per identity
+- [x] normalized exact expected-handle contract
+- [x] migration 3 upgrades existing databases in place
+- [x] append-only session-health history
+- [x] profile-path traversal guard
+- [x] local filesystem profile lock
+- [x] durable DB lease for cross-process identity exclusion
+- [x] headed/headless Chromium runtime adapter using persistent user-data-dir
+- [x] Chromium DevTools bound to localhost only
+- [x] first-time registration/bootstrap CLI
+- [x] generic configurable session probe
+- [x] account identity guard
+- [x] auth-required/challenge/mismatch health states
+- [x] real Chromium persistent-cookie restart test
+- [x] real Chromium DOM identity/auth probe test
+- [x] no upload/final-publish method exists in W3 subsystem
+
+## W3 automated evidence
+
+- TypeScript build: PASS
+- W3-specific tests: **9 passed / 0 failed**
+- Full suite: **42 passed / 0 failed**
+- Real installed Chromium process/profile persistence: PASS
+- Real social-site navigation: **not performed**
+- Customer publishing: **physically not implemented**
+
+## Plan changes discovered during W3
+
+### Browser navigation policy in build container
+The container Chromium can return `ERR_BLOCKED_BY_ADMINISTRATOR` for some local/data navigation. W3 therefore verifies real process/profile persistence through CDP cookie storage and verifies DOM probe mechanics without network access. Real social-site bootstrap must be repeated on the intended browser-worker host.
+
+### Dual profile locking added
+The plan originally called for profile isolation. W3 strengthened this to two layers: a local filesystem lock plus a durable DB lease keyed by browser identity. This prevents concurrent identity use across separate local lock roots/processes.
+
+### Platform-specific identity probes remain W4 adapters
+W3 implements the generic health/guard contract and DOM probe. Stable Instagram/TikTok/YouTube selectors and capability checks belong to W4 because they are platform UI knowledge, not identity-domain rules.
+
+### W3 runtime uses Chromium CDP behind a port
+The build environment could not reliably fetch new npm dependencies during W3, while system Chromium was available. W3 therefore implements persistent-profile/bootstrap mechanics with a small localhost-only CDP adapter. This is explicitly replaceable; W4 can add Playwright behind the browser/platform adapter seams without changing identity semantics.
+
 ## Next wave
-W3: persistent browser identities, headed first-time login/bootstrap, session health and exact account identity guards. No final publishing.
+W4: Instagram/TikTok/YouTube UI adapters in PREPARE_ONLY, with screenshot/trace evidence and a hard stop before every irreversible final action.
