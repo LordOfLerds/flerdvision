@@ -1,10 +1,10 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import { KillSwitchGate } from "./operations.js";
-import { RuntimeSupervisor } from "./runtime-supervisor.js";
+import { RuntimeSupervisor, type RuntimeCycleReport } from "./runtime-supervisor.js";
 import { loadWorkspaceSpecFile } from "./headless-bootstrap.js";
 import { accountIdForChannel } from "./workspace-spec-compiler.js";
+import type { PublicationIntent } from "../domain/model.js";
 import type { PublishContext } from "../domain/ports.js";
-import type { RuntimeCycleReport } from "../domain/runtime-supervisor-ports.js";
 import { AuthorizedRuntimeDueExecutionAdapter } from "../adapters/runtime/authorized-due-execution.js";
 import { WorkspaceDistributionRuntime } from "../adapters/runtime/workspace-distribution-runtime.js";
 import { WorkspaceSurfacePublisher } from "../adapters/runtime/workspace-surface-publisher.js";
@@ -69,12 +69,10 @@ export class HeadlessAutonomousRuntime {
       headless: options.headless ?? true
     });
     const operationalGate = new KillSwitchGate(this.base.control);
-    const contextProvider = (): PublishContext => ({
-      mode: options.mode,
-      allowFinalPublish: true,
-      allowedAccountIds: this.allowedAccountIds,
-      releaseSha: options.releaseSha
-    });
+    const contextProvider = (intent: PublicationIntent): PublishContext => {
+      if (!this.allowedAccountIds.has(intent.accountId)) throw new Error(`Intent ${intent.intentId} is outside the autonomous channel allowlist`);
+      return { mode: options.mode, allowFinalPublish: true, allowedAccountIds: this.allowedAccountIds, releaseSha: options.releaseSha };
+    };
     const due = new AuthorizedRuntimeDueExecutionAdapter(
       this.base.control,
       this.publisher,
