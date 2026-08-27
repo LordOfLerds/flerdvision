@@ -80,7 +80,7 @@ export function inspectHeadlessWorkspace(input: {
   checks.push({ key: "workspace_runtime", status: existsSync(layout.workspaceRoot) ? "PASS" : "FAIL", detail: layout.workspaceRoot });
   checks.push({ key: "database", status: existsSync(layout.databasePath) ? "PASS" : "FAIL", detail: layout.databasePath });
   checks.push({ key: "distribution_config", status: existsSync(resolve(layout.configDir, "distribution.json")) ? "PASS" : "FAIL", detail: resolve(layout.configDir, "distribution.json") });
-  checks.push({ key: "release_sha", status: input.releaseSha.trim() && input.releaseSha !== "UNSET_RELEASE_SHA" ? "PASS" : "FAIL", detail: input.releaseSha || "missing" });
+  checks.push({ key: "release_sha", status: input.releaseSha.trim() !== "" && input.releaseSha !== "UNSET_RELEASE_SHA" ? "PASS" : "FAIL", detail: input.releaseSha || "missing" });
   if (spec.source.kind === "google_drive") {
     const credential = existsSync(layout.configDir) ? new FileDriveCredentialStore(layout.configDir).read() : null;
     checks.push({ key: "drive_auth", status: credential ? "PASS" : "FAIL", detail: credential ? `connected ${credential.connectedAt}` : "Run drive-auth for this workspace" });
@@ -97,6 +97,7 @@ export function inspectHeadlessWorkspace(input: {
   try {
     const probePath = resolve(layout.configDir, "session-probes.json");
     const probes = existsSync(probePath) ? loadSessionProbeConfigFile(probePath) : { schemaVersion: 1 as const, probes: [] };
+    const assets = runtime.listAssets();
     const channels: HeadlessChannelStatus[] = spec.channels.map((channel) => {
       const accountId = accountIdForChannel(channel);
       const identityId = identityIdForChannel(channel);
@@ -108,17 +109,19 @@ export function inspectHeadlessWorkspace(input: {
         const profile = config.config.postingProfiles.find((item) => item.postingProfileId === route.postingProfileId);
         const latest = runtime.latestRouteTestReadiness(route.routeId)?.readiness;
         const surface = surfaces.latestContract(accountId, route.postingProfileId)?.contract;
-        const readyAssets = runtime.listAssets().filter((item) => item.asset.laneId === route.laneId && item.asset.state === "READY").length;
+        const readyAssets = assets.filter((item) => item.asset.laneId === route.laneId && item.asset.state === "READY").length;
         const releaseMatches = latest?.releaseSha === input.releaseSha;
         const readyForAutonomousPublish = Boolean(
+          latest &&
+          surface &&
           route.enabled &&
           account?.enabled &&
           identity?.enabled &&
           health?.state === "HEALTHY" &&
           sessionProbeCalibrated &&
           readyAssets > 0 &&
-          surface?.status === "CALIBRATED" &&
-          latest?.surfaceContractId === surface.contractId &&
+          surface.status === "CALIBRATED" &&
+          latest.surfaceContractId === surface.contractId &&
           latest.sourcePassed &&
           latest.sessionPassed &&
           latest.identityPassed &&
