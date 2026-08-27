@@ -21,3 +21,9 @@ export interface EffectiveConfigurationChangeStorePort {
   list(status?:EffectiveConfigurationChangeStatus):readonly EffectiveConfigurationChange[];
   transition(changeId:string,to:Exclude<EffectiveConfigurationChangeStatus,"PENDING">,at:string,reason?:string):EffectiveConfigurationChange;
 }
+
+export interface EffectiveConfigurationChangeCommandPort {
+  schedule(kind:EffectiveConfigurationChangeKind,payload:unknown,effectiveBusinessDate:string,now:string,createdBy:string):EffectiveConfigurationChange;
+  listPending():readonly EffectiveConfigurationChange[];
+  cancel(changeId:string,now:string,reason:string):EffectiveConfigurationChange;
+}
