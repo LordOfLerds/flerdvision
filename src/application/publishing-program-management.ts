@@ -1,0 +1,120 @@
+import { createHash } from "node:crypto";
+import type { SocialAccount } from "../domain/browser-identity.js";
+import type { DistributionConfigurationStorePort, StoredDistributionConfiguration } from "../domain/distribution-ports.js";
+import type { DeliveryRequirement, DistributionRoute } from "../domain/distribution.js";
+import { assertConfigurationReferentialIntegrity } from "./distribution-config.js";
+
+export interface PublishingProgramTargetDraft {
+  routeId?: string;
+  accountId: string;
+  postingProfileId: string;
+  copyProfileId: string;
+  schedulePolicyId: string;
+  requirement: DeliveryRequirement;
+  enabled?: boolean;
+}
+
+export interface PublishingProgramDraft {
+  laneId: string;
+  targets: readonly PublishingProgramTargetDraft[];
+}
+
+export interface PublishingProgramPreview {
+  currentRevision: number;
+  laneId: string;
+  routes: readonly DistributionRoute[];
+  affectedRouteIds: readonly string[];
+  requiredAssetCountPerBusinessDate: number;
+  rhythms: readonly { routeId: string; schedulePolicyId: string; slots: readonly string[] }[];
+  next: StoredDistributionConfiguration;
+}
+
+function stableRouteId(laneId: string, target: PublishingProgramTargetDraft): string {
+  const hash = createHash("sha256")
+    .update(`${laneId}|${target.accountId}|${target.postingProfileId}|${target.schedulePolicyId}`)
+    .digest("hex")
+    .slice(0, 20);
+  return `route:${hash}`;
+}
+
+export class PublishingProgramManagementService {
+  constructor(
+    private readonly store: DistributionConfigurationStorePort,
+    private readonly accounts: () => readonly SocialAccount[]
+  ) {}
+
+  preview(draft: PublishingProgramDraft): PublishingProgramPreview {
+    const current = this.store.load();
+    const lane = current.config.lanes.find((item) => item.laneId === draft.laneId);
+    if (!lane || !lane.enabled) throw new Error(`Publishing program lane ${draft.laneId} is missing or disabled`);
+    const source = current.config.sources.find((item) => item.connectionId === lane.connectionId);
+    if (!source || !source.enabled) throw new Error(`Publishing program source ${lane.connectionId} is missing or disabled`);
+    if (draft.targets.length === 0) throw new Error("Publishing program requires at least one target");
+
+    const accountMap = new Map(this.accounts().map((account) => [account.accountId, account]));
+    const routes: DistributionRoute[] = draft.targets.map((target) => {
+      const account = accountMap.get(target.accountId);
+      if (!account || !account.enabled) throw new Error(`Target account ${target.accountId} is missing or disabled`);
+      const posting = current.config.postingProfiles.find((item) => item.postingProfileId === target.postingProfileId);
+      if (!posting || !posting.enabled) throw new Error(`Posting profile ${target.postingProfileId} is missing or disabled`);
+      if (posting.platform !== account.platform) throw new Error(`Posting profile ${posting.postingProfileId} does not match account platform ${account.platform}`);
+      const copy = current.config.copyProfiles.find((item) => item.copyProfileId === target.copyProfileId);
+      if (!copy || !copy.enabled) throw new Error(`Copy profile ${target.copyProfileId} is missing or disabled`);
+      if (!current.schedulePolicies[target.schedulePolicyId]) throw new Error(`Schedule policy ${target.schedulePolicyId} does not exist`);
+      const routeId = target.routeId ?? stableRouteId(draft.laneId, target);
+      return {
+        routeId,
+        displayName: `${lane.displayName} → ${account.platform} @${account.expectedHandle}`,
+        laneId: draft.laneId,
+        accountId: account.accountId,
+        platform: account.platform,
+        postingProfileId: posting.postingProfileId,
+        copyProfileId: copy.copyProfileId,
+        schedulePolicyId: target.schedulePolicyId,
+        requirement: target.requirement,
+        enabled: target.enabled ?? true
+      };
+    });
+
+    const routeIds = routes.map((route) => route.routeId);
+    if (new Set(routeIds).size !== routeIds.length) throw new Error("Publishing program contains duplicate route identity");
+    const routeMap = new Map(current.config.routes.map((route) => [route.routeId, route]));
+    for (const route of routes) routeMap.set(route.routeId, route);
+    const nextConfig = { ...current.config, routes: [...routeMap.values()] };
+    assertConfigurationReferentialIntegrity(nextConfig);
+
+    const requiredAssetCountPerBusinessDate = Math.max(0, ...routes
+      .filter((route) => route.enabled && route.requirement === "REQUIRED")
+      .map((route) => current.schedulePolicies[route.schedulePolicyId]?.slots.length ?? 0));
+    const rhythms = routes.map((route) => ({
+      routeId: route.routeId,
+      schedulePolicyId: route.schedulePolicyId,
+      slots: current.schedulePolicies[route.schedulePolicyId]?.slots.map((slot) => slot.localTime) ?? []
+    }));
+
+    return {
+      currentRevision: current.revision,
+      laneId: draft.laneId,
+      routes,
+      affectedRouteIds: [...routeIds].sort(),
+      requiredAssetCountPerBusinessDate,
+      rhythms,
+      next: { ...current, config: nextConfig }
+    };
+  }
+
+  apply(draft: PublishingProgramDraft, expectedRevision: number, now: string): PublishingProgramPreview {
+    const preview = this.preview(draft);
+    if (preview.currentRevision !== expectedRevision) {
+      throw new Error(`Publishing program preview is stale: expected revision ${expectedRevision}, current ${preview.currentRevision}`);
+    }
+    const stored = this.store.save({
+      updatedAt: new Date(now).toISOString(),
+      config: preview.next.config,
+      schedulePolicies: preview.next.schedulePolicies,
+      planningPolicy: preview.next.planningPolicy,
+      ...(preview.next.runtimePolicy ? { runtimePolicy: preview.next.runtimePolicy } : {})
+    }, expectedRevision);
+    return { ...preview, currentRevision: stored.revision, next: stored };
+  }
+}
