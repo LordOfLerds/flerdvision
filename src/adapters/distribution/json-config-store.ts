@@ -7,7 +7,7 @@ import { assertConfigurationReferentialIntegrity } from "../../application/distr
 export class DistributionConfigurationRevisionConflict extends Error {}
 
 const EMPTY: Omit<StoredDistributionConfiguration, "revision" | "updatedAt"> = {
-  config: { sources: [], lanes: [], postingProfiles: [], copyProfiles: [], routes: [] },
+  config: { sources: [], lanes: [], postingProfiles: [], copyProfiles: [], routes: [], activationCursors: [] },
   schedulePolicies: { default: DEFAULT_SCHEDULING_POLICY },
   planningPolicy: {
     contentOrder: "FILENAME_NUMERIC_PREFIX",
