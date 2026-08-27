@@ -1,0 +1,33 @@
+[Unit]
+Description=Flerdvision R0 Staging Runtime
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=flerdvision
+Group=flerdvision
+WorkingDirectory=__REPO_ROOT__
+Environment=NODE_ENV=production
+Environment=TZ=Europe/Vienna
+Environment=ALLOW_FINAL_PUBLISH=false
+Environment=FLERDVISION_RELEASE_SHA=__RELEASE_SHA__
+Environment=CHROMIUM_EXECUTABLE_PATH=__CHROMIUM__
+Environment=FFPROBE_EXECUTABLE_PATH=__FFPROBE__
+ExecStart=__NODE__ __REPO_ROOT__/dist/cli/runtime.js --runtime-root __RUNTIME_ROOT__ --workspace-id __WORKSPACE_ID__ --interval-seconds 60
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=45
+KillSignal=SIGTERM
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=__RUNTIME_ROOT__
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
