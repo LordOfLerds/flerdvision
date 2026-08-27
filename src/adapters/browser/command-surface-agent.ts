@@ -47,13 +47,15 @@ export class CommandSurfaceAgent implements SurfaceAgentPort {
   }
 
   async propose(request: SurfaceAgentRequest): Promise<SurfaceAgentProposal | null> {
+    const childEnv: Record<string, string> = {};
+    for (const [key, value] of Object.entries(process.env)) if (typeof value === "string") childEnv[key] = value;
     const run = spawnSync(this.options.command, this.options.args ?? [], {
       ...(this.options.cwd ? { cwd: this.options.cwd } : {}),
       input: JSON.stringify(request),
       encoding: "utf8",
       timeout: this.options.timeoutMs ?? 120_000,
       maxBuffer: 2 * 1024 * 1024,
-      env: Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
+      env: childEnv
     });
     if (run.error) throw new SurfaceAgentProtocolError(`Surface agent failed to start: ${run.error.message}`);
     if (run.status !== 0) throw new SurfaceAgentProtocolError(`Surface agent exited ${String(run.status)}: ${run.stderr.slice(0, 1000)}`);
@@ -76,5 +78,7 @@ export function commandSurfaceAgentFromEnv(env: Record<string, string | undefine
     if (!Array.isArray(parsed) || parsed.some((entry) => typeof entry !== "string")) throw new SurfaceAgentProtocolError("FLERDVISION_SURFACE_AGENT_ARGS_JSON must be a JSON string array");
     args = parsed as string[];
   }
-  return new CommandSurfaceAgent({ command, args, timeoutMs: Number(env.FLERDVISION_SURFACE_AGENT_TIMEOUT_MS ?? "120000") });
+  const timeoutMs = Number(env.FLERDVISION_SURFACE_AGENT_TIMEOUT_MS ?? "120000");
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 600_000) throw new SurfaceAgentProtocolError("FLERDVISION_SURFACE_AGENT_TIMEOUT_MS must be an integer from 1000 to 600000");
+  return new CommandSurfaceAgent({ command, args, timeoutMs });
 }
