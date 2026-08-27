@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "statusVocabulary": [
     "NOT_STARTED",
     "CODE_ON_BRANCH",
@@ -13,15 +13,17 @@
     "CANARY_VALIDATED"
   ],
   "rule": "No stage or feature may be called GREEN, DONE, COMPLETE or READY unless every required evidence item for that claim is true and has a durable evidenceRef.",
+  "auditCarrierPolicy": "auditedHeadSha is the exact code HEAD immediately before this audit-only matrix commit; the carrier commit may differ only by this evidence document and must never be interpreted as new runtime evidence.",
   "currentAudit": {
     "auditedPr": 1,
     "baseSha": "0c9f2af1f12cee1bed5755e9d3bcbc77eefe59c7",
-    "auditedHeadSha": "ccf083ff8b3618c981613f62ba83c4d65d11e5d4",
+    "auditedHeadSha": "02feda53d8ec2b17da165cacd4d674cba5c6d971",
     "githubCiConfigured": true,
     "githubCiRunnerExecuted": false,
     "githubCiFailureClass": "PRE_STEP_RUNNER_UNAVAILABLE",
     "freshCloneFullSuiteVerified": false,
     "newestOperationsChangesEvidence": "CODE_ON_BRANCH",
+    "coreProductControlsPresentOnBranch": true,
     "allRepairChangesIntegratedIntoExistingEntrypoints": false,
     "realSocialSurfaceTested": false,
     "lucaMacPassed": false,
@@ -41,37 +43,40 @@
   "stages": [
     {
       "id":"R1","label":"Domain","highestVerified":"LOCAL_FOCUSED_TESTED","green":false,
-      "open":["legacy ChannelSourceBinding migration/coexistence is not completed","new route model is not yet the sole source of truth for setup/onboarding"]
+      "open":["route-first onboarding and legacy-binding fail-closed compatibility are CODE_ON_BRANCH but the current exact head has no fresh-clone/full-suite evidence","legacy compatibility code still exists and must remain compatibility-only until migration/removal is proven on a real workspace"]
     },
     {
       "id":"R2","label":"Source lifecycle","highestVerified":"LOCAL_FOCUSED_TESTED","green":false,
-      "open":["Drive/local -> activation -> observation -> asset -> ffprobe/readiness -> verified media cache is wired in the repair runtime but current-head fresh-clone evidence has not executed","NEW_ONLY baseline Preview -> Confirm and cross-process source poll state are CODE_ON_BRANCH only","drive_metadata/sidecar/move_on_complete still require explicitly implemented and host-tested mutation adapters before they may be exposed as production-ready"]
+      "open":["Drive/local -> activation -> observation -> asset -> ffprobe/readiness -> verified media cache plus NEW_ONLY Preview -> Confirm and shared polling state are wired, but current-head fresh-clone evidence has not executed","drive_metadata/sidecar/move_on_complete mutations still require explicit implementation plus host evidence before production exposure"]
     },
     {
       "id":"R3","label":"Planner","highestVerified":"LOCAL_FOCUSED_TESTED","green":false,
-      "open":["semantic plan identity, carry-over, account cap/spacing, operating calendars and committed-delivery reconciliation are wired but current-head full-suite evidence has not executed","DailyPlan -> provenance -> route qualification -> intent/reservation path is not fresh-clone proven","real host timing/restart behavior is unvalidated"]
+      "open":["semantic plan identity, carry-over, account cap/spacing, operating calendars, committed-delivery preservation and intent/reservation materialization are wired but current-head full-suite evidence has not executed","real host timing/restart behavior is unvalidated"]
     },
     {
-      "id":"R4","label":"Control UI","highestVerified":"LOCAL_FOCUSED_TESTED","green":false,
-      "open":["Product Control Center now covers Today/Programs/Content/Sources/Channels/Profiles/Rhythms/Test Lab/Incidents/Activity and source/operator actions, but current-head browser workflow tests have not executed","future effective changes and same-day atomic change sets are CODE_ON_BRANCH only","setup wizard and legacy Ops UI are not yet reduced to onboarding/compatibility over one unified management surface","channel reauth can open the isolated browser but session verification remains unavailable until a real calibrated probe exists"]
+      "id":"R4","label":"Control UI","highestVerified":"CODE_ON_BRANCH","green":false,
+      "open":["Product Control Center now exposes Today/Workflows/Programs/Content/Sources/Channels/Profiles/Rhythms/Test Lab/Incidents/Activity from one entrypoint, including source scan/baseline/polling, future config changes, channel login/session verification, incident recovery and kill switches; current-head build/browser-workflow evidence has not executed","legacy Setup/Ops remain compatibility surfaces and must not become a second source of truth","session verification is executable only when a persisted CALIBRATED account/platform probe exists, which still requires real authorized-account calibration"]
     },
     {
-      "id":"R5","label":"Platform automation","highestVerified":"LOCAL_FOCUSED_TESTED","green":false,
-      "open":["real Instagram/TikTok selectors/contracts are uncalibrated","browser execution provider and enum-option readback are not validated on target host","real prepare-only replay has not run","real verification, session-probe and cleanup surfaces are uncalibrated"]
+      "id":"R5","label":"Platform automation","highestVerified":"CODE_ON_BRANCH","green":false,
+      "open":["CDP/browser execution, declarative UI adapter, calibrated session-probe contracts, calibrated profile-verification contracts and fail-closed platform UI spec loading are wired","real Instagram/TikTok selectors and enum/toggle semantics remain uncalibrated and may not be guessed","no real authorized-account prepare-only replay, verification-surface check or cleanup calibration has run"]
     },
     {
-      "id":"R6","label":"Route Test Lab","highestVerified":"LOCAL_FOCUSED_TESTED","green":false,
-      "open":["Route Test Lab is integrated in Product Control Center and release/surface-scoped, but current-head tests have not executed","safe host runner currently executes observation-only SOURCE/SESSION/IDENTITY/SURFACE; PREPARE_ONLY/VERIFICATION need real browser/verifier adapters","no real authorized-account route evidence exists","SECRET_LIVE remains intentionally outside the generic command path"]
+      "id":"R6","label":"Route Test Lab","highestVerified":"CODE_ON_BRANCH","green":false,
+      "open":["Test Lab now wires SOURCE/SESSION/IDENTITY/SURFACE plus calibrated PREPARE_ONLY and VERIFICATION through the real workspace browser/media adapters; current-head build/full-suite evidence has not executed","PREPARE_ONLY remains disabled per route until calibrated session/UI contracts and a READY source asset exist","no real authorized-account route evidence exists","SECRET_LIVE and CLEANUP remain intentionally outside the generic safe command path"]
     },
     {
       "id":"R7","label":"Runtime supervisor","highestVerified":"LOCAL_FOCUSED_TESTED","green":false,
-      "open":["runtime CLI/composer now wires source polling/planning/qualification/recovery/disposition/ops with R0 due execution frozen, but current-head fresh-clone evidence has not executed","manual scan and daemon share lease/poll state in code only","no restart/soak/failure campaign on a real host"]
+      "open":["runtime CLI/composer wires source polling/planning/qualification/recovery/disposition/ops; normal due execution remains intentionally frozen during R0 live freeze","manual scan and daemon shared lease/poll behavior has no current-head fresh-clone or host proof","no restart/soak/failure campaign on a real host"]
     },
     {
       "id":"R8","label":"Operations and notifications","highestVerified":"CODE_ON_BRANCH","green":false,
-      "open":["ContentDemand/readiness Attention is wired into the existing durable notification outbox, but current-head execution evidence is missing","deep links exist for attention; escalation acknowledgement policy and all operator actions are incomplete","legacy Ops UI migration into Product Control Center is incomplete"]
+      "open":["Product Control Center now exposes fail-closed acknowledge/resolve/resume-if-safe/waive and GLOBAL/ACCOUNT/PLATFORM kill switches through the existing HumanRecovery/KillSwitch services","PUBLISH_UNCERTAIN remains reconciliation-only and cannot resume/retry from the generic UI","notification outbox and attention projection are wired but escalation/ack delivery policy has no current-head execution evidence","legacy Ops UI remains compatibility-only"]
     },
-    {"id":"R9","label":"Extra workflows","highestVerified":"NOT_STARTED","green":false,"open":["daily Story workflow","metrics/tracker automation","contract-specific recurring tasks"]},
+    {
+      "id":"R9","label":"Extra workflows","highestVerified":"CODE_ON_BRANCH","green":false,
+      "open":["Daily Story and Metrics/Tracker are represented in the unified operational Workflow Center and reuse canonical routes/planner/runtime state, but current-head build/UI evidence has not executed","contract-specific recurring/admin obligations still require concrete contract definitions before implementation"]
+    },
     {"id":"R10","label":"Luca Mac","highestVerified":"NOT_STARTED","green":false,"open":["fresh clone/install","full suite","self-service/product Control Center flow","real account login/probe/calibration","real prepare-only","private E2E"]},
     {"id":"R11","label":"Fabian Mac","highestVerified":"NOT_STARTED","green":false,"open":["independent-user acceptance on the exact same release with zero developer intervention"]},
     {"id":"R12","label":"VPS staging","highestVerified":"NOT_STARTED","green":false,"open":["install","service lifecycle","soak","failure campaign","restart recovery"]},
