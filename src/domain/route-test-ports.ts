@@ -11,6 +11,7 @@ export interface RouteTestEvidenceRecord {
   status: RouteTestEvidenceStatus;
   checkedAt: string;
   releaseSha: string;
+  surfaceContractId?: string;
   summary: string;
   artifactRefs: readonly string[];
 }
@@ -20,10 +21,17 @@ export interface RouteTestEvidenceStorePort {
   list(routeId: string): readonly RouteTestEvidenceRecord[];
 }
 
+export interface RouteTestExecutionResult {
+  passed:boolean;
+  summary:string;
+  artifactRefs:readonly string[];
+  surfaceContractId?:string;
+}
+
 export interface RouteTestExecutionAdapterPort {
-  run(routeId: string, testKey: ExecutableRouteTestKey, checkedAt?: string): Promise<{ passed: boolean; summary: string; artifactRefs: readonly string[] }>;
+  run(routeId: string, testKey: ExecutableRouteTestKey, checkedAt?: string): Promise<RouteTestExecutionResult>;
 }
 
 export interface RouteE2EGateBridgePort {
-  recordGate(routeId: string, gate: E2EGateResult, releaseSha: string): RouteTestEvidenceRecord | null;
+  recordGate(routeId: string, gate: E2EGateResult, releaseSha: string, surfaceContractId?:string): RouteTestEvidenceRecord | null;
 }
