@@ -3,6 +3,7 @@ import type { Actor } from "../domain/control-plane.js";
 import type { DistributionConfigurationStorePort } from "../domain/distribution-ports.js";
 import type { DistributionRuntimeStateStorePort } from "../domain/distribution-runtime-ports.js";
 import type { ContentAsset, SourceActivationCursor, SourceConnection, SourceLane } from "../domain/distribution.js";
+import type { IngressRunReport } from "../domain/ingress.js";
 import type { IngressStorePort } from "../domain/ingress-ports.js";
 import type { ContentItem, SourceObservation } from "../domain/model.js";
 import type { ContentIngressPort, SourceDispositionPort } from "../domain/ports.js";
@@ -46,7 +47,7 @@ function assetFor(content:ContentItem,lane:SourceLane,observation:SourceObservat
   if(content.scheduledBusinessDate)Object.assign(asset,{scheduledBusinessDate:content.scheduledBusinessDate});
   return asset;
 }
-function sizeOf(observation:SourceObservation):string{return observation.metadata.size??"unknown";}
+function sizeOf(observation:SourceObservation):string|undefined{return observation.metadata.size;}
 
 export interface DistributionSourceScanOptions { notifyBlocksExternally?: boolean; }
 
@@ -92,7 +93,7 @@ export class DistributionSourceScanCoordinator {
         else historicalIgnored+=1;
       }
 
-      let ingressReport;
+      let ingressReport:IngressRunReport;
       try{
         ingressReport=await new ContentIngressService(
           new FixedObservationSource(eligible),
@@ -126,20 +127,21 @@ export class DistributionSourceScanCoordinator {
         if(existing?.state==="COMPLETE"||existing?.state==="BLOCKED")continue;
         if(existing?.state==="READY"){ready+=1;continue;}
 
+        const observedSize=sizeOf(observation);
         const stableFingerprint=sourceRecord.seenCount>=2;
-        const stableSize=Boolean(existing&&existing.metadata.sourceSize===sizeOf(observation));
+        const stableSize=Boolean(observedSize&&existing&&existing.metadata.sourceSize===observedSize);
         if(!existing){
-          this.runtime.putAsset(assetFor(content,lane,observation,"STABILIZING",{sourceSize:sizeOf(observation),stableObservations:String(sourceRecord.seenCount),lastSeenAt:startedAt}),startedAt);
+          this.runtime.putAsset(assetFor(content,lane,observation,"STABILIZING",{sourceSize:observedSize??"",stableObservations:String(sourceRecord.seenCount),lastSeenAt:startedAt}),startedAt);
           stabilizing+=1;continue;
         }
         if(!stableFingerprint||!stableSize){
-          this.runtime.putAsset({...existing,state:"STABILIZING",metadata:{...existing.metadata,sourceSize:sizeOf(observation),stableObservations:String(sourceRecord.seenCount),lastSeenAt:startedAt}},startedAt);
+          this.runtime.putAsset({...existing,state:"STABILIZING",metadata:{...existing.metadata,sourceSize:observedSize??"",stableObservations:String(sourceRecord.seenCount),lastSeenAt:startedAt}},startedAt);
           stabilizing+=1;continue;
         }
 
         const probe=await this.readiness.probe(content);
         if(probe.outcome==="READABLE"){
-          this.runtime.putAsset({...existing,state:"READY",readyAt:startedAt,metadata:{...existing.metadata,stableObservations:String(sourceRecord.seenCount),lastSeenAt:startedAt,readinessSha256:probe.sha256??"",readinessSizeBytes:String(probe.sizeBytes??""),readinessCheckedAt:startedAt}},startedAt);
+          this.runtime.putAsset({...existing,state:"READY",readyAt:startedAt,metadata:{...existing.metadata,stableObservations:String(sourceRecord.seenCount),lastSeenAt:startedAt,readinessSha256:probe.sha256??"",readinessSizeBytes:String(probe.sizeBytes??""),readinessDurationSeconds:String(probe.durationSeconds??""),readinessCheckedAt:startedAt}},startedAt);
           ready+=1;
         }else if(probe.outcome==="BLOCKED"){
           this.runtime.putAsset({...existing,state:"BLOCKED",metadata:{...existing.metadata,blockReason:probe.note??"media_probe_blocked",readinessCheckedAt:startedAt}},startedAt);
