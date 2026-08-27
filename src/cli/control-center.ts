@@ -1,7 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { workspaceRuntimeLayout } from "../application/workspaces.js";
-import { ControlCenterHttpServer } from "../adapters/control/control-center-http.js";
+import { ProductControlCenterHttpServer } from "../adapters/control/product-control-center-http.js";
 import { SqliteControlCenterRuntimeAdapter } from "../adapters/control/sqlite-control-center-runtime.js";
 import { JsonDistributionConfigurationStore } from "../adapters/distribution/json-config-store.js";
 
@@ -46,8 +46,8 @@ async function main():Promise<void>{
     throw new Error(`Workspace runtime does not exist: ${layout.workspaceRoot}. Complete setup first.`);
   }
   const config=new JsonDistributionConfigurationStore(resolve(layout.configDir,"distribution.json"));
-  const runtime=new SqliteControlCenterRuntimeAdapter(layout.databasePath,config);
-  const server=new ControlCenterHttpServer(config,runtime,{
+  const runtime=new SqliteControlCenterRuntimeAdapter(layout.databasePath,config,args.workspaceId);
+  const server=new ProductControlCenterHttpServer(config,runtime,{
     password:args.password,
     username:args.username,
     host:args.host,
