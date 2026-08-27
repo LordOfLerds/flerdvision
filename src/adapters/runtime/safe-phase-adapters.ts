@@ -4,9 +4,9 @@ import type { DistributionConfigurationStorePort } from "../../domain/distributi
 import type { DistributionRuntimeStateStorePort } from "../../domain/distribution-runtime-ports.js";
 import type { IngressStorePort } from "../../domain/ingress-ports.js";
 import type { OperationsStorePort } from "../../domain/operations-ports.js";
-import type { ReconciliationStore } from "../../application/reconciliation.js";
+import type { PublishAttemptStorePort } from "../../domain/verification-ports.js";
 import type { RuntimeDueExecutionPort, RuntimeOperationsPort, RuntimeReconciliationPort } from "../../domain/runtime-supervisor-ports.js";
-import { ReconciliationService } from "../../application/reconciliation.js";
+import { RestartRecoveryService } from "../../application/recovery.js";
 import { OperationsCycleService, OperationsIncidentProjector } from "../../application/operations.js";
 import { projectContentDemand } from "../../application/content-demand.js";
 import { planReadinessAttention } from "../../application/readiness-notification-planner.js";
@@ -23,26 +23,22 @@ export class FrozenRuntimeDueExecutionAdapter implements RuntimeDueExecutionPort
   }
 }
 
+type RecoveryRuntimeStore=ControlPlaneStorePort & Partial<Pick<PublishAttemptStorePort,"listPublishAttempts"|"markAttemptUncertain">>;
+
 /**
- * Until real verification surfaces are calibrated, reconciliation may repair durable restart
- * contradictions only. It never collects synthetic absence/presence evidence and therefore never
- * returns SAFE_TO_RETRY from this adapter.
+ * R0 reconciliation performs only durable restart repair. It never collects platform absence/presence
+ * evidence and therefore can never return SAFE_TO_RETRY. PREPARING before an irreversible boundary
+ * rolls back safely after lease expiry; PUBLISHING/VERIFYING become PUBLISH_UNCERTAIN.
  */
 export class RecoveryOnlyRuntimeReconciliationAdapter implements RuntimeReconciliationPort {
-  private readonly recovery:ReconciliationService;
-  constructor(private readonly store:ReconciliationStore){this.recovery=new ReconciliationService(store,[]);}
+  private readonly recovery:RestartRecoveryService;
+  constructor(private readonly store:RecoveryRuntimeStore){this.recovery=new RestartRecoveryService(store);}
   async reconcile(now:string){
-    const timestamp=new Date(now).toISOString();
-    const before=this.store.listIntents(["PUBLISH_UNCERTAIN","VERIFYING"]).map((record)=>record.intent.intentId);
-    const repaired=this.recovery.recoverOnStartup(timestamp,{type:"system",id:"runtime-recovery"});
-    const inspectedIds=[...new Set([...before,...repaired])];
-    let verified=0,stillUncertain=0;
-    for(const intentId of inspectedIds){
-      const state=this.store.getIntent(intentId)?.state;
-      if(state==="VERIFIED")verified+=1;
-      if(state==="PUBLISH_UNCERTAIN")stillUncertain+=1;
-    }
-    return{inspected:inspectedIds.length,verified,safeToRetry:0,stillUncertain};
+    const timestamp=new Date(now).toISOString(),beforeUncertain=this.store.listIntents(["PUBLISH_UNCERTAIN"]).map(record=>record.intent.intentId),beforeRecoverable=this.store.listIntents(["PREPARING","PUBLISHING","VERIFYING"]).map(record=>record.intent.intentId);
+    const report=this.recovery.recover(timestamp,{type:"system",id:"runtime-recovery"});
+    const inspectedIds=[...new Set([...beforeUncertain,...beforeRecoverable,...report.safePrepareRollbacks,...report.uncertainMarked,...report.skippedWithActiveLease])];
+    const stillUncertain=this.store.listIntents(["PUBLISH_UNCERTAIN"]).length;
+    return{inspected:inspectedIds.length,verified:0,safeToRetry:0,stillUncertain};
   }
 }
 
