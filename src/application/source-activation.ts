@@ -24,6 +24,11 @@ export function sourceActivationCursorFingerprint(cursor: SourceActivationCursor
   return createHash("sha256").update(stable(cursor)).digest("hex");
 }
 
+export function sourceActivationObservationSnapshotFingerprint(observations: readonly SourceObservation[]): string {
+  const ids=[...new Set(observations.map(item=>item.externalObjectId))].sort();
+  return createHash("sha256").update(JSON.stringify(ids)).digest("hex");
+}
+
 function observationTimestamp(observation: SourceObservation): string | undefined {
   return observation.metadata.createdTime ?? observation.metadata.modifiedTime ?? observation.metadata.sourceModifiedAt;
 }
@@ -68,7 +73,8 @@ export class SourceActivationService {
     source: SourceConnection,
     lane: SourceLane,
     cursor: SourceActivationCursor,
-    now: string
+    now: string,
+    expectedSnapshotFingerprint?: string
   ): Promise<SourceActivationBaseline | null> {
     if (cursor.mode !== "NEW_ONLY") return null;
     const cursorFingerprint = sourceActivationCursorFingerprint(cursor);
@@ -76,6 +82,10 @@ export class SourceActivationService {
     if (existing) return existing.baseline;
 
     const observed = await this.observations.observeLane(source, lane, now);
+    const snapshotFingerprint=sourceActivationObservationSnapshotFingerprint(observed);
+    if(expectedSnapshotFingerprint&&snapshotFingerprint!==expectedSnapshotFingerprint){
+      throw new Error(`Source lane ${lane.laneId} changed after baseline preview; preview again before capture`);
+    }
     const baseline: SourceActivationBaseline = {
       laneId: lane.laneId,
       cursorFingerprint,
