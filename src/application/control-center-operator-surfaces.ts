@@ -1,6 +1,6 @@
 import type { Incident } from "../domain/operations.js";
 
-export type IncidentAction = "ACKNOWLEDGE" | "RESOLVE_AFTER_FIX" | "OPEN_BROWSER" | "OPEN_RECONCILIATION" | "WAIVE_SLOT" | "OPEN_CONTENT" | "OPEN_ROUTE";
+export type IncidentAction = "ACKNOWLEDGE" | "RESOLVE_AFTER_FIX" | "RESUME_INTENT" | "OPEN_BROWSER" | "OPEN_RECONCILIATION" | "WAIVE_SLOT" | "OPEN_CONTENT" | "OPEN_ROUTE";
 
 export interface IncidentView {
   incidentId: string;
@@ -41,11 +41,12 @@ export function incidentView(incident: Incident): IncidentView {
   };
   if (incident.kind === "PUBLISH_UNCERTAIN") return { ...base, allowedActions: ["ACKNOWLEDGE", "OPEN_RECONCILIATION"], prohibitedAction: "Nie Resume/Retry direkt: ausschließlich Reconciliation darf VERIFIED oder SAFE_TO_RETRY entscheiden." };
   if (incident.kind === "AUTH_REQUIRED" || incident.kind === "CHALLENGE" || incident.kind === "IDENTITY_MISMATCH") {
-    const view: IncidentView = { ...base, allowedActions: ["ACKNOWLEDGE", "OPEN_BROWSER", "RESOLVE_AFTER_FIX"] };
+    const view: IncidentView = { ...base, allowedActions: ["ACKNOWLEDGE", "OPEN_BROWSER", "RESUME_INTENT", "RESOLVE_AFTER_FIX"] };
     return incident.kind === "IDENTITY_MISMATCH"
-      ? { ...view, prohibitedAction: "Kein Publish, bis der erwartete Account erneut bewiesen ist." }
+      ? { ...view, prohibitedAction: "Resume ist nur nach erneut HEALTHY + erwarteter Identität + gültigem ursprünglichem Posting-Fenster möglich." }
       : view;
   }
+  if (incident.kind === "BROWSER_UNREACHABLE") return { ...base, allowedActions:["ACKNOWLEDGE","OPEN_BROWSER","RESOLVE_AFTER_FIX"] };
   if (incident.kind === "MISSED_WINDOW") return { ...base, allowedActions: ["ACKNOWLEDGE", "WAIVE_SLOT"], prohibitedAction: "Kein automatischer Catch-up-Post nach abgelaufenem Slot." };
   if (incident.kind === "SOURCE_BLOCKED") return { ...base, allowedActions: ["ACKNOWLEDGE", "OPEN_CONTENT", "RESOLVE_AFTER_FIX"] };
   if (incident.kind === "PLATFORM_CAPABILITY_MISSING" || incident.kind === "UI_UNKNOWN") return { ...base, allowedActions: ["ACKNOWLEDGE", "OPEN_ROUTE", "RESOLVE_AFTER_FIX"] };
