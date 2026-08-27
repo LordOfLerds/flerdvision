@@ -5,9 +5,8 @@ import type { SourceLaneInterpreterFactoryPort } from "../../domain/source-lane-
 import { CurrentCreatorWeekDayPathInterpreter, MetadataFieldIngressInterpreter } from "./interpreters.js";
 
 export interface SourceLaneInterpreterFactoryConfig {
-  /** Temporary override seam for migrations/tests; canonical owner lives on SourceLane.creatorId. */
+  /** Temporary migration/test overrides; canonical values live on SourceLane. */
   creatorIdByLaneId?: Readonly<Record<string, string>>;
-  /** Alias mapping used by creator/week/day folder interpretation. */
   creatorAliases?: Readonly<Record<string, string>>;
   weekStartBySegment?: Readonly<Record<string, string>>;
   formatFolderHints?: Readonly<Record<string, readonly string[]>>;
@@ -17,10 +16,7 @@ class LaneOwnerOverlayInterpreter implements IngressInterpreterPort {
   constructor(private readonly inner: IngressInterpreterPort, private readonly creatorId?: string) {}
   async interpret(observation: SourceObservation): Promise<IngressInterpretation> {
     if (!this.creatorId) return this.inner.interpret(observation);
-    return this.inner.interpret({
-      ...observation,
-      metadata: { creatorId: this.creatorId, ...observation.metadata }
-    });
+    return this.inner.interpret({ ...observation, metadata: { creatorId: this.creatorId, ...observation.metadata } });
   }
 }
 
@@ -41,8 +37,8 @@ export class ConfiguredSourceLaneInterpreterFactory implements SourceLaneInterpr
       if (scopedAlias && explicitCreatorId) aliases[scopedAlias] = explicitCreatorId;
       return new CurrentCreatorWeekDayPathInterpreter({
         creatorAliases: aliases,
-        ...(this.config.weekStartBySegment ? { weekStartBySegment: this.config.weekStartBySegment } : {}),
-        ...(this.config.formatFolderHints ? { formatFolderHints: this.config.formatFolderHints } : {})
+        ...((lane.interpretation.weekStartBySegment??this.config.weekStartBySegment) ? { weekStartBySegment: lane.interpretation.weekStartBySegment??this.config.weekStartBySegment } : {}),
+        ...((lane.interpretation.formatFolderHints??this.config.formatFolderHints) ? { formatFolderHints: lane.interpretation.formatFolderHints??this.config.formatFolderHints } : {})
       });
     }
     // Flat lanes intentionally require SourceLane.creatorId or source metadata. They never infer
