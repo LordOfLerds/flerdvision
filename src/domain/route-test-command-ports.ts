@@ -1,10 +1,14 @@
-import type { ExecutableRouteTestKey, RouteTestEvidenceRecord } from "./route-test-ports.js";
+import type { ExecutableRouteTestKey, RouteTestEvidenceRecord, RouteTestExecutionAdapterPort } from "./route-test-ports.js";
 import type { RouteTestReadiness } from "./route-test-readiness.js";
 
 export interface RouteTestCommandCapability {
   testKey: ExecutableRouteTestKey;
   executable: boolean;
   reason: string;
+}
+
+export interface CapabilityAwareRouteTestExecutionAdapterPort extends RouteTestExecutionAdapterPort {
+  capabilities(routeId: string): readonly RouteTestCommandCapability[];
 }
 
 export interface RouteTestCommandResult {
