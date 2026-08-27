@@ -64,7 +64,8 @@ export class SourceLaneObservationAdapter implements SourceLaneObservationPort {
   }
 
   private observeLocal(source: SourceConnection, lane: SourceLane, sourceId: string, now: string): readonly SourceObservation[] {
-    const root = inside(source.rootRef, join(source.rootRef, lane.folderPath));
+    // folderRef is the technical source-relative locator; folderPath is display-only metadata.
+    const root = inside(source.rootRef, join(source.rootRef, lane.folderRef));
     const maxDepth = this.options.localMaxDepth ?? 8;
     const out: SourceObservation[] = [];
     const walk = (directory: string, relativeSegments: readonly string[], depth: number): void => {
@@ -92,7 +93,8 @@ export class SourceLaneObservationAdapter implements SourceLaneObservationPort {
             fileName: name,
             size: String(stats.size),
             modifiedTime: stats.mtime.toISOString(),
-            localPath: path
+            localPath: path,
+            displayLanePath: lane.folderPath
           }
         });
       }
