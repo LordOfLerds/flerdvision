@@ -1,9 +1,11 @@
 import type { DistributionConfigurationStorePort } from "../domain/distribution-ports.js";
 import type { DistributionRuntimeStateStorePort } from "../domain/distribution-runtime-ports.js";
+import type { PlanningCommitmentPort } from "../domain/planning-commitment-ports.js";
 import type { BacklogItem, DailyPlan, PlanningCatalog } from "../domain/distribution.js";
 import type { RuntimePlannerPort, RuntimeSourceScanPort } from "../domain/runtime-supervisor-ports.js";
 import { DistributionPlanner } from "./distribution-planner.js";
 import { DistributionSourceScanCoordinator } from "./distribution-source-scan.js";
+import { reconcileDailyPlanWithCommitments } from "./daily-plan-commitments.js";
 
 function dedupeBacklog(items: readonly BacklogItem[]): BacklogItem[] {
   return [...new Map(items.map((item) => [item.backlogId, item])).values()]
@@ -22,6 +24,7 @@ export class PersistedDistributionPlannerAdapter implements RuntimePlannerPort {
   constructor(
     private readonly configStore: DistributionConfigurationStorePort,
     private readonly runtime: DistributionRuntimeStateStorePort,
+    private readonly commitments?: PlanningCommitmentPort,
     private readonly planner: DistributionPlanner = new DistributionPlanner()
   ) {}
 
@@ -38,7 +41,7 @@ export class PersistedDistributionPlannerAdapter implements RuntimePlannerPort {
         .filter((item)=>item.carryToBusinessDate===businessDate)
     );
     const assets = this.runtime.listAssets().map((record)=>record.asset);
-    const plan = this.planner.plan({
+    const candidate = this.planner.plan({
       businessDate,
       generatedAt: new Date(now).toISOString(),
       assets,
@@ -48,6 +51,9 @@ export class PersistedDistributionPlannerAdapter implements RuntimePlannerPort {
       policy: stored.planningPolicy,
       ...(carryIn.length>0?{carryInBacklog:carryIn}:{})
     });
+    const plan = this.commitments
+      ? reconcileDailyPlanWithCommitments(candidate, this.commitments.listCommitted(businessDate)).plan
+      : candidate;
     return this.runtime.putDailyPlan(plan,now).record.plan;
   }
 }
