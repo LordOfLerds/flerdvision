@@ -7,6 +7,7 @@ import { DistributionDeliveryAggregateProjector } from "../../application/distri
 import { RuntimeDistributionDispositionAdapter } from "../../application/runtime-distribution-disposition.js";
 import { RuntimeSupervisor } from "../../application/runtime-supervisor.js";
 import { PollingRuntimeSourceScanAdapter } from "../../application/runtime-polling-source.js";
+import { PersistedRouteExecutionQualificationGate } from "../../application/route-execution-qualification.js";
 import { MaterializingMediaReadinessProbe } from "../distribution/materializing-readiness-probe.js";
 import { FfprobeMediaInspector } from "../media/ffprobe-inspector.js";
 import { JsonDistributionConfigurationStore } from "../distribution/json-config-store.js";
@@ -14,6 +15,7 @@ import { SqliteDistributionRuntimeStateStore } from "../distribution/sqlite-runt
 import { SqliteSourceActivationBaselineStore } from "../distribution/sqlite-source-activation.js";
 import { SqliteDistributionProvenanceStore } from "../distribution/sqlite-provenance.js";
 import { PersistedPlanningCommitmentAdapter } from "../distribution/sqlite-planning-commitments.js";
+import { SqlitePlatformSurfaceStore } from "../distribution/sqlite-surface-store.js";
 import { SqliteControlPlaneStore } from "../storage/sqlite.js";
 import { NoopSourceDispositionAdapter } from "../disposition/adapters.js";
 import { ConfiguredDistributionDispositionExecutor } from "../disposition/distribution-executor.js";
@@ -35,6 +37,7 @@ export interface WorkspaceDistributionRuntimeOptions {
   notificationChannelKeys?:readonly string[];
   timeZone?:string;
   uiBaseUrl?:string;
+  releaseSha?:string;
 }
 
 /**
@@ -49,6 +52,7 @@ export class WorkspaceDistributionRuntime {
   readonly state:SqliteDistributionRuntimeStateStore;
   readonly baselines:SqliteSourceActivationBaselineStore;
   readonly provenance:SqliteDistributionProvenanceStore;
+  readonly surfaces:SqlitePlatformSurfaceStore;
   readonly reports:SqliteRuntimeCycleReportStore;
   readonly observations:SourceLaneObservationAdapter;
   readonly activation:SourceActivationCommandService;
@@ -69,6 +73,7 @@ export class WorkspaceDistributionRuntime {
     this.state=new SqliteDistributionRuntimeStateStore(this.layout.databasePath);
     this.baselines=new SqliteSourceActivationBaselineStore(this.layout.databasePath);
     this.provenance=new SqliteDistributionProvenanceStore(this.layout.databasePath);
+    this.surfaces=new SqlitePlatformSurfaceStore(this.layout.databasePath);
     this.reports=new SqliteRuntimeCycleReportStore(this.layout.databasePath,options.workspaceId);
 
     const driveToken=workspaceDriveAccessTokenProvider({configDir:this.layout.configDir,env});
@@ -94,7 +99,9 @@ export class WorkspaceDistributionRuntime {
     const persistedPlanner=new PersistedDistributionPlannerAdapter(this.config,this.state,commitmentAdapter);
     const provenanceService=new DistributionPlanProvenanceService(this.config,this.provenance);
     this.planner=new ProvenancedRuntimePlannerAdapter(persistedPlanner,provenanceService);
-    const materializer=new DistributionIntentMaterializer(this.control,this.config,this.provenance);
+    const releaseSha=options.releaseSha??env.FLERDVISION_RELEASE_SHA??"UNSET_RELEASE_SHA";
+    const qualification=new PersistedRouteExecutionQualificationGate(this.config,this.state,this.surfaces,releaseSha);
+    const materializer=new DistributionIntentMaterializer(this.control,this.config,this.provenance,qualification);
     this.intents=new RuntimeDistributionIntentMaterializerAdapter(materializer);
 
     this.lease=new ControlPlaneRuntimeCycleLeaseAdapter(this.control,options.workspaceId);
@@ -131,6 +138,7 @@ export class WorkspaceDistributionRuntime {
 
   close():void{
     this.reports.close();
+    this.surfaces.close();
     this.provenance.close();
     this.baselines.close();
     this.state.close();
