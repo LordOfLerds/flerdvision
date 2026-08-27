@@ -28,6 +28,7 @@ test("management service builds source -> lane -> profiles -> route and returns 
   let rev = 0;
   rev = service.saveSource({ connectionId: "src", displayName: "Drive", kind: "google_drive", rootRef: "root", enabled: true, disposition: { mode: "database_only", leavePartialUntouched: true, leaveBlockedUntouched: true } }, rev, "2026-08-27T07:00:00.000Z").stored.revision;
   rev = service.saveLane({ laneId: "lane", connectionId: "src", displayName: "Piet", folderRef: "f", folderPath: "Piet", interpretation: { kind: "flat" }, enabled: true }, rev, "2026-08-27T07:01:00.000Z").stored.revision;
+  rev = service.saveActivationCursor({ laneId: "lane", mode: "NEW_ONLY", activatedAt: "2026-08-27T07:01:30.000Z" }, rev, "2026-08-27T07:01:30.000Z").stored.revision;
   rev = service.savePostingProfile({ postingProfileId: "ig", displayName: "IG Normal", platform: "instagram", format: "reel", commentsEnabled: true, shareToFeed: true, crosspostFacebook: false, enabled: true }, rev, "2026-08-27T07:02:00.000Z").stored.revision;
   rev = service.saveCopyProfile({ copyProfileId: "copy", displayName: "Copy", versionId: "v1", strategy: "template", enabled: true }, rev, "2026-08-27T07:03:00.000Z").stored.revision;
   rev = service.saveRoute({ routeId: "r1", displayName: "Piet IG", laneId: "lane", accountId: "ig1", platform: "instagram", postingProfileId: "ig", copyProfileId: "copy", schedulePolicyId: "default", requirement: "REQUIRED", enabled: true }, rev, "2026-08-27T07:04:00.000Z").stored.revision;
@@ -36,6 +37,7 @@ test("management service builds source -> lane -> profiles -> route and returns 
   assert.deepEqual(changed.impact.affectedRouteIds, ["r1"]);
   assert.equal(changed.impact.requireRouteRetest, true);
   assert.equal(changed.stored.config.routes[0].routeId, "r1");
+  assert.equal(changed.stored.config.activationCursors[0].laneId, "lane");
 });
 
 test("store rejects orphan route before writing it", () => {
