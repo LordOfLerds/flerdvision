@@ -22,13 +22,31 @@ function actionFor(step:SurfaceContractStep,context:DistributionPostingContext):
   return{stepKey:step.stepKey,operation:"CLICK",locators:locators(step)};
 }
 
-export function buildPlatformExecutionPlan(context:DistributionPostingContext,contract:PlatformSurfaceContract):PlatformExecutionPlan{
-  if(contract.status!=="CALIBRATED")throw new Error(`Surface contract ${contract.contractId} is not calibrated`);
+function assertContractMatches(context:DistributionPostingContext,contract:PlatformSurfaceContract):void{
   if(contract.accountId!==context.intent.accountId)throw new Error("Surface contract belongs to a different account");
   if(contract.postingProfileId!==context.postingProfile.postingProfileId)throw new Error("Surface contract belongs to a different posting profile");
   if(contract.platform!==context.intent.platform||contract.format!==context.intent.format)throw new Error("Surface contract platform/format differs from intent");
+}
+function planFromContract(context:DistributionPostingContext,contract:PlatformSurfaceContract):PlatformExecutionPlan{
+  assertContractMatches(context,contract);
   const actions=contract.steps.map(step=>actionFor(step,context));
   if(actions.at(-1)?.operation!=="FINAL_BOUNDARY")throw new Error("Surface contract must terminate at FINAL_BOUNDARY");
   if(actions.slice(0,-1).some(item=>item.operation==="FINAL_BOUNDARY"))throw new Error("FINAL_BOUNDARY may appear only once at the end");
   return{intent:context.intent,provenance:context.provenance,postingProfile:context.postingProfile,surfaceContractId:contract.contractId,environmentFingerprint:contract.environment.fingerprint,actions};
+}
+
+/** Production/runtime execution accepts only a fully qualified surface contract. */
+export function buildPlatformExecutionPlan(context:DistributionPostingContext,contract:PlatformSurfaceContract):PlatformExecutionPlan{
+  if(contract.status!=="CALIBRATED")throw new Error(`Surface contract ${contract.contractId} is not calibrated`);
+  return planFromContract(context,contract);
+}
+
+/**
+ * Calibration replay is the sole exception that may execute a RECORDED contract.
+ * The resulting plan still terminates at FINAL_BOUNDARY and must be run by a no-final-action executor.
+ * Successful replays become evidence for PlatformSurfaceRegistryService.qualify; they never authorize publish.
+ */
+export function buildCalibrationReplayPlan(context:DistributionPostingContext,contract:PlatformSurfaceContract):PlatformExecutionPlan{
+  if(contract.status!=="RECORDED"&&contract.status!=="CALIBRATED")throw new Error(`Unsupported surface contract status: ${contract.status}`);
+  return planFromContract(context,contract);
 }
