@@ -2,12 +2,15 @@ import { createHash, randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { ControlCenterRuntimePort } from "../../domain/control-center-ports.js";
 import type { DistributionConfigurationStorePort } from "../../domain/distribution-ports.js";
+import type { SourcePollingPolicy } from "../../domain/distribution-operations.js";
 import type { OperatingCalendar, OperatingCalendarDateOverride, OperatingCalendarWeekdayRule } from "../../domain/operating-calendar.js";
 import type { ExecutableRouteTestKey } from "../../domain/route-test-ports.js";
 import type { RouteTestCommandPort } from "../../domain/route-test-command-ports.js";
 import type { SourceActivationCommandPort } from "../../domain/source-activation-ports.js";
+import type { SourceRuntimeCommandPort } from "../../domain/source-runtime-command-ports.js";
 import type { SchedulingPolicy } from "../../domain/scheduling.js";
 import { sourceActivationCursorFingerprint } from "../../application/source-activation.js";
+import { SourcePollingPolicyManagementService } from "../../application/source-polling-management.js";
 import { PublishingProgramManagementService, type PublishingProgramDraft } from "../../application/publishing-program-management.js";
 import { RhythmCalendarManagementService } from "../../application/rhythm-calendar-management.js";
 import { DistributionConfigurationRevisionConflict } from "../distribution/json-config-store.js";
@@ -21,12 +24,13 @@ async function form(req:IncomingMessage):Promise<URLSearchParams>{return await n
 function required(params:URLSearchParams,key:string):string{const value=(params.get(key)??"").trim();if(!value)throw new Error(`${key} is required`);return value;}
 function bool(params:URLSearchParams,key:string):boolean{return params.get(key)==="on"||params.get(key)==="true";}
 function positiveInt(raw:string,label:string):number{const value=Number(raw);if(!Number.isInteger(value)||value<0)throw new Error(`${label} must be a non-negative integer`);return value;}
+function positiveMinutes(raw:string,label:string):number{const value=Number(raw);if(!Number.isInteger(value)||value<1)throw new Error(`${label} must be at least 1 minute`);return value;}
 function executableRouteTestKey(value:string):ExecutableRouteTestKey{
   if(value==="SOURCE"||value==="SESSION"||value==="IDENTITY"||value==="SURFACE"||value==="PREPARE_ONLY"||value==="VERIFICATION"||value==="CLEANUP")return value;
   throw new Error(`Unsupported executable route test key: ${value}`);
 }
 
-interface SignedChange {kind:"PROGRAM"|"RHYTHM"|"CALENDAR";payload:unknown;revision:number;returnTo:string;}
+interface SignedChange {kind:"PROGRAM"|"RHYTHM"|"CALENDAR"|"SOURCE_POLLING";payload:unknown;revision:number;returnTo:string;}
 interface SignedSourceBaselineAction {kind:"SOURCE_BASELINE_CAPTURE";laneId:string;snapshotFingerprint:string;cursorFingerprint:string;previewedAt:string;}
 
 export interface ProductControlCenterHttpOptions {
@@ -38,6 +42,7 @@ export interface ProductControlCenterHttpOptions {
   businessDate?:()=>string;
   routeTests?:RouteTestCommandPort;
   sourceActivation?:SourceActivationCommandPort;
+  sourceRuntime?:SourceRuntimeCommandPort;
 }
 
 export class ProductControlCenterHttpServer {
@@ -96,6 +101,16 @@ export class ProductControlCenterHttpServer {
     }
     return{calendarId:required(params,"calendarId"),displayName:required(params,"displayName"),enabled:bool(params,"enabled"),weekdayRules,dateOverrides};
   }
+  private sourcePollingFrom(params:URLSearchParams):SourcePollingPolicy{
+    return{
+      timeZone:required(params,"timeZone"),
+      activeWindowStartLocal:required(params,"activeWindowStartLocal"),
+      activeWindowEndLocal:required(params,"activeWindowEndLocal"),
+      activeIntervalMinutes:positiveMinutes(required(params,"activeIntervalMinutes"),"activeIntervalMinutes"),
+      idleIntervalMinutes:positiveMinutes(required(params,"idleIntervalMinutes"),"idleIntervalMinutes"),
+      pollImmediatelyOnStartup:bool(params,"pollImmediatelyOnStartup")
+    };
+  }
 
   private async preview(path:string,params:URLSearchParams):Promise<string>{
     if(path==="/preview/program"){
@@ -103,6 +118,10 @@ export class ProductControlCenterHttpServer {
       const change:SignedChange={kind:"PROGRAM",payload:draft,revision:preview.currentRevision,returnTo:"/programs"};
       const rhythms=preview.rhythms.map(item=>`<li><code>${esc(item.routeId)}</code> · ${item.active?item.slots.map(esc).join(" / "):"aus"} · ${esc(item.source)}</li>`).join("");
       return this.impactPage(change,"Program-Auswirkungen",`${preview.affectedRouteIds.length} Route(s), ${preview.requiredAssetCountPerBusinessDate} Quellvideo(s) für den Preview-Tag.`,`<ul>${rhythms}</ul><p>Bestehende committed und verified Historie bleibt unverändert. Neue/änderte Routes müssen Qualifikation bestehen.</p>`);
+    }
+    if(path==="/preview/source-polling"){
+      const policy=this.sourcePollingFrom(params),preview=new SourcePollingPolicyManagementService(this.config).preview(policy),change:SignedChange={kind:"SOURCE_POLLING",payload:policy,revision:preview.currentRevision,returnTo:"/sources"};
+      return this.impactPage(change,"Pull-Rhythmus-Auswirkungen",preview.operatorSummary,"<p>Keine DailyPlans, Reservations, Posting-Zeiten oder Route-Tests werden dadurch verändert.</p>");
     }
     const service=new RhythmCalendarManagementService(this.config);
     if(path==="/preview/rhythm"){
@@ -119,6 +138,7 @@ export class ProductControlCenterHttpServer {
     if(change.kind==="PROGRAM"){
       const snapshot=await this.runtime.snapshot(this.businessDate());new PublishingProgramManagementService(this.config,()=>snapshot.accounts).apply(change.payload as PublishingProgramDraft,change.revision,this.now());return change.returnTo;
     }
+    if(change.kind==="SOURCE_POLLING"){new SourcePollingPolicyManagementService(this.config).save(change.payload as SourcePollingPolicy,change.revision,this.now());return change.returnTo;}
     const service=new RhythmCalendarManagementService(this.config);
     if(change.kind==="RHYTHM"){const payload=change.payload as {id:string;policy:SchedulingPolicy};service.saveSchedulePolicy(payload.id,payload.policy,change.revision,this.now());}
     else service.saveOperatingCalendar(change.payload as OperatingCalendar,change.revision,this.now());
@@ -132,8 +152,10 @@ export class ProductControlCenterHttpServer {
     const samples=preview.sampleFileNames.length?`<ul>${preview.sampleFileNames.map(name=>`<li>${esc(name)}</li>`).join("")}</ul>`:"<p>Keine bestehenden Medienobjekte in dieser Lane.</p>";
     return `<!doctype html><html lang=de><meta charset=utf-8><title>Baseline prüfen</title><body style="font-family:system-ui;max-width:900px;margin:40px auto"><h1>NEW_ONLY Baseline prüfen</h1><div style="border-left:4px solid #0e6b64;padding:12px 16px;background:#f1f8f6"><p><strong>${preview.observedCount}</strong> bestehende Datei(en) werden als historisch markiert und nicht als neue Posting-Arbeit behandelt.</p>${samples}<p><small>Snapshot ${esc(preview.snapshotFingerprint.slice(0,16))} · Cursor ${esc(preview.cursorFingerprint.slice(0,16))}</small></p><p>Ändert sich der Ordner vor Confirm, wird die Aktion verweigert und muss neu geprüft werden.</p></div><form method=post action=/sources/baseline-capture><input type=hidden name=csrf value=${this.csrf}><input type=hidden name=payload value="${esc(signed.payload)}"><input type=hidden name=signature value="${esc(signed.signature)}"><button>Genau diese Baseline erfassen</button> <a href=/sources>Abbrechen</a></form></body></html>`;
   }
-  private sourceActivationControls(stored:ReturnType<DistributionConfigurationStorePort["load"]>,runtime:Awaited<ReturnType<ControlCenterRuntimePort["snapshot"]>>):string{
-    if(!this.options.sourceActivation)return"";
+  private sourceControls(stored:ReturnType<DistributionConfigurationStorePort["load"]>,runtime:Awaited<ReturnType<ControlCenterRuntimePort["snapshot"]>>):string{
+    const policy=stored.runtimePolicy?.sourcePolling;
+    const polling=policy?`<div class=card><h2>Source Pull</h2><p class=muted>Source-Pull ist unabhängig vom Posting-Rhythmus.</p>${this.options.sourceRuntime?`<form method=post action=/sources/scan-now><input type=hidden name=csrf value=${this.csrf}><button>Scan now</button></form>`:""}<form method=post action=/preview/source-polling><input type=hidden name=csrf value=${this.csrf}><label>Timezone <input name=timeZone value="${esc(policy.timeZone)}"></label><label>aktiv von <input name=activeWindowStartLocal value="${esc(policy.activeWindowStartLocal)}"></label><label>bis <input name=activeWindowEndLocal value="${esc(policy.activeWindowEndLocal)}"></label><label>aktiv alle <input type=number min=1 name=activeIntervalMinutes value=${policy.activeIntervalMinutes}> min</label><label>außerhalb alle <input type=number min=1 name=idleIntervalMinutes value=${policy.idleIntervalMinutes}> min</label><label><input type=checkbox name=pollImmediatelyOnStartup ${policy.pollImmediatelyOnStartup?"checked":""}> sofort bei Start</label><button>Auswirkungen prüfen</button></form></div>`:"";
+    if(!this.options.sourceActivation)return polling;
     const statusMap=new Map((runtime.sourceActivation??[]).map(item=>[item.laneId,item]));
     const rows=stored.config.lanes.map(lane=>{
       const status=statusMap.get(lane.laneId);
@@ -141,13 +163,13 @@ export class ProductControlCenterHttpServer {
       if(status?.state==="CAPTURED")return`<tr><td>${esc(lane.displayName)}</td><td class=ok>CAPTURED</td><td>${status.baselineCount??0} bestehende Datei(en) · ${status.capturedAt?esc(new Date(status.capturedAt).toLocaleString("de-AT",{timeZone:"Europe/Vienna"})):""}</td></tr>`;
       return`<tr><td>${esc(lane.displayName)}</td><td>${esc(status?.state??"NOT_EVALUATED")}</td><td>${status?.reason?esc(status.reason):"—"}</td></tr>`;
     }).join("");
-    return`<div class=card><h2>Activation Actions</h2><p class=muted>NEW_ONLY wird erst aktiv, nachdem die vorhandenen Dateien per Preview → Confirm als Baseline erfasst wurden.</p><table><tr><th>Lane</th><th>Status</th><th>Aktion</th></tr>${rows||"<tr><td colspan=3>Keine Lanes.</td></tr>"}</table></div>`;
+    return`${polling}<div class=card><h2>Activation Actions</h2><p class=muted>NEW_ONLY wird erst aktiv, nachdem vorhandene Dateien per Preview → Confirm als Baseline erfasst wurden.</p><table><tr><th>Lane</th><th>Status</th><th>Aktion</th></tr>${rows||"<tr><td colspan=3>Keine Lanes.</td></tr>"}</table></div>`;
   }
 
   private async page(path:string):Promise<string>{
     const businessDate=this.businessDate(),stored=this.config.load(),runtime=await this.runtime.snapshot(businessDate);
     let html=renderProductControlPage({path,stored,runtime,businessDate,csrf:this.csrf,...(this.options.routeTests?{routeTests:this.options.routeTests}:{})});
-    if(path==="/sources")html=html.replace("</main>",`${this.sourceActivationControls(stored,runtime)}</main>`);
+    if(path==="/sources")html=html.replace("</main>",`${this.sourceControls(stored,runtime)}</main>`);
     return html;
   }
 
@@ -165,6 +187,11 @@ export class ProductControlCenterHttpServer {
       const params=await form(req);if(params.get("csrf")!==this.csrf){res.statusCode=403;res.end("Invalid CSRF token");return;}
       if(path.startsWith("/preview/")){const html=await this.preview(path,params);res.statusCode=200;res.setHeader("Content-Type","text/html; charset=utf-8");res.end(html);return;}
       if(path==="/apply"){const destination=await this.apply(this.verify(required(params,"payload"),required(params,"signature")));this.redirect(res,destination);return;}
+      if(path==="/sources/scan-now"){
+        if(!this.options.sourceRuntime)throw new Error("Manual source scan adapter is not configured on this host");
+        const report=await this.options.sourceRuntime.scanNow(this.now());
+        res.statusCode=200;res.setHeader("Content-Type","text/html; charset=utf-8");res.end(`<!doctype html><html lang=de><meta charset=utf-8><body style="font-family:system-ui;max-width:800px;margin:40px auto"><h1>Source scan complete</h1><p>${report.observed} observed · ${report.ready} ready · ${report.stabilizing} stabilizing · ${report.blocked} blocked</p><p><small>${esc(report.scannedAt)} · MANUAL</small></p><a href=/sources>Zurück zu Sources</a></body></html>`);return;
+      }
       if(path==="/sources/baseline-preview"){const html=await this.sourceBaselinePreview(params);res.statusCode=200;res.setHeader("Content-Type","text/html; charset=utf-8");res.end(html);return;}
       if(path==="/sources/baseline-capture"){
         if(!this.options.sourceActivation)throw new Error("Source activation command adapter is not configured on this host");
