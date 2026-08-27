@@ -29,7 +29,7 @@ function routeQualification(stored:StoredDistributionConfiguration,runtime:Contr
   if(!route.enabled)return{qualified:false,reason:"route paused"};
   if(!account?.enabled)return{qualified:false,reason:"account missing or paused"};
   if(channel?.sessionHealth!=="HEALTHY")return{qualified:false,reason:`session ${channel?.sessionHealth??"UNKNOWN"}`};
-  if(!channel.identityVerified)return{qualified:false,reason:"identity not verified"};
+  if(!channel?.identityVerified)return{qualified:false,reason:"identity not verified"};
   if(surface?.surfaceContract!=="CALIBRATED")return{qualified:false,reason:`surface ${surface?.surfaceContract??"UNVERIFIED"}`};
   if(!test?.sourcePassed||!test.sessionPassed||!test.identityPassed)return{qualified:false,reason:"observer route tests incomplete"};
   if(test.prepareOnlyPasses<3)return{qualified:false,reason:`prepare-only ${test.prepareOnlyPasses}/3`};
@@ -113,7 +113,7 @@ export function projectWorkflowCenter(input:{stored:StoredDistributionConfigurat
       status:"READY",
       detail:"Der Tracker wird direkt aus durable Runtime-State projiziert; kein separater Spreadsheet-Scheduler oder zweiter Wahrheitsbaum nötig.",
       deepLink:"/workflows",
-      metrics:{assets:runtime.assets.length,planned:runtime.plan.deliveries.length,completeDeliveries:complete,runtimeCycles:(runtime.runtimeCycles??[]).length,lastCycle:latestCycle?.endedAt??"none"}
+      metrics:{assets:runtime.assets.length,planned:runtime.plan.deliveries.length,completeDeliveries:complete,runtimeCycles:(runtime.runtimeCycles??[]).length,lastCycle:latestCycle?.finishedAt??"none"}
     }
   ];
 
