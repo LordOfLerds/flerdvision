@@ -4,6 +4,8 @@ import type { SurfaceAgentPort, SurfaceAgentProposal, SurfaceAgentRequest } from
 
 export class SurfaceAgentProtocolError extends Error {}
 
+const IRREVERSIBLE_CLICK_LABEL = /^(?:share|teilen|publish|veröffentlichen|post|posten|save|speichern|schedule|planen|submit|senden|done|fertig)$/i;
+
 function locator(value: unknown, path: string): UiLocator {
   if (!value || typeof value !== "object") throw new SurfaceAgentProtocolError(`${path} must be an object`);
   const item = value as Record<string, unknown>;
@@ -20,6 +22,19 @@ function locator(value: unknown, path: string): UiLocator {
   };
 }
 
+function assertProposalSafe(request: SurfaceAgentRequest, locators: readonly UiLocator[]): void {
+  if (request.action !== "CLICK" || request.stepKey === "FINAL_ACTION") return;
+  for (const item of locators) {
+    if (item.kind === "css") {
+      throw new SurfaceAgentProtocolError(`Surface agent may not propose opaque CSS for reversible CLICK step ${request.stepKey}`);
+    }
+    const semantic = item.value.trim().replace(/\s+/g, " ");
+    if (IRREVERSIBLE_CLICK_LABEL.test(semantic)) {
+      throw new SurfaceAgentProtocolError(`Surface agent proposed an irreversible label for reversible step ${request.stepKey}: ${semantic}`);
+    }
+  }
+}
+
 function proposal(value: unknown, request: SurfaceAgentRequest): SurfaceAgentProposal {
   if (!value || typeof value !== "object") throw new SurfaceAgentProtocolError("Surface agent output must be an object");
   const item = value as Record<string, unknown>;
@@ -27,7 +42,9 @@ function proposal(value: unknown, request: SurfaceAgentRequest): SurfaceAgentPro
   if (item.stepKey !== request.stepKey) throw new SurfaceAgentProtocolError("Surface agent stepKey does not match the request");
   if (!Array.isArray(item.locators) || item.locators.length === 0 || item.locators.length > 8) throw new SurfaceAgentProtocolError("Surface agent locators must contain 1..8 entries");
   if (typeof item.rationale !== "string" || !item.rationale.trim()) throw new SurfaceAgentProtocolError("Surface agent rationale is required");
-  return { schemaVersion: 1, stepKey: request.stepKey, locators: item.locators.map((entry, index) => locator(entry, `locators[${index}]`)), rationale: item.rationale.trim() };
+  const locators = item.locators.map((entry, index) => locator(entry, `locators[${index}]`));
+  assertProposalSafe(request, locators);
+  return { schemaVersion: 1, stepKey: request.stepKey, locators, rationale: item.rationale.trim() };
 }
 
 export interface CommandSurfaceAgentOptions {
