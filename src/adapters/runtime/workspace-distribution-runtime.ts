@@ -4,6 +4,7 @@ import { workspaceRuntimeLayout } from "../../application/workspaces.js";
 import { SourceActivationCommandService } from "../../application/source-activation-command.js";
 import { DistributionSourceScanCoordinator } from "../../application/distribution-source-scan.js";
 import { MaterializingMediaReadinessProbe } from "../distribution/materializing-readiness-probe.js";
+import { FfprobeMediaInspector } from "../media/ffprobe-inspector.js";
 import { JsonDistributionConfigurationStore } from "../distribution/json-config-store.js";
 import { SqliteDistributionRuntimeStateStore } from "../distribution/sqlite-runtime-state.js";
 import { SqliteSourceActivationBaselineStore } from "../distribution/sqlite-source-activation.js";
@@ -43,6 +44,7 @@ export class WorkspaceDistributionRuntime {
   readonly intents:RuntimeDistributionIntentMaterializerAdapter;
 
   constructor(options:WorkspaceDistributionRuntimeOptions){
+    const env=options.env??process.env;
     this.layout=workspaceRuntimeLayout(resolve(options.runtimeRoot),options.workspaceId);
     this.config=new JsonDistributionConfigurationStore(resolve(this.layout.configDir,"distribution.json"));
     this.control=new SqliteControlPlaneStore(this.layout.databasePath);
@@ -50,12 +52,13 @@ export class WorkspaceDistributionRuntime {
     this.baselines=new SqliteSourceActivationBaselineStore(this.layout.databasePath);
     this.provenance=new SqliteDistributionProvenanceStore(this.layout.databasePath);
 
-    const driveToken=workspaceDriveAccessTokenProvider({configDir:this.layout.configDir,env:options.env??process.env});
+    const driveToken=workspaceDriveAccessTokenProvider({configDir:this.layout.configDir,env});
     const driveClient=driveToken?new GoogleDriveRestReadClient(driveToken):undefined;
     this.observations=new SourceLaneObservationAdapter(driveClient?{googleDriveClient:driveClient}:{});
     this.activation=new SourceActivationCommandService(this.config,this.observations,this.baselines);
 
     const media=new WorkspaceMediaMaterializer(this.config,driveToken,this.layout.mediaCacheDir);
+    const inspector=new FfprobeMediaInspector(env.FFPROBE_EXECUTABLE_PATH??"ffprobe");
     const scan=new DistributionSourceScanCoordinator(
       this.config,
       this.observations,
@@ -64,7 +67,7 @@ export class WorkspaceDistributionRuntime {
       new NoopSourceDispositionAdapter(),
       this.baselines,
       this.state,
-      new MaterializingMediaReadinessProbe(media),
+      new MaterializingMediaReadinessProbe(media,inspector),
       {notifyBlocksExternally:false}
     );
     this.source=new RuntimeDistributionSourceScanAdapter(scan);
