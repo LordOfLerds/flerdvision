@@ -5,6 +5,7 @@ import type { HostPreflightCheck, HostPreflightResult } from "../../domain/e2e.j
 
 export interface NodeHostPreflightConfig {
   chromiumExecutablePath: string;
+  ffprobeExecutablePath?:string;
   runtimeDir: string;
   profilesDir: string;
   evidenceDir: string;
@@ -12,12 +13,12 @@ export interface NodeHostPreflightConfig {
   minimumNodeMajor?: number;
 }
 
-function checkExecutable(path: string): HostPreflightCheck {
+function checkExecutable(name:string,path: string): HostPreflightCheck {
   try {
     accessSync(path, constants.X_OK);
-    return { name: "chromium_executable", passed: true, detail: `${path} executable` };
+    return { name, passed: true, detail: `${path} executable` };
   } catch {
-    return { name: "chromium_executable", passed: false, detail: `${path} is missing or not executable` };
+    return { name, passed: false, detail: `${path} is missing or not executable` };
   }
 }
 
@@ -40,7 +41,8 @@ export class NodeHostPreflightAdapter implements HostPreflightPort {
     const minimumNodeMajor = this.config.minimumNodeMajor ?? 22;
     const actualNodeMajor = Number(process.versions.node.split(".")[0]);
     checks.push({ name: "node_version", passed: Number.isInteger(actualNodeMajor) && actualNodeMajor >= minimumNodeMajor, detail: `node=${process.versions.node}; required>=${minimumNodeMajor}` });
-    checks.push(checkExecutable(this.config.chromiumExecutablePath));
+    checks.push(checkExecutable("chromium_executable",this.config.chromiumExecutablePath));
+    if(this.config.ffprobeExecutablePath)checks.push(checkExecutable("ffprobe_executable",this.config.ffprobeExecutablePath));
     checks.push(privateDirectory("runtime_directory", this.config.runtimeDir));
     checks.push(privateDirectory("profiles_directory", this.config.profilesDir));
     checks.push(privateDirectory("evidence_directory", this.config.evidenceDir));
