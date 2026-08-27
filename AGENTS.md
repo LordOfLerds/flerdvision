@@ -2,10 +2,11 @@
 
 ## Read order
 1. `docs/00-NORTH-STAR.md`
-2. `docs/01-ARCHITECTURE-GRAPH.md`
-3. `docs/02-PORTS-AND-ADAPTERS.md`
-4. `docs/03-STATE-MACHINES.md`
-5. relevant ADRs
+2. `docs/22-ENGINEERING-EXECUTION-PROTOCOL.md`
+3. `docs/01-ARCHITECTURE-GRAPH.md`
+4. `docs/02-PORTS-AND-ADAPTERS.md`
+5. `docs/03-STATE-MACHINES.md`
+6. relevant ADRs
 
 ## Non-negotiable invariants
 - Normal user-facing platform UIs are the publishing surface; do not introduce social publishing APIs unless an explicit architecture decision changes this.
@@ -48,7 +49,10 @@
 - macOS/VPS installation keeps `ALLOW_FINAL_PUBLISH=false`; live W8 authorization remains one-shot and test-only.
 
 ## Change discipline
+- `docs/22-ENGINEERING-EXECUTION-PROTOCOL.md` is binding for repair/build work in this repository.
 - New external system => new adapter behind an existing/new port, not domain leakage.
 - New state => update state machine, transition tests, graph docs, and incident semantics together.
 - New irreversible behavior => ADR + tests + canary plan.
 - Prefer deterministic rules before AI inference.
+- Prefer small vertical slices and authoritative GitHub safepoints over broad session-local work.
+- Do not report a milestone as green unless the required evidence level is actually present.
