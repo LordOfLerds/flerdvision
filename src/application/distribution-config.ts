@@ -2,6 +2,7 @@ import type {
   CopyProfile,
   DistributionRoute,
   PostingProfile,
+  SourceActivationCursor,
   SourceConnection,
   SourceLane
 } from "../domain/distribution.js";
@@ -12,6 +13,7 @@ export interface DistributionConfiguration {
   postingProfiles: readonly PostingProfile[];
   copyProfiles: readonly CopyProfile[];
   routes: readonly DistributionRoute[];
+  activationCursors: readonly SourceActivationCursor[];
 }
 
 export type ConfigurationChangeKind =
@@ -19,7 +21,8 @@ export type ConfigurationChangeKind =
   | "LANE_CHANGED"
   | "POSTING_PROFILE_CHANGED"
   | "COPY_PROFILE_CHANGED"
-  | "ROUTE_CHANGED";
+  | "ROUTE_CHANGED"
+  | "ACTIVATION_CURSOR_CHANGED";
 
 export interface ConfigurationImpactReport {
   changeKind: ConfigurationChangeKind;
@@ -111,15 +114,32 @@ export function impactOfRouteChange(config: DistributionConfiguration, routeId: 
   return {
     changeKind: "ROUTE_CHANGED",
     changedId: routeId,
-    affectedRouteIds: exists ? [routeId] : [],
-    invalidateFutureDailyPlans: exists,
-    requireRouteRetest: exists,
+    affectedRouteIds: [routeId],
+    invalidateFutureDailyPlans: true,
+    requireRouteRetest: true,
     requireActivationCursor: false,
     preserveVerifiedPublications: true,
     preserveHistoricalAudit: true,
     operatorSummary: exists
       ? "Route change affects future planning and route qualification only; existing verified publications and audit history remain untouched."
-      : "Route does not exist in the current configuration."
+      : "New route changes future planning and must pass route qualification before it can publish."
+  };
+}
+
+export function impactOfActivationCursorChange(config: DistributionConfiguration, laneId: string): ConfigurationImpactReport {
+  const affected = routeIds(config.routes.filter((route) => route.laneId === laneId));
+  return {
+    changeKind: "ACTIVATION_CURSOR_CHANGED",
+    changedId: laneId,
+    affectedRouteIds: affected,
+    invalidateFutureDailyPlans: affected.length > 0,
+    requireRouteRetest: false,
+    requireActivationCursor: false,
+    preserveVerifiedPublications: true,
+    preserveHistoricalAudit: true,
+    operatorSummary: affected.length > 0
+      ? `${affected.length} route(s) consume this lane. Historical/new file eligibility changes, so future plans must be regenerated.`
+      : "No route currently consumes this lane."
   };
 }
 
@@ -129,8 +149,22 @@ export function assertConfigurationReferentialIntegrity(config: DistributionConf
   const postingIds = new Set(config.postingProfiles.map((profile) => profile.postingProfileId));
   const copyIds = new Set(config.copyProfiles.map((profile) => profile.copyProfileId));
 
+  const unique = (label: string, ids: readonly string[]) => {
+    const set = new Set(ids);
+    if (set.size !== ids.length) throw new Error(`Duplicate ${label} id in distribution configuration`);
+  };
+  unique("source", config.sources.map((item) => item.connectionId));
+  unique("lane", config.lanes.map((item) => item.laneId));
+  unique("posting profile", config.postingProfiles.map((item) => item.postingProfileId));
+  unique("copy profile", config.copyProfiles.map((item) => item.copyProfileId));
+  unique("route", config.routes.map((item) => item.routeId));
+  unique("activation cursor lane", config.activationCursors.map((item) => item.laneId));
+
   for (const lane of config.lanes) {
     if (!sourceIds.has(lane.connectionId)) throw new Error(`Lane ${lane.laneId} references missing source ${lane.connectionId}`);
+  }
+  for (const cursor of config.activationCursors) {
+    if (!laneIds.has(cursor.laneId)) throw new Error(`Activation cursor references missing lane ${cursor.laneId}`);
   }
   for (const route of config.routes) {
     if (!laneIds.has(route.laneId)) throw new Error(`Route ${route.routeId} references missing lane ${route.laneId}`);
