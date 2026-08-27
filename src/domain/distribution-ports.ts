@@ -1,6 +1,7 @@
 import type { DistributionConfiguration } from "../application/distribution-config.js";
 import type { DistributionPlanningPolicy } from "./distribution.js";
 import type { DistributionRuntimePolicy } from "./distribution-operations.js";
+import type { OperatingCalendar } from "./operating-calendar.js";
 import type { SchedulingPolicy } from "./scheduling.js";
 
 export interface StoredDistributionConfiguration {
@@ -8,6 +9,8 @@ export interface StoredDistributionConfiguration {
   updatedAt: string;
   config: DistributionConfiguration;
   schedulePolicies: Readonly<Record<string, SchedulingPolicy>>;
+  /** Reusable weekly/date calendars; missing means no calendar constraints for legacy workspaces. */
+  operatingCalendars?: readonly OperatingCalendar[];
   planningPolicy: DistributionPlanningPolicy;
   /** Optional for backward compatibility; stores normalize missing values to the safe default. */
   runtimePolicy?: DistributionRuntimePolicy;
