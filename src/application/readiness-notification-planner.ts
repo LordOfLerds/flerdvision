@@ -1,53 +1,47 @@
+import type { AttentionItem } from "./control-center-read-model.js";
 import type { ContentDemandProjection } from "./content-demand.js";
 import type { StoredDistributionConfiguration } from "../domain/distribution-ports.js";
 import type { DailyPlan } from "../domain/distribution.js";
 import { addMinutes, instantForLocalDateTime } from "../domain/scheduling.js";
 import { DEFAULT_DISTRIBUTION_RUNTIME_POLICY, type OperatorReadinessPolicy } from "../domain/distribution-operations.js";
 
-export interface PlannedReadinessNotification {
-  dedupeKey: string;
-  severity: "WARNING" | "ACTION_REQUIRED";
-  kind: "MORNING_CONTENT" | "PRE_SLOT_CONTENT" | "PRE_SLOT_ESCALATION";
+export interface TimedAttentionItem {
   dueAt: string;
-  title: string;
-  body: string;
-  deepLink: string;
-  laneId?: string;
-  routeId?: string;
-  slotKey?: string;
+  attention: AttentionItem;
 }
 
 function due(now: string, at: string): boolean {
   return new Date(now).getTime() >= new Date(at).getTime();
 }
 
-export function planReadinessNotifications(input: {
+export function planReadinessAttention(input: {
   now: string;
   businessDate: string;
   stored: StoredDistributionConfiguration;
   demand: ContentDemandProjection;
   plan: DailyPlan;
   policy?: OperatorReadinessPolicy;
-}): readonly PlannedReadinessNotification[] {
+}): readonly TimedAttentionItem[] {
   const policy = input.policy ?? input.stored.runtimePolicy?.readiness ?? DEFAULT_DISTRIBUTION_RUNTIME_POLICY.readiness;
-  const out: PlannedReadinessNotification[] = [];
+  const out: TimedAttentionItem[] = [];
   const morningAt = instantForLocalDateTime(input.businessDate, policy.morningSummaryLocalTime, policy.timeZone);
 
   if (due(input.now, morningAt)) {
     for (const lane of input.demand.lanes.filter((item) => item.status !== "ENOUGH")) {
-      const severity = lane.status === "MISSING" ? "ACTION_REQUIRED" : "WARNING";
-      const body = lane.status === "MISSING"
+      const severity: AttentionItem["severity"] = lane.status === "MISSING" ? "ACTION_REQUIRED" : "WARNING";
+      const impact = lane.status === "MISSING"
         ? `${lane.readyAssetCount}/${lane.requiredAssetCount} benötigten Videos sind READY; selbst mit ${lane.stabilizingAssetCount} stabilisierenden Dateien fehlt Content.`
         : `${lane.readyAssetCount}/${lane.requiredAssetCount} benötigten Videos sind READY; ${lane.stabilizingAssetCount} weitere Dateien werden noch geprüft.`;
       out.push({
-        dedupeKey: `readiness:${input.businessDate}:morning:${lane.laneId}:${lane.status}`,
-        severity,
-        kind: "MORNING_CONTENT",
         dueAt: morningAt,
-        title: lane.status === "MISSING" ? "Content für heute fehlt" : "Content für heute noch nicht vollständig bereit",
-        body,
-        deepLink: `/sources?lane=${encodeURIComponent(lane.laneId)}`,
-        laneId: lane.laneId
+        attention: {
+          attentionId: `readiness:${input.businessDate}:morning:${lane.laneId}:${lane.status}`,
+          severity,
+          kind: "MORNING_CONTENT",
+          title: lane.status === "MISSING" ? "Content für heute fehlt" : "Content für heute noch nicht vollständig bereit",
+          impact,
+          deepLink: `/sources?lane=${encodeURIComponent(lane.laneId)}`
+        }
       });
     }
   }
@@ -63,31 +57,37 @@ export function planReadinessNotifications(input: {
     const escalationAt = addMinutes(targetAt, -policy.preSlotEscalationMinutes);
     if (due(input.now, warningAt)) {
       out.push({
-        dedupeKey: `readiness:${input.businessDate}:pre-slot:${route.routeId}:${slot.key}`,
-        severity: "WARNING",
-        kind: "PRE_SLOT_CONTENT",
         dueAt: warningAt,
-        title: `Content fehlt für ${slot.localTime}`,
-        body: gap.reason,
-        deepLink: `/routes/${encodeURIComponent(route.routeId)}`,
-        routeId: route.routeId,
-        slotKey: slot.key
+        attention: {
+          attentionId: `readiness:${input.businessDate}:pre-slot:${route.routeId}:${slot.key}`,
+          severity: "WARNING",
+          kind: "PRE_SLOT_CONTENT",
+          title: `Content fehlt für ${slot.localTime}`,
+          impact: gap.reason,
+          routeId: route.routeId,
+          accountId: route.accountId,
+          slotKey: slot.key,
+          deepLink: `/routes/${encodeURIComponent(route.routeId)}`
+        }
       });
     }
     if (due(input.now, escalationAt)) {
       out.push({
-        dedupeKey: `readiness:${input.businessDate}:escalation:${route.routeId}:${slot.key}`,
-        severity: "ACTION_REQUIRED",
-        kind: "PRE_SLOT_ESCALATION",
         dueAt: escalationAt,
-        title: `Posting ${slot.localTime} weiterhin ohne Content`,
-        body: `Der Slot ist in ${policy.preSlotEscalationMinutes} Minuten fällig und im aktuellen DailyPlan weiterhin nicht belegt.`,
-        deepLink: `/routes/${encodeURIComponent(route.routeId)}`,
-        routeId: route.routeId,
-        slotKey: slot.key
+        attention: {
+          attentionId: `readiness:${input.businessDate}:escalation:${route.routeId}:${slot.key}`,
+          severity: "ACTION_REQUIRED",
+          kind: "PRE_SLOT_ESCALATION",
+          title: `Posting ${slot.localTime} weiterhin ohne Content`,
+          impact: `Der Slot ist in ${policy.preSlotEscalationMinutes} Minuten fällig und im aktuellen DailyPlan weiterhin nicht belegt.`,
+          routeId: route.routeId,
+          accountId: route.accountId,
+          slotKey: slot.key,
+          deepLink: `/routes/${encodeURIComponent(route.routeId)}`
+        }
       });
     }
   }
 
-  return out.sort((a, b) => a.dueAt.localeCompare(b.dueAt) || a.dedupeKey.localeCompare(b.dedupeKey));
+  return out.sort((a, b) => a.dueAt.localeCompare(b.dueAt) || a.attention.attentionId.localeCompare(b.attention.attentionId));
 }
