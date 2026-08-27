@@ -1,0 +1,120 @@
+import { readFileSync, renameSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
+import { ChromiumCdpRuntimeAdapter } from "../adapters/browser/chromium-cdp.js";
+import { ConfiguredDomSessionProbe, type ConfiguredDomSessionProbeConfig } from "../adapters/browser/configured-dom-probe.js";
+import { BrowserProfileDirectoryResolver, DurableBrowserProfileLockAdapter, FileBrowserProfileLockAdapter } from "../adapters/browser/profile-lock.js";
+import { resolveChromiumExecutablePath } from "../adapters/browser/resolve-chromium.js";
+import { SqliteControlPlaneStore } from "../adapters/storage/sqlite.js";
+import { BrowserBootstrapService } from "./browser-bootstrap.js";
+import { AccountIdentityGuard, BrowserSessionHealthService } from "./browser-identity-service.js";
+import { loadWorkspaceSpecFile } from "./headless-bootstrap.js";
+import { workspaceRuntimeLayout } from "./workspaces.js";
+import { accountIdForChannel, identityIdForChannel } from "./workspace-spec-compiler.js";
+import type { WorkspaceChannelSpec } from "../domain/workspace-spec.js";
+
+export interface HeadlessLoginResult {
+  channelKey: string;
+  accountId: string;
+  identityId: string;
+  observedHandle: string;
+  checkedAt: string;
+  profileDirectory: string;
+}
+
+function bootstrapUrl(channel: WorkspaceChannelSpec): string {
+  if (channel.platform === "instagram") return "https://www.instagram.com/";
+  if (channel.platform === "tiktok") return "https://www.tiktok.com/";
+  return "https://studio.youtube.com/";
+}
+function identitySelector(channel: WorkspaceChannelSpec): string {
+  const handle = channel.handle.replace(/["\\]/g, "");
+  if (channel.platform === "instagram") return `nav a[href="/${handle}/"], [role="navigation"] a[href="/${handle}/"], a[aria-label*="Profile"][href="/${handle}/"]`;
+  if (channel.platform === "tiktok") return `nav a[href*="/@${handle}"], a[data-e2e*="profile"][href*="/@${handle}"]`;
+  return `a[href*="/@${handle}"], a[href*="/channel/"][aria-label*="${handle}"]`;
+}
+function probeConfig(channel: WorkspaceChannelSpec, navigate: boolean): ConfiguredDomSessionProbeConfig {
+  return {
+    probeUrl: bootstrapUrl(channel),
+    identitySelector: identitySelector(channel),
+    identityAttribute: "href",
+    authUrlIncludes: channel.platform === "instagram" ? ["/accounts/login"] : channel.platform === "tiktok" ? ["/login"] : ["accounts.google.com"],
+    challengeUrlIncludes: channel.platform === "instagram" ? ["/challenge/"] : channel.platform === "tiktok" ? ["/verify"] : [],
+    settleMs: 1000,
+    navigate
+  };
+}
+function writeCalibratedProbe(path: string, channel: WorkspaceChannelSpec, accountId: string, checkedAt: string): void {
+  const parsed = JSON.parse(readFileSync(path, "utf8")) as { schemaVersion: number; probes: Record<string, unknown>[] };
+  const probes = parsed.probes.map((entry) => {
+    if (entry.accountId !== accountId || entry.platform !== channel.platform) return entry;
+    return {
+      ...entry,
+      calibrationStatus: "CALIBRATED",
+      calibratedAt: checkedAt,
+      calibratedBy: "headless-login",
+      config: probeConfig(channel, true)
+    };
+  });
+  const temp = `${path}.tmp-${Date.now()}`;
+  writeFileSync(temp, `${JSON.stringify({ schemaVersion: 1, probes }, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  renameSync(temp, path);
+}
+
+export async function ensureHeadlessLogin(input: {
+  specPath: string;
+  channelKey: string;
+  env?: Record<string, string | undefined>;
+  timeoutMs?: number;
+  pollMs?: number;
+  onProgress?: (message: string) => void;
+}): Promise<HeadlessLoginResult> {
+  const spec = loadWorkspaceSpecFile(input.specPath);
+  const channel = spec.channels.find((item) => item.key === input.channelKey);
+  if (!channel) throw new Error(`Unknown channel key: ${input.channelKey}`);
+  const runtimeRoot = resolve(spec.workspace.runtimeRoot);
+  const layout = workspaceRuntimeLayout(runtimeRoot, spec.workspace.id);
+  const control = new SqliteControlPlaneStore(layout.databasePath);
+  const accountId = accountIdForChannel(channel);
+  const identityId = identityIdForChannel(channel);
+  const identity = control.getBrowserIdentity(identityId)?.identity;
+  if (!identity || identity.accountId !== accountId) { control.close(); throw new Error(`Run headless bootstrap before login; browser identity ${identityId} is missing`); }
+  const env = input.env ?? process.env;
+  const runtime = new ChromiumCdpRuntimeAdapter({ profilesRoot: layout.profilesDir, executablePath: env.CHROMIUM_EXECUTABLE_PATH ?? resolveChromiumExecutablePath() });
+  const resolver = new BrowserProfileDirectoryResolver(layout.profilesDir);
+  const locks = new DurableBrowserProfileLockAdapter(control, new FileBrowserProfileLockAdapter(resolver));
+  const bootstrap = new BrowserBootstrapService(control, runtime, locks);
+  const session = await bootstrap.openForOperator({ identityId, ownerId: `headless-login:${channel.key}`, bootstrapUrl: bootstrapUrl(channel), now: new Date().toISOString(), headless: false });
+  const started = Date.now();
+  let lastState = "UNKNOWN";
+  try {
+    input.onProgress?.(`Browser opened for ${channel.platform}/@${channel.handle}; complete normal login and 2FA. Detection is automatic.`);
+    while (Date.now() - started < (input.timeoutMs ?? 15 * 60_000)) {
+      const checkedAt = new Date().toISOString();
+      const check = await new BrowserSessionHealthService(control, new ConfiguredDomSessionProbe(probeConfig(channel, false))).check(
+        identityId,
+        session.page,
+        checkedAt,
+        { type: "operator", id: "headless-login" }
+      );
+      if (check.state !== lastState) {
+        lastState = check.state;
+        input.onProgress?.(`Login state ${channel.key}: ${check.state}${check.note ? ` · ${check.note}` : ""}`);
+      }
+      if (check.state === "IDENTITY_MISMATCH") throw new Error(check.note ?? `Logged-in account does not match @${channel.handle}`);
+      if (check.state === "HEALTHY") {
+        const proven = new AccountIdentityGuard(control).assertReady(identityId);
+        if (!proven.observedHandle) throw new Error("Healthy session did not persist an observed handle");
+        writeCalibratedProbe(resolve(layout.configDir, "session-probes.json"), channel, accountId, checkedAt);
+        input.onProgress?.(`Verified ${channel.platform} account @${proven.observedHandle}.`);
+        return { channelKey: channel.key, accountId, identityId, observedHandle: proven.observedHandle, checkedAt, profileDirectory: session.profileDirectory };
+      }
+      session.heartbeat(checkedAt);
+      await sleep(input.pollMs ?? 2000);
+    }
+    throw new Error(`Login verification timed out for ${channel.key}`);
+  } finally {
+    await session.close().catch(() => {});
+    control.close();
+  }
+}
