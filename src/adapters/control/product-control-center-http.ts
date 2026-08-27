@@ -5,12 +5,15 @@ import type { ControlCenterRuntimePort } from "../../domain/control-center-ports
 import type { DistributionConfigurationStorePort } from "../../domain/distribution-ports.js";
 import type { SourcePollingPolicy } from "../../domain/distribution-operations.js";
 import type { EffectiveConfigurationChangeCommandPort, EffectiveConfigurationChangeKind } from "../../domain/effective-configuration-change.js";
+import type { IncidentOperatorCommandPort } from "../../domain/incident-operator-ports.js";
+import type { KillSwitchScopeType } from "../../domain/operations.js";
 import type { OperatingCalendar, OperatingCalendarDateOverride, OperatingCalendarWeekdayRule } from "../../domain/operating-calendar.js";
 import type { ExecutableRouteTestKey } from "../../domain/route-test-ports.js";
 import type { RouteTestCommandPort } from "../../domain/route-test-command-ports.js";
 import type { SourceActivationCommandPort } from "../../domain/source-activation-ports.js";
 import type { SourceRuntimeCommandPort } from "../../domain/source-runtime-command-ports.js";
 import type { SchedulingPolicy } from "../../domain/scheduling.js";
+import { incidentView } from "../../application/control-center-operator-surfaces.js";
 import { sourceActivationCursorFingerprint } from "../../application/source-activation.js";
 import { SourcePollingPolicyManagementService } from "../../application/source-polling-management.js";
 import { PublishingProgramManagementService, type PublishingProgramDraft } from "../../application/publishing-program-management.js";
@@ -27,13 +30,14 @@ function positiveMinutes(raw:string,label:string):number{const value=Number(raw)
 function executableRouteTestKey(value:string):ExecutableRouteTestKey{if(value==="SOURCE"||value==="SESSION"||value==="IDENTITY"||value==="SURFACE"||value==="PREPARE_ONLY"||value==="VERIFICATION"||value==="CLEANUP")return value;throw new Error(`Unsupported executable route test key: ${value}`);}
 function shiftBusinessDate(value:string,days:number):string{if(!/^\d{4}-\d{2}-\d{2}$/.test(value))throw new Error(`Invalid business date: ${value}`);const date=new Date(`${value}T00:00:00.000Z`);date.setUTCDate(date.getUTCDate()+days);return date.toISOString().slice(0,10);}
 function localDateTime(value:string|undefined):string{return value?new Date(value).toLocaleString("de-AT",{timeZone:"Europe/Vienna"}):"—";}
+function killSwitchScope(value:string):KillSwitchScopeType{if(value==="GLOBAL"||value==="ACCOUNT"||value==="PLATFORM")return value;throw new Error(`Invalid kill switch scope: ${value}`);}
 
 interface SignedChange {kind:"PROGRAM"|"RHYTHM"|"CALENDAR"|"SOURCE_POLLING";payload:unknown;revision:number;returnTo:string;applyMode:"NOW"|"SCHEDULED";effectiveBusinessDate?:string;}
 interface SignedSourceBaselineAction {kind:"SOURCE_BASELINE_CAPTURE";laneId:string;snapshotFingerprint:string;cursorFingerprint:string;previewedAt:string;}
 
 export interface ProductControlCenterHttpOptions {
   password:string;username?:string;host?:string;port?:number;now?:()=>string;businessDate?:()=>string;
-  routeTests?:RouteTestCommandPort;sourceActivation?:SourceActivationCommandPort;sourceRuntime?:SourceRuntimeCommandPort;effectiveChanges?:EffectiveConfigurationChangeCommandPort;channelOperator?:ChannelOperatorCommandPort;
+  routeTests?:RouteTestCommandPort;sourceActivation?:SourceActivationCommandPort;sourceRuntime?:SourceRuntimeCommandPort;effectiveChanges?:EffectiveConfigurationChangeCommandPort;channelOperator?:ChannelOperatorCommandPort;incidentOperator?:IncidentOperatorCommandPort;
 }
 
 export class ProductControlCenterHttpServer {
@@ -84,11 +88,32 @@ export class ProductControlCenterHttpServer {
     }).join("");
     return`<div class=card><h2>Channel Login / Reauth</h2><p class=muted>Browser öffnen erlaubt normalen Login + 2FA im isolierten Profil. HEALTHY entsteht ausschließlich durch einen kalibrierten Session-Probe; Identity-Mismatch bleibt fail-closed.</p><table><tr><th>Channel</th><th>Operator Browser</th><th>Aktionen</th></tr>${rows||"<tr><td colspan=3>Keine Channels.</td></tr>"}</table></div>`;
   }
+  private incidentControls(runtime:Awaited<ReturnType<ControlCenterRuntimePort["snapshot"]>>):string{
+    if(!this.options.incidentOperator)return"";
+    const incidents=(runtime.incidents??[]).filter(item=>item.status!=="RESOLVED");
+    const cards=incidents.map(incident=>{
+      const view=incidentView(incident),actions=new Set(view.allowedActions),id=esc(incident.incidentId);
+      const forms:string[]=[];
+      if(actions.has("ACKNOWLEDGE")&&incident.status==="OPEN")forms.push(`<form method=post action=/incidents/ack><input type=hidden name=csrf value=${this.csrf}><input type=hidden name=incidentId value="${id}"><input name=note placeholder="Notiz (optional)"><button>Acknowledge</button></form>`);
+      if(actions.has("OPEN_BROWSER"))forms.push(`<a href=/channels>Login / Reauth öffnen</a>`);
+      if(actions.has("OPEN_CONTENT"))forms.push(`<a href=/content>Content öffnen</a>`);
+      if(actions.has("OPEN_ROUTE"))forms.push(`<a href=/test-lab>Route Test Lab öffnen</a>`);
+      if(actions.has("OPEN_RECONCILIATION"))forms.push(`<div class="attention"><strong>Reconciliation required.</strong> Kein Resume/Retry. Evidence und Attempt-Historie unter <a href=/activity>Activity</a> prüfen; nur der W5-Reconciliation-Pfad darf den Zustand ändern.</div>`);
+      if(actions.has("RESUME_INTENT"))forms.push(`<form method=post action=/incidents/resume><input type=hidden name=csrf value=${this.csrf}><input type=hidden name=incidentId value="${id}"><input name=note required placeholder="Fix bestätigt / Resume-Grund"><button>Resume if safe</button></form>`);
+      if(actions.has("WAIVE_SLOT"))forms.push(`<form method=post action=/incidents/waive><input type=hidden name=csrf value=${this.csrf}><input type=hidden name=incidentId value="${id}"><input name=reason required placeholder="Waive-Grund"><button>Slot waiven</button></form>`);
+      if(actions.has("RESOLVE_AFTER_FIX"))forms.push(`<form method=post action=/incidents/resolve><input type=hidden name=csrf value=${this.csrf}><input type=hidden name=incidentId value="${id}"><input name=note required placeholder="Was wurde behoben?"><button>Resolve after fix</button></form>`);
+      return`<div class="card ${view.severity==="CRITICAL"?"critical":"attention"}"><h3>${esc(view.title)}</h3><p>${esc(view.impact)}</p>${view.prohibitedAction?`<p class=bad>${esc(view.prohibitedAction)}</p>`:""}<div>${forms.join(" ")}</div></div>`;
+    }).join("");
+    const switches=this.options.incidentOperator.listKillSwitches();
+    const switchRows=switches.map(item=>`<tr><td>${esc(item.scopeType)}</td><td><code>${esc(item.scopeKey)}</code></td><td class="${item.enabled?"bad":"ok"}">${item.enabled?"ON":"OFF"}</td><td>${esc(item.reason)}</td><td>${esc(item.updatedBy)} · ${esc(localDateTime(item.updatedAt))}</td></tr>`).join("");
+    const killSwitch=`<div class=card><h2>Kill Switches</h2><p class=muted>GLOBAL / ACCOUNT / PLATFORM. Jede Änderung braucht einen Grund und wird als Human Action auditiert.</p><table><tr><th>Scope</th><th>Key</th><th>Status</th><th>Grund</th><th>Updated</th></tr>${switchRows||"<tr><td colspan=5>Keine Kill Switches konfiguriert.</td></tr>"}</table><form method=post action=/kill-switch><input type=hidden name=csrf value=${this.csrf}><select name=scopeType><option>GLOBAL</option><option>ACCOUNT</option><option>PLATFORM</option></select><input name=scopeKey value="*" required><select name=enabled><option value=true>ON</option><option value=false>OFF</option></select><input name=reason required placeholder="Grund"><button>Set</button></form></div>`;
+    return`${cards?`<div class=card><h2>Operator Actions</h2><p class=muted>Aktionen verwenden denselben fail-closed HumanRecoveryService wie der Runtime-Pfad.</p></div>${cards}`:""}${killSwitch}`;
+  }
   private effectiveFields():string{return`<fieldset style="margin:8px 0;padding:8px;border:1px solid #dfe5e2"><legend>Gültig ab</legend><select name=effectiveMode><option value=tomorrow selected>ab morgen</option><option value=now>ab sofort</option><option value=date>ab Datum</option></select><input type=date name=effectiveBusinessDate><small> Bereits committed Deliveries werden nie umgeschrieben.</small></fieldset>`;}
   private decorateEffectiveFields(html:string):string{for(const action of ["program","rhythm","calendar"]){html=html.replace(`<form method=post action=/preview/${action}>`,`<form method=post action=/preview/${action}>${this.effectiveFields()}`);}return html;}
   private pendingControls():string{if(!this.options.effectiveChanges)return"";const pending=this.options.effectiveChanges.listPending();if(pending.length===0)return"";const rows=pending.map(change=>`<tr><td>${esc(change.kind)}</td><td>${esc(change.effectiveBusinessDate)}</td><td>${esc(change.summary)}</td><td><code>rev ${change.baseRevision}</code></td><td><form method=post action=/changes/cancel><input type=hidden name=csrf value=${this.csrf}><input type=hidden name=changeId value="${esc(change.changeId)}"><button>Stornieren</button></form></td></tr>`).join("");return`<div class=card><h2>Geplante Änderungen</h2><p class=muted>Gleicher Tag + gleiche Basisrevision werden als atomisches Change Set angewendet; bei externer Config-Drift geht das Set NEEDS_REVIEW.</p><table><tr><th>Typ</th><th>Gültig ab</th><th>Auswirkung</th><th>Basis</th><th></th></tr>${rows}</table></div>`;}
 
-  private async page(path:string):Promise<string>{const businessDate=this.businessDate(),stored=this.config.load(),runtime=await this.runtime.snapshot(businessDate);let html=renderProductControlPage({path,stored,runtime,businessDate,csrf:this.csrf,...(this.options.routeTests?{routeTests:this.options.routeTests}:{})});if(path==="/sources")html=html.replace("</main>",`${this.sourceControls(stored,runtime)}</main>`);if(path==="/channels")html=html.replace("</main>",`${this.channelControls(runtime)}</main>`);if(path==="/programs"||path==="/rhythms"){html=this.decorateEffectiveFields(html);html=html.replace("</main>",`${this.pendingControls()}</main>`);}return html;}
+  private async page(path:string):Promise<string>{const businessDate=this.businessDate(),stored=this.config.load(),runtime=await this.runtime.snapshot(businessDate);let html=renderProductControlPage({path,stored,runtime,businessDate,csrf:this.csrf,...(this.options.routeTests?{routeTests:this.options.routeTests}:{})});if(path==="/sources")html=html.replace("</main>",`${this.sourceControls(stored,runtime)}</main>`);if(path==="/channels")html=html.replace("</main>",`${this.channelControls(runtime)}</main>`);if(path==="/incidents")html=html.replace("</main>",`${this.incidentControls(runtime)}</main>`);if(path==="/programs"||path==="/rhythms"){html=this.decorateEffectiveFields(html);html=html.replace("</main>",`${this.pendingControls()}</main>`);}return html;}
 
   private async handle(req:IncomingMessage,res:ServerResponse):Promise<void>{
     if(!this.authorized(req)){this.deny(res);return;}const method=req.method??"GET",url=new URL(req.url??"/","http://127.0.0.1"),path=url.pathname;
@@ -101,6 +126,11 @@ export class ProductControlCenterHttpServer {
       if(path==="/channels/open-login"){if(!this.options.channelOperator)throw new Error("Channel operator adapter is not configured on this host");await this.options.channelOperator.openLoginBrowser(required(params,"accountId"),this.now());this.redirect(res,"/channels");return;}
       if(path==="/channels/close-login"){if(!this.options.channelOperator)throw new Error("Channel operator adapter is not configured on this host");await this.options.channelOperator.closeLoginBrowser(required(params,"accountId"));this.redirect(res,"/channels");return;}
       if(path==="/channels/verify-session"){if(!this.options.channelOperator)throw new Error("Channel operator adapter is not configured on this host");await this.options.channelOperator.verifySession(required(params,"accountId"),this.now());this.redirect(res,"/channels");return;}
+      if(path==="/incidents/ack"){if(!this.options.incidentOperator)throw new Error("Incident operator adapter is not configured");this.options.incidentOperator.acknowledge(required(params,"incidentId"),this.now(),params.get("note")??undefined);this.redirect(res,"/incidents");return;}
+      if(path==="/incidents/resolve"){if(!this.options.incidentOperator)throw new Error("Incident operator adapter is not configured");this.options.incidentOperator.resolve(required(params,"incidentId"),this.now(),required(params,"note"));this.redirect(res,"/incidents");return;}
+      if(path==="/incidents/resume"){if(!this.options.incidentOperator)throw new Error("Incident operator adapter is not configured");this.options.incidentOperator.resumeIntent(required(params,"incidentId"),this.now(),required(params,"note"));this.redirect(res,"/incidents");return;}
+      if(path==="/incidents/waive"){if(!this.options.incidentOperator)throw new Error("Incident operator adapter is not configured");this.options.incidentOperator.waiveIntent(required(params,"incidentId"),this.now(),required(params,"reason"));this.redirect(res,"/incidents");return;}
+      if(path==="/kill-switch"){if(!this.options.incidentOperator)throw new Error("Incident operator adapter is not configured");this.options.incidentOperator.setKillSwitch(killSwitchScope(required(params,"scopeType")),required(params,"scopeKey"),required(params,"enabled")==="true",required(params,"reason"),this.now());this.redirect(res,"/incidents");return;}
       if(path==="/sources/scan-now"){if(!this.options.sourceRuntime)throw new Error("Manual source scan adapter is not configured on this host");const report=await this.options.sourceRuntime.scanNow(this.now());res.statusCode=200;res.setHeader("Content-Type","text/html; charset=utf-8");res.end(`<!doctype html><html lang=de><meta charset=utf-8><body style="font-family:system-ui;max-width:800px;margin:40px auto"><h1>Source scan complete</h1><p>${report.observed} observed · ${report.ready} ready · ${report.stabilizing} stabilizing · ${report.blocked} blocked</p><p><small>${esc(report.scannedAt)} · MANUAL</small></p><a href=/sources>Zurück zu Sources</a></body></html>`);return;}
       if(path==="/sources/baseline-preview"){const html=await this.sourceBaselinePreview(params);res.statusCode=200;res.setHeader("Content-Type","text/html; charset=utf-8");res.end(html);return;}
       if(path==="/sources/baseline-capture"){if(!this.options.sourceActivation)throw new Error("Source activation command adapter is not configured on this host");const action=this.verifyBaseline(required(params,"payload"),required(params,"signature"));const current=this.config.load().config.activationCursors.find(item=>item.laneId===action.laneId);if(!current)throw new Error(`Lane ${action.laneId} no longer has an activation cursor`);if(sourceActivationCursorFingerprint(current)!==action.cursorFingerprint)throw new Error(`Lane ${action.laneId} activation cursor changed after preview; preview again before capture`);await this.options.sourceActivation.captureBaseline(action.laneId,this.now(),action.snapshotFingerprint);this.redirect(res,"/sources");return;}
