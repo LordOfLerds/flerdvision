@@ -5,7 +5,7 @@ import type { SourceLaneInterpreterFactoryPort } from "../../domain/source-lane-
 import { CurrentCreatorWeekDayPathInterpreter, MetadataFieldIngressInterpreter } from "./interpreters.js";
 
 export interface SourceLaneInterpreterFactoryConfig {
-  /** Explicit owner mapping for lanes whose source metadata does not carry creatorId. */
+  /** Temporary override seam for migrations/tests; canonical owner lives on SourceLane.creatorId. */
   creatorIdByLaneId?: Readonly<Record<string, string>>;
   /** Alias mapping used by creator/week/day folder interpretation. */
   creatorAliases?: Readonly<Record<string, string>>;
@@ -28,7 +28,7 @@ export class ConfiguredSourceLaneInterpreterFactory implements SourceLaneInterpr
   constructor(private readonly config: SourceLaneInterpreterFactoryConfig = {}) {}
 
   forLane(lane: SourceLane): IngressInterpreterPort {
-    const explicitCreatorId = this.config.creatorIdByLaneId?.[lane.laneId];
+    const explicitCreatorId = lane.creatorId ?? this.config.creatorIdByLaneId?.[lane.laneId];
     if (lane.interpretation.kind === "metadata") {
       return new LaneOwnerOverlayInterpreter(new MetadataFieldIngressInterpreter({
         ...(lane.interpretation.creatorField ? { creatorField: lane.interpretation.creatorField } : {}),
@@ -44,8 +44,8 @@ export class ConfiguredSourceLaneInterpreterFactory implements SourceLaneInterpr
         ...(this.config.formatFolderHints ? { formatFolderHints: this.config.formatFolderHints } : {})
       });
     }
-    // Flat lanes intentionally require explicit creator ownership or source metadata. They do not
-    // infer creator identity from folder/display names.
+    // Flat lanes intentionally require SourceLane.creatorId or source metadata. They never infer
+    // creator identity from displayName/folderPath.
     return new LaneOwnerOverlayInterpreter(new MetadataFieldIngressInterpreter(), explicitCreatorId);
   }
 }
