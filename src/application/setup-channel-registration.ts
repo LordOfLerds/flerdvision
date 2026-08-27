@@ -5,8 +5,6 @@ import { normalizeSocialHandle } from "../domain/browser-identity.js";
 import type { BrowserIdentityStorePort } from "../domain/browser-identity-ports.js";
 import type { ChannelDiscoveryResult } from "../domain/channel-discovery.js";
 import { deriveAccountId, deriveIdentityId, deriveProfileKey, selectDiscoveredChannel } from "../domain/channel-discovery.js";
-import type { ChannelSourceBinding, StoredChannelSourceBinding } from "../domain/source-binding.js";
-import type { ChannelSourceBindingStorePort } from "../domain/source-binding-ports.js";
 import { validateBrowserIdentityRegistration } from "./browser-identity-service.js";
 
 export interface RegisterFromDiscoveryParams {
@@ -32,25 +30,16 @@ export interface RegisteredChannel {
   observedHandle: string;
 }
 
-export interface BindChannelSourceParams {
-  accountId: string;
-  bindingId: string;
-  folderId: string;
-  folderPath: string;
-  interpretSubstructure: boolean;
-  now: Instant;
-  actor: Actor;
-}
-
 /**
- * Registers a social account from what a live session reported about itself.
+ * Registers only the social account + isolated BrowserIdentity proven by live session discovery.
  *
- * There is deliberately no overload taking a handle: the caller must hand over the discovery
- * result, and the chosen key is resolved against it. That is what makes "the handle was observed,
- * not asserted" a property of the code rather than a habit of whoever fills in the form.
+ * Source routing is intentionally absent. Product onboarding creates SourceConnection/SourceLane
+ * independently, and Programs later create canonical DistributionRoute records. Keeping channel
+ * registration unable to write a folder/account binding makes the route-first architecture a code
+ * property rather than a UI convention.
  */
 export class SetupChannelRegistrationService {
-  constructor(private readonly store: BrowserIdentityStorePort & ChannelSourceBindingStorePort) {}
+  constructor(private readonly store: BrowserIdentityStorePort) {}
 
   registerFromDiscovery(params: RegisterFromDiscoveryParams): RegisteredChannel {
     const { result, channelKey, now, actor } = params;
@@ -80,8 +69,8 @@ export class SetupChannelRegistrationService {
     const storedAccount = this.store.registerSocialAccount(account, now, actor).record;
     const storedIdentity = this.store.registerBrowserIdentity(identity, now, actor).record;
 
-    // The observation itself is durable evidence: the audit trail shows the handle was read back
-    // from the session at registration time, and the identity guard has a baseline to drift from.
+    // Registration discovery is durable identity evidence. It proves which session/handle was read;
+    // it does not imply any content source or DistributionRoute.
     this.store.recordSessionHealth(
       {
         checkId: params.checkId,
@@ -97,18 +86,5 @@ export class SetupChannelRegistrationService {
     );
 
     return { account: storedAccount, identity: storedIdentity, accountId, identityId, observedHandle: expectedHandle };
-  }
-
-  bindSource(params: BindChannelSourceParams): StoredChannelSourceBinding {
-    const binding: ChannelSourceBinding = {
-      bindingId: params.bindingId,
-      accountId: params.accountId,
-      source: "google_drive",
-      folderId: params.folderId,
-      folderPath: params.folderPath,
-      interpretSubstructure: params.interpretSubstructure,
-      enabled: true
-    };
-    return this.store.bindChannelSource(binding, params.now, params.actor).record;
   }
 }
