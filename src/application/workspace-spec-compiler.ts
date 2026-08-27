@@ -14,7 +14,7 @@ import type {
 } from "../domain/distribution.js";
 import type { SchedulingPolicy } from "../domain/scheduling.js";
 import type { WorkspaceChannelFormatSpec, WorkspaceChannelSpec, WorkspaceSpecV1 } from "../domain/workspace-spec.js";
-import type { SourceStreamSelection, SourceTopology } from "./source-structure-discovery.js";
+import type { SourceTopology } from "./source-structure-discovery.js";
 import { assertConfigurationReferentialIntegrity } from "./distribution-config.js";
 
 function digest(value: string): string { return createHash("sha256").update(value).digest("hex"); }
@@ -167,6 +167,7 @@ export class WorkspaceSpecCompiler {
 
   compile(spec: WorkspaceSpecV1, topology: SourceTopology, now: string, actor: Actor = { type: "operator", id: "headless-bootstrap" }): WorkspaceCompileReport {
     const timestamp = new Date(now).toISOString();
+    const current = this.configStore.load();
     const rootRef = spec.source.kind === "google_drive" ? topology.rootId : resolve(spec.source.root);
     const source: SourceConnection = {
       connectionId: stable("source", `${spec.source.kind}|${rootRef}`),
@@ -233,14 +234,16 @@ export class WorkspaceSpecCompiler {
     }
 
     const lanes = [...laneByRef.values()].sort((a, b) => a.laneId.localeCompare(b.laneId));
-    const activationCursors: SourceActivationCursor[] = lanes.map((lane) => ({ laneId: lane.laneId, mode: spec.source.activation, activatedAt: timestamp }));
+    const activationCursors: SourceActivationCursor[] = lanes.map((lane) => {
+      const existing = current.config.activationCursors.find((cursor) => cursor.laneId === lane.laneId && cursor.mode === spec.source.activation);
+      return existing ?? { laneId: lane.laneId, mode: spec.source.activation, activatedAt: timestamp };
+    });
     postingProfiles.sort((a, b) => a.postingProfileId.localeCompare(b.postingProfileId));
     copyProfiles.sort((a, b) => a.copyProfileId.localeCompare(b.copyProfileId));
     routes.sort((a, b) => a.routeId.localeCompare(b.routeId));
     const config = { sources: [source], lanes, postingProfiles, copyProfiles, routes, activationCursors };
     assertConfigurationReferentialIntegrity(config);
 
-    const current = this.configStore.load();
     const next: Omit<StoredDistributionConfiguration, "revision"> = {
       updatedAt: timestamp,
       config,
