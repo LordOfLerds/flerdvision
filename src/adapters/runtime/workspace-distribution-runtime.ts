@@ -33,6 +33,7 @@ export interface WorkspaceDistributionRuntimeOptions {
   env?:Record<string,string|undefined>;
   notificationChannelKeys?:readonly string[];
   timeZone?:string;
+  uiBaseUrl?:string;
 }
 
 /**
@@ -101,7 +102,16 @@ export class WorkspaceDistributionRuntime {
     const aggregates=new DistributionDeliveryAggregateProjector(this.state,this.provenance,this.control,this.control);
     const dispositionExecutor=new ConfiguredDistributionDispositionExecutor(this.control,{});
     this.disposition=new RuntimeDistributionDispositionAdapter(this.config,this.state,aggregates,dispositionExecutor);
-    this.operations=new W6RuntimeOperationsAdapter(this.control,options.notificationChannelKeys??[],options.timeZone??"Europe/Vienna");
+    this.operations=new W6RuntimeOperationsAdapter(
+      this.control,
+      options.notificationChannelKeys??[],
+      options.timeZone??"Europe/Vienna",
+      {
+        distributionConfig:this.config,
+        distributionRuntime:this.state,
+        ...(options.uiBaseUrl?{uiBaseUrl:options.uiBaseUrl}:{})
+      }
+    );
   }
 
   supervisor(ownerId:string,clock:()=>string=()=>new Date().toISOString()):RuntimeSupervisor{
