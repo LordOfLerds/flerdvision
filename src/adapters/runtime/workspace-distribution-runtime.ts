@@ -21,6 +21,7 @@ import { SqliteDistributionProvenanceStore } from "../distribution/sqlite-proven
 import { SqliteEffectiveConfigurationChangeStore } from "../distribution/sqlite-effective-config-changes.js";
 import { PersistedPlanningCommitmentAdapter } from "../distribution/sqlite-planning-commitments.js";
 import { SqlitePlatformSurfaceStore } from "../distribution/sqlite-surface-store.js";
+import { SqliteSourcePollingStateStore } from "../distribution/sqlite-source-poll-state.js";
 import { SqliteControlPlaneStore } from "../storage/sqlite.js";
 import { NoopSourceDispositionAdapter } from "../disposition/adapters.js";
 import { ConfiguredDistributionDispositionExecutor } from "../disposition/distribution-executor.js";
@@ -56,6 +57,7 @@ export class WorkspaceDistributionRuntime {
   readonly provenance:SqliteDistributionProvenanceStore;
   readonly surfaces:SqlitePlatformSurfaceStore;
   readonly effectiveChanges:SqliteEffectiveConfigurationChangeStore;
+  readonly pollState:SqliteSourcePollingStateStore;
   readonly reports:SqliteRuntimeCycleReportStore;
   readonly observations:SourceLaneObservationAdapter;
   readonly activation:SourceActivationCommandService;
@@ -80,6 +82,7 @@ export class WorkspaceDistributionRuntime {
     this.provenance=new SqliteDistributionProvenanceStore(this.layout.databasePath);
     this.surfaces=new SqlitePlatformSurfaceStore(this.layout.databasePath);
     this.effectiveChanges=new SqliteEffectiveConfigurationChangeStore(this.layout.databasePath);
+    this.pollState=new SqliteSourcePollingStateStore(this.layout.databasePath);
     this.reports=new SqliteRuntimeCycleReportStore(this.layout.databasePath,options.workspaceId);
 
     const driveToken=workspaceDriveAccessTokenProvider({configDir:this.layout.configDir,env});
@@ -95,7 +98,7 @@ export class WorkspaceDistributionRuntime {
       this.config,this.observations,new ConfiguredSourceLaneInterpreterFactory(),this.control,new NoopSourceDispositionAdapter(),this.baselines,this.state,
       new MaterializingMediaReadinessProbe(this.media,inspector),{notifyBlocksExternally:false}
     );
-    this.source=new PollingRuntimeSourceScanAdapter(new RuntimeDistributionSourceScanAdapter(scan),this.config);
+    this.source=new PollingRuntimeSourceScanAdapter(new RuntimeDistributionSourceScanAdapter(scan),this.config,this.pollState);
     const commitmentAdapter=new PersistedPlanningCommitmentAdapter(this.state,this.provenance,this.control);
     const persistedPlanner=new PersistedDistributionPlannerAdapter(this.config,this.state,commitmentAdapter);
     const provenanceService=new DistributionPlanProvenanceService(this.config,this.provenance);
@@ -131,6 +134,7 @@ export class WorkspaceDistributionRuntime {
 
   close():void{
     this.reports.close();
+    this.pollState.close();
     this.effectiveChanges.close();
     this.surfaces.close();
     this.provenance.close();
