@@ -36,7 +36,11 @@ export interface SourceLane {
   laneId: string;
   connectionId: string;
   displayName: string;
+  /** Explicit owner for lanes whose source metadata/path does not provide creator identity. */
+  creatorId?: string;
+  /** Provider-stable locator: Drive folder id or source-relative local path. */
   folderRef: string;
+  /** Human-facing path/label only; never used as a technical local filesystem locator. */
   folderPath: string;
   interpretation: SourceLaneInterpretation;
   enabled: boolean;
