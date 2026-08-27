@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   assertConfigurationReferentialIntegrity,
+  impactOfActivationCursorChange,
   impactOfCopyProfileChange,
   impactOfLaneChange,
   impactOfPostingProfileChange,
@@ -17,6 +18,7 @@ const config = {
   ],
   postingProfiles: [{ postingProfileId: "ig", displayName: "IG", platform: "instagram", format: "reel", commentsEnabled: true, shareToFeed: true, crosspostFacebook: false, enabled: true }],
   copyProfiles: [{ copyProfileId: "copy", displayName: "Copy", versionId: "v1", strategy: "template", enabled: true }],
+  activationCursors: [{ laneId: "lane-a", mode: "NEW_ONLY", activatedAt: "2026-08-27T06:00:00.000Z" }],
   routes: [
     { routeId: "r1", displayName: "R1", laneId: "lane-a", accountId: "ig1", platform: "instagram", postingProfileId: "ig", copyProfileId: "copy", schedulePolicyId: "default", requirement: "REQUIRED", enabled: true },
     { routeId: "r2", displayName: "R2", laneId: "lane-b", accountId: "ig1", platform: "instagram", postingProfileId: "ig", copyProfileId: "copy", schedulePolicyId: "default", requirement: "OPTIONAL", enabled: true }
@@ -59,4 +61,18 @@ test("referential integrity rejects orphan routes and lanes before UI save", () 
   assert.doesNotThrow(() => assertConfigurationReferentialIntegrity(config));
   assert.throws(() => assertConfigurationReferentialIntegrity({ ...config, routes: [{ ...config.routes[0], laneId: "missing" }] }), /missing lane/);
   assert.throws(() => assertConfigurationReferentialIntegrity({ ...config, lanes: [{ ...config.lanes[0], connectionId: "missing" }] }), /missing source/);
+});
+
+test("activation cursor changes invalidate future planning without forcing a platform retest", () => {
+  const impact = impactOfActivationCursorChange(config, "lane-a");
+  assert.deepEqual(impact.affectedRouteIds, ["r1"]);
+  assert.equal(impact.invalidateFutureDailyPlans, true);
+  assert.equal(impact.requireRouteRetest, false);
+});
+
+test("new route is treated as planning-impacting and requires qualification", () => {
+  const impact = impactOfRouteChange(config, "new-route");
+  assert.deepEqual(impact.affectedRouteIds, ["new-route"]);
+  assert.equal(impact.invalidateFutureDailyPlans, true);
+  assert.equal(impact.requireRouteRetest, true);
 });
