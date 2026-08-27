@@ -6,7 +6,8 @@ import { assertConfigurationReferentialIntegrity } from "./distribution-config.j
 function stable(prefix:string,value:string):string{return `${prefix}:${createHash("sha256").update(value).digest("hex").slice(0,24)}`;}
 function laneLabel(folderPath:string):string{
   const parts=folderPath.split(" / ").map(value=>value.trim()).filter(Boolean);
-  return parts.at(-1)??folderPath.trim()||"Source Lane";
+  const last=parts.at(-1)??folderPath.trim();
+  return last||"Source Lane";
 }
 
 export interface SetupSourceProvider {
@@ -43,10 +44,7 @@ export function sourceLaneIdFor(connectionId:string,folderRef:string):string{
   return stable("lane",`${connectionId}|${folderRef}`);
 }
 
-/**
- * Onboarding stops at SourceConnection + SourceLane. It does not bind any social account. The
- * account/lane relationship is created later through PublishingProgram/DistributionRoute.
- */
+/** Onboarding creates SourceConnection + SourceLane only; social distribution is configured in Programs. */
 export class SetupDistributionOnboardingService {
   constructor(private readonly store:DistributionConfigurationStorePort){}
 
@@ -83,16 +81,10 @@ export class SetupDistributionOnboardingService {
       creatorId,
       folderRef:params.folderRef,
       folderPath:params.folderPath,
-      interpretation:params.interpretSubstructure
-        ?{kind:"creator_week_day",creatorAlias:displayName}
-        :{kind:"flat"},
+      interpretation:params.interpretSubstructure?{kind:"creator_week_day",creatorAlias:displayName}:{kind:"flat"},
       enabled:true
     };
-    const cursor:SourceActivationCursor=existingCursor??{
-      laneId,
-      mode:params.activationMode,
-      activatedAt:timestamp
-    };
+    const cursor:SourceActivationCursor=existingCursor??{laneId,mode:params.activationMode,activatedAt:timestamp};
 
     const sources=existingSource?current.config.sources:[...current.config.sources,source];
     const lanes=existingLane?current.config.lanes:[...current.config.lanes,lane];
