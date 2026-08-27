@@ -6,6 +6,20 @@ export interface SourceFolderBrowserPort {
   previewFolder(folderId: string): Promise<SourceFolderPreview>;
 }
 
+export interface SourceFolderTechnicalSelection {
+  /** Stable technical locator stored in SourceLane.folderRef. Never a display breadcrumb. */
+  folderRef: string;
+}
+
+/**
+ * Converts the picker's opaque provider token into the exact technical SourceLane locator.
+ * Drive returns a validated folder id; local mounts decode and confine the token to their root.
+ * UI code must never derive this value from folderPath/display text.
+ */
+export interface SourceFolderSelectionResolverPort {
+  resolveSelectedFolder(folderId: string): Promise<SourceFolderTechnicalSelection>;
+}
+
 /**
  * Supplies a short-lived access token. Kept separate from the browser so that how a deployment
  * obtains credentials never leaks into how folders are read.
