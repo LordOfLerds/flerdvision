@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { workspaceRuntimeLayout } from "../../application/workspaces.js";
 import { SourceActivationCommandService } from "../../application/source-activation-command.js";
-import type { SourceActivationCommandPort, SourceActivationStatus } from "../../domain/source-activation-ports.js";
+import type { SourceActivationBaselinePreview, SourceActivationCommandPort, SourceActivationStatus } from "../../domain/source-activation-ports.js";
 import { JsonDistributionConfigurationStore } from "../distribution/json-config-store.js";
 import { SqliteSourceActivationBaselineStore } from "../distribution/sqlite-source-activation.js";
 import { SourceLaneObservationAdapter } from "../ingress/source-lane-observer.js";
@@ -23,6 +23,7 @@ export class WorkspaceSourceActivationCommands implements SourceActivationComman
   }
 
   status(laneId:string):SourceActivationStatus{return this.service.status(laneId);}
-  captureBaseline(laneId:string,now:string):Promise<SourceActivationStatus>{return this.service.captureBaseline(laneId,now);}
+  previewBaseline(laneId:string,now:string):Promise<SourceActivationBaselinePreview>{return this.service.previewBaseline(laneId,now);}
+  captureBaseline(laneId:string,now:string,expectedSnapshotFingerprint?:string):Promise<SourceActivationStatus>{return this.service.captureBaseline(laneId,now,expectedSnapshotFingerprint);}
   close():void{this.baselines.close();}
 }
