@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import type { WorkspaceRuntimeLayout } from "../../domain/workspace.js";
 import { workspaceRuntimeLayout } from "../../application/workspaces.js";
 import { SourceActivationCommandService } from "../../application/source-activation-command.js";
@@ -8,6 +8,8 @@ import { RuntimeDistributionDispositionAdapter } from "../../application/runtime
 import { RuntimeSupervisor } from "../../application/runtime-supervisor.js";
 import { PollingRuntimeSourceScanAdapter } from "../../application/runtime-polling-source.js";
 import { PersistedRouteExecutionQualificationGate } from "../../application/route-execution-qualification.js";
+import { VerifiedMediaCacheMaintenance } from "../../application/verified-media-cache-maintenance.js";
+import { DEFAULT_DISTRIBUTION_RUNTIME_POLICY } from "../../domain/distribution-operations.js";
 import { MaterializingMediaReadinessProbe } from "../distribution/materializing-readiness-probe.js";
 import { FfprobeMediaInspector } from "../media/ffprobe-inspector.js";
 import { JsonDistributionConfigurationStore } from "../distribution/json-config-store.js";
@@ -24,6 +26,7 @@ import { ConfiguredSourceLaneInterpreterFactory } from "../ingress/source-lane-i
 import { GoogleDriveRestReadClient } from "../ingress/google-drive.js";
 import { workspaceDriveAccessTokenProvider } from "../ingress/google-drive/workspace-drive-token.js";
 import { WorkspaceMediaMaterializer } from "../publish/workspace-media-materializer.js";
+import { VerifiedMediaCacheMaterializer } from "../publish/verified-media-cache.js";
 import { PersistedDistributionPlannerAdapter, RuntimeDistributionSourceScanAdapter } from "../../application/runtime-source-planner-adapters.js";
 import { DistributionPlanProvenanceService, DistributionIntentMaterializer } from "../../application/distribution-intent-materializer.js";
 import { ProvenancedRuntimePlannerAdapter, RuntimeDistributionIntentMaterializerAdapter } from "../../application/runtime-distribution-adapters.js";
@@ -40,11 +43,7 @@ export interface WorkspaceDistributionRuntimeOptions {
   releaseSha?:string;
 }
 
-/**
- * One composition root for Luca Mac, Fabian Mac and VPS. While R0 is active, its due adapter is
- * physically frozen: the same supervisor runs source/planning/recovery/disposition/operations but
- * cannot claim a publication intent.
- */
+/** One composition root for Luca Mac, Fabian Mac and VPS. R0 keeps due execution physically frozen. */
 export class WorkspaceDistributionRuntime {
   readonly layout:WorkspaceRuntimeLayout;
   readonly config:JsonDistributionConfigurationStore;
@@ -56,6 +55,8 @@ export class WorkspaceDistributionRuntime {
   readonly reports:SqliteRuntimeCycleReportStore;
   readonly observations:SourceLaneObservationAdapter;
   readonly activation:SourceActivationCommandService;
+  readonly media:VerifiedMediaCacheMaterializer;
+  readonly mediaMaintenance:VerifiedMediaCacheMaintenance;
   readonly source:PollingRuntimeSourceScanAdapter;
   readonly planner:ProvenancedRuntimePlannerAdapter;
   readonly intents:RuntimeDistributionIntentMaterializerAdapter;
@@ -81,7 +82,9 @@ export class WorkspaceDistributionRuntime {
     this.observations=new SourceLaneObservationAdapter(driveClient?{googleDriveClient:driveClient}:{});
     this.activation=new SourceActivationCommandService(this.config,this.observations,this.baselines);
 
-    const media=new WorkspaceMediaMaterializer(this.config,driveToken,this.layout.mediaCacheDir);
+    const providerMedia=new WorkspaceMediaMaterializer(this.config,driveToken,join(this.layout.mediaCacheDir,"provider-temp"));
+    this.media=new VerifiedMediaCacheMaterializer(providerMedia,join(this.layout.mediaCacheDir,"verified"));
+    this.mediaMaintenance=new VerifiedMediaCacheMaintenance(this.media);
     const inspector=new FfprobeMediaInspector(env.FFPROBE_EXECUTABLE_PATH??"ffprobe");
     const scan=new DistributionSourceScanCoordinator(
       this.config,
@@ -91,7 +94,7 @@ export class WorkspaceDistributionRuntime {
       new NoopSourceDispositionAdapter(),
       this.baselines,
       this.state,
-      new MaterializingMediaReadinessProbe(media,inspector),
+      new MaterializingMediaReadinessProbe(this.media,inspector),
       {notifyBlocksExternally:false}
     );
     this.source=new PollingRuntimeSourceScanAdapter(new RuntimeDistributionSourceScanAdapter(scan),this.config);
@@ -114,26 +117,17 @@ export class WorkspaceDistributionRuntime {
       this.control,
       options.notificationChannelKeys??[],
       options.timeZone??"Europe/Vienna",
-      {
-        distributionConfig:this.config,
-        distributionRuntime:this.state,
-        ...(options.uiBaseUrl?{uiBaseUrl:options.uiBaseUrl}:{})
-      }
+      {distributionConfig:this.config,distributionRuntime:this.state,...(options.uiBaseUrl?{uiBaseUrl:options.uiBaseUrl}:{})}
     );
   }
 
   supervisor(ownerId:string,clock:()=>string=()=>new Date().toISOString()):RuntimeSupervisor{
-    return new RuntimeSupervisor({
-      lease:this.lease,
-      source:this.source,
-      planner:this.planner,
-      intents:this.intents,
-      due:this.due,
-      reconciliation:this.reconciliation,
-      disposition:this.disposition,
-      operations:this.operations,
-      reports:this.reports
-    },ownerId,clock);
+    return new RuntimeSupervisor({lease:this.lease,source:this.source,planner:this.planner,intents:this.intents,due:this.due,reconciliation:this.reconciliation,disposition:this.disposition,operations:this.operations,reports:this.reports},ownerId,clock);
+  }
+
+  async maintainMediaCache(now:string){
+    const retention=this.config.load().runtimePolicy?.mediaCache.retentionHoursAfterComplete??DEFAULT_DISTRIBUTION_RUNTIME_POLICY.mediaCache.retentionHoursAfterComplete;
+    return await this.mediaMaintenance.evictEligible(this.state.listAssets().map(record=>record.asset),now,retention);
   }
 
   close():void{
