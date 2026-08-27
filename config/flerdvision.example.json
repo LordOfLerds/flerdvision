@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "workspace": {
+    "id": "flerdvision",
+    "name": "Flerdvision Autopost",
+    "ownerEmail": "info@flerdvision.com",
+    "timezone": "Europe/Vienna",
+    "runtimeRoot": "runtime"
+  },
+  "source": {
+    "kind": "google_drive",
+    "root": "https://drive.google.com/drive/folders/REPLACE_WITH_FOLDER_ID",
+    "structure": "auto",
+    "activation": "IMPORT_BACKLOG",
+    "maxDepth": 4
+  },
+  "channels": [
+    {
+      "key": "instagram-flerdvision",
+      "name": "Flerdvision Instagram",
+      "platform": "instagram",
+      "handle": "flerdvision",
+      "formats": [
+        {
+          "type": "reel",
+          "times": ["12:00", "19:00"],
+          "sourceMatch": ["instagram", "reels"],
+          "captionTemplate": "{filename}\n\n[FV:{contentId}]",
+          "hashtags": [],
+          "verificationMarker": true,
+          "requirement": "REQUIRED",
+          "settings": {
+            "commentsEnabled": true,
+            "shareToFeed": true,
+            "crosspostFacebook": false
+          }
+        }
+      ]
+    },
+    {
+      "key": "tiktok-flerdvision",
+      "name": "Flerdvision TikTok",
+      "platform": "tiktok",
+      "handle": "flerdvision",
+      "formats": [
+        {
+          "type": "tiktok",
+          "times": ["13:00", "20:00"],
+          "sourceMatch": ["tiktok"],
+          "captionTemplate": "{filename}\n\n[FV:{contentId}]",
+          "hashtags": [],
+          "verificationMarker": true,
+          "requirement": "REQUIRED",
+          "settings": {
+            "visibility": "everyone",
+            "commentsEnabled": true,
+            "duetEnabled": true,
+            "stitchEnabled": true
+          }
+        }
+      ]
+    }
+  ],
+  "notifications": {
+    "onSuccess": "daily_summary",
+    "onBlocked": "immediate",
+    "onUncertain": "immediate"
+  },
+  "privateTest": {
+    "enabled": true,
+    "accountPrivate": true,
+    "approvedFollowers": 0,
+    "contactsSyncOff": true,
+    "crossPostingOff": true,
+    "autoCleanup": false
+  }
+}
