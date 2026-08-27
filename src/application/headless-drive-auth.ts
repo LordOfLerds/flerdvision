@@ -1,11 +1,11 @@
-import { createServer } from "node:http";
 import { spawn } from "node:child_process";
+import { createServer } from "node:http";
 import { resolve } from "node:path";
-import { JsonWorkspaceRegistry } from "../adapters/workspace/json-registry.js";
 import { FileDriveCredentialStore, FetchHttpJson, driveOAuthClientFromEnv } from "../adapters/ingress/google-drive/drive-credentials.js";
 import { beginAuthorization, exchangeAuthorizationCode } from "../adapters/ingress/google-drive/google-oauth.js";
-import { WorkspaceService, workspaceRuntimeLayout } from "./workspaces.js";
+import { JsonWorkspaceRegistry } from "../adapters/workspace/json-registry.js";
 import { loadWorkspaceSpecFile } from "./headless-bootstrap.js";
+import { WorkspaceService, workspaceRuntimeLayout } from "./workspaces.js";
 
 export interface HeadlessDriveAuthResult {
   workspaceId: string;
@@ -43,7 +43,9 @@ export async function authorizeWorkspaceDrive(input: {
   const http = new FetchHttpJson();
   let settled = false;
 
-  const result = await new Promise<HeadlessDriveAuthResult>((resolvePromise, rejectPromise) => {
+  return await new Promise<HeadlessDriveAuthResult>((resolvePromise, rejectPromise) => {
+    let timer: number | undefined;
+    const clearDeadline = () => { if (timer !== undefined) { clearTimeout(timer); timer = undefined; } };
     const server = createServer(async (req, res) => {
       if (settled) { res.statusCode = 409; res.end("Authorization already completed"); return; }
       try {
@@ -59,12 +61,14 @@ export async function authorizeWorkspaceDrive(input: {
         const connectedAt = new Date().toISOString();
         new FileDriveCredentialStore(layout.configDir).write({ clientId: client.clientId, refreshToken: tokens.refreshToken!, connectedAt });
         settled = true;
+        clearDeadline();
         res.statusCode = 200;
         res.setHeader("Content-Type", "text/html; charset=utf-8");
         res.end("<!doctype html><meta charset=utf-8><title>Flerdvision Drive connected</title><h1>Google Drive verbunden</h1><p>Dieses Fenster kann geschlossen werden.</p>");
         server.close(() => resolvePromise({ workspaceId: spec.workspace.id, connectedAt, authorizationUrl: pending.authorizationUrl, callbackUrl }));
       } catch (error) {
         settled = true;
+        clearDeadline();
         const message = error instanceof Error ? error.message : String(error);
         res.statusCode = 409;
         res.end(message);
@@ -74,12 +78,11 @@ export async function authorizeWorkspaceDrive(input: {
     server.listen(port, "127.0.0.1", () => {
       if (input.openBrowser ?? true) openUrl(pending.authorizationUrl);
     });
-    const timer = setTimeout(() => {
+    timer = setTimeout(() => {
       if (settled) return;
       settled = true;
+      clearDeadline();
       server.close(() => rejectPromise(new Error("Google Drive authorization timed out")));
     }, input.timeoutMs ?? 10 * 60_000);
-    void timer;
   });
-  return result;
 }
