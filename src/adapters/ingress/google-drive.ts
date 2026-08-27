@@ -10,6 +10,7 @@ export interface GoogleDriveItem {
   mimeType: string;
   size?: string;
   md5Checksum?: string;
+  createdTime?: string;
   modifiedTime?: string;
   version?: string;
   webViewLink?: string;
@@ -37,7 +38,7 @@ export class GoogleDriveRestReadClient implements GoogleDriveReadClient {
   async listChildren(folderId: string, pageToken?: string): Promise<GoogleDriveListPage> {
     const params = new URLSearchParams({
       q: `'${folderId.replaceAll("'", "\\'")}' in parents and trashed = false`,
-      fields: "nextPageToken,files(id,name,mimeType,size,md5Checksum,modifiedTime,version,webViewLink)",
+      fields: "nextPageToken,files(id,name,mimeType,size,md5Checksum,createdTime,modifiedTime,version,webViewLink)",
       pageSize: "1000",
       supportsAllDrives: "true",
       includeItemsFromAllDrives: "true"
@@ -126,6 +127,7 @@ export class GoogleDriveFolderIngressAdapter implements ContentIngressPort {
           driveFileId: item.id
         };
         if (item.size) metadata.size = item.size;
+        if (item.createdTime) metadata.createdTime = item.createdTime;
         if (item.modifiedTime) metadata.modifiedTime = item.modifiedTime;
         if (item.version) metadata.driveVersion = item.version;
         if (item.webViewLink) metadata.webViewLink = item.webViewLink;
