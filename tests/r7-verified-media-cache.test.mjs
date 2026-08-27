@@ -29,6 +29,25 @@ test("verified media cache materializes provider only once and reuses exact byte
   assert.equal(readFileSync(first.localPath).toString(),"immutable-video-bytes","release does not evict verified bytes");
 });
 
+test("verified media cache refuses a hit when immutable source ref drifts",async()=>{
+  const root=mkdtempSync(join(tmpdir(),"flerdvision-verified-cache-ref-")),provider=join(root,"provider.mp4");
+  writeFileSync(provider,Buffer.from("first-source"));
+  let calls=0;
+  const inner={
+    async materialize(item){calls+=1;return{contentId:item.contentId,sourceRef:item.immutableMediaRef,localPath:provider,sha256:sha(provider),sizeBytes:readFileSync(provider).length};},
+    async release(){}
+  };
+  const cache=new VerifiedMediaCacheMaterializer(inner,join(root,"verified"),()=>"2026-08-27T08:00:00.000Z");
+  const first=await cache.materialize(content());
+  writeFileSync(provider,Buffer.from("second-source"));
+  const changed={...content(),immutableMediaRef:"gdrive://file/file-2"};
+  const second=await cache.materialize(changed);
+  assert.equal(calls,2,"source-ref drift must force provider materialization");
+  assert.equal(first.sourceRef,"gdrive://file/file-1");
+  assert.equal(second.sourceRef,"gdrive://file/file-2");
+  assert.notEqual(first.sha256,second.sha256);
+});
+
 test("maintenance evicts only COMPLETE cache after configured retention",async()=>{
   const evicted=[];
   const maintenance=new VerifiedMediaCacheMaintenance({async get(){return null;},async evict(contentId,fingerprint){evicted.push([contentId,fingerprint]);return true;}});
