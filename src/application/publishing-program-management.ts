@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { SocialAccount } from "../domain/browser-identity.js";
 import type { DistributionConfigurationStorePort, StoredDistributionConfiguration } from "../domain/distribution-ports.js";
 import type { DeliveryRequirement, DistributionRoute } from "../domain/distribution.js";
+import { effectiveRouteCalendar } from "../domain/operating-calendar.js";
 import { assertConfigurationReferentialIntegrity } from "./distribution-config.js";
 
 export interface PublishingProgramTargetDraft {
@@ -10,28 +11,40 @@ export interface PublishingProgramTargetDraft {
   postingProfileId: string;
   copyProfileId: string;
   schedulePolicyId: string;
+  operatingCalendarId?: string;
   requirement: DeliveryRequirement;
   enabled?: boolean;
 }
 
 export interface PublishingProgramDraft {
   laneId: string;
+  /** Date used only for impact/rhythm preview; saved routes stay reusable. */
+  businessDate?: string;
   targets: readonly PublishingProgramTargetDraft[];
 }
 
 export interface PublishingProgramPreview {
   currentRevision: number;
   laneId: string;
+  businessDate?: string;
   routes: readonly DistributionRoute[];
   affectedRouteIds: readonly string[];
   requiredAssetCountPerBusinessDate: number;
-  rhythms: readonly { routeId: string; schedulePolicyId: string; slots: readonly string[] }[];
+  rhythms: readonly {
+    routeId: string;
+    defaultSchedulePolicyId: string;
+    effectiveSchedulePolicyId: string;
+    operatingCalendarId?: string;
+    active: boolean;
+    source: "ROUTE_DEFAULT" | "WEEKDAY" | "DATE_OVERRIDE";
+    slots: readonly string[];
+  }[];
   next: StoredDistributionConfiguration;
 }
 
 function stableRouteId(laneId: string, target: PublishingProgramTargetDraft): string {
   const hash = createHash("sha256")
-    .update(`${laneId}|${target.accountId}|${target.postingProfileId}|${target.schedulePolicyId}`)
+    .update(`${laneId}|${target.accountId}|${target.postingProfileId}|${target.schedulePolicyId}|${target.operatingCalendarId ?? ""}`)
     .digest("hex")
     .slice(0, 20);
   return `route:${hash}`;
@@ -51,6 +64,7 @@ export class PublishingProgramManagementService {
     if (!source || !source.enabled) throw new Error(`Publishing program source ${lane.connectionId} is missing or disabled`);
     if (draft.targets.length === 0) throw new Error("Publishing program requires at least one target");
 
+    const calendars = new Map((current.operatingCalendars ?? []).map((item)=>[item.calendarId,item]));
     const accountMap = new Map(this.accounts().map((account) => [account.accountId, account]));
     const routes: DistributionRoute[] = draft.targets.map((target) => {
       const account = accountMap.get(target.accountId);
@@ -61,6 +75,7 @@ export class PublishingProgramManagementService {
       const copy = current.config.copyProfiles.find((item) => item.copyProfileId === target.copyProfileId);
       if (!copy || !copy.enabled) throw new Error(`Copy profile ${target.copyProfileId} is missing or disabled`);
       if (!current.schedulePolicies[target.schedulePolicyId]) throw new Error(`Schedule policy ${target.schedulePolicyId} does not exist`);
+      if (target.operatingCalendarId && !calendars.has(target.operatingCalendarId)) throw new Error(`Operating calendar ${target.operatingCalendarId} does not exist`);
       const routeId = target.routeId ?? stableRouteId(draft.laneId, target);
       return {
         routeId,
@@ -71,6 +86,7 @@ export class PublishingProgramManagementService {
         postingProfileId: posting.postingProfileId,
         copyProfileId: copy.copyProfileId,
         schedulePolicyId: target.schedulePolicyId,
+        ...(target.operatingCalendarId ? { operatingCalendarId: target.operatingCalendarId } : {}),
         requirement: target.requirement,
         enabled: target.enabled ?? true
       };
@@ -83,18 +99,29 @@ export class PublishingProgramManagementService {
     const nextConfig = { ...current.config, routes: [...routeMap.values()] };
     assertConfigurationReferentialIntegrity(nextConfig);
 
+    const calendarRecord = Object.fromEntries((current.operatingCalendars ?? []).map((item)=>[item.calendarId,item]));
+    const rhythms = routes.map((route) => {
+      const decision = draft.businessDate
+        ? effectiveRouteCalendar(route, draft.businessDate, calendarRecord)
+        : { active:true, schedulePolicyId:route.schedulePolicyId, source:"ROUTE_DEFAULT" as const };
+      return {
+        routeId: route.routeId,
+        defaultSchedulePolicyId: route.schedulePolicyId,
+        effectiveSchedulePolicyId: decision.schedulePolicyId,
+        ...(route.operatingCalendarId ? { operatingCalendarId: route.operatingCalendarId } : {}),
+        active: decision.active,
+        source: decision.source,
+        slots: decision.active ? current.schedulePolicies[decision.schedulePolicyId]?.slots.map((slot) => slot.localTime) ?? [] : []
+      };
+    });
     const requiredAssetCountPerBusinessDate = Math.max(0, ...routes
       .filter((route) => route.enabled && route.requirement === "REQUIRED")
-      .map((route) => current.schedulePolicies[route.schedulePolicyId]?.slots.length ?? 0));
-    const rhythms = routes.map((route) => ({
-      routeId: route.routeId,
-      schedulePolicyId: route.schedulePolicyId,
-      slots: current.schedulePolicies[route.schedulePolicyId]?.slots.map((slot) => slot.localTime) ?? []
-    }));
+      .map((route) => rhythms.find((item)=>item.routeId===route.routeId)?.slots.length ?? 0));
 
     return {
       currentRevision: current.revision,
       laneId: draft.laneId,
+      ...(draft.businessDate ? { businessDate:draft.businessDate } : {}),
       routes,
       affectedRouteIds: [...routeIds].sort(),
       requiredAssetCountPerBusinessDate,
@@ -112,6 +139,7 @@ export class PublishingProgramManagementService {
       updatedAt: new Date(now).toISOString(),
       config: preview.next.config,
       schedulePolicies: preview.next.schedulePolicies,
+      operatingCalendars: preview.next.operatingCalendars,
       planningPolicy: preview.next.planningPolicy,
       ...(preview.next.runtimePolicy ? { runtimePolicy: preview.next.runtimePolicy } : {})
     }, expectedRevision);
