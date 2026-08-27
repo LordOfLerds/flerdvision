@@ -39,7 +39,7 @@ export class SourceActivationCommandService implements SourceActivationCommandPo
     const cursor=stored.config.activationCursors.find((item)=>item.laneId===laneId);
     if(!cursor)throw new Error(`Lane ${laneId} has no activation cursor`);
     if(cursor.mode!=="NEW_ONLY")throw new Error(`Lane ${laneId} uses ${cursor.mode}; only NEW_ONLY has a capture baseline`);
-    return{stored,lane,source,cursor};
+    return{lane,source,cursor};
   }
 
   status(laneId:string):SourceActivationStatus{
@@ -51,7 +51,7 @@ export class SourceActivationCommandService implements SourceActivationCommandPo
     const existing=this.baselines.getBaseline(laneId,sourceActivationCursorFingerprint(cursor));
     if(existing)throw new Error(`Lane ${laneId} already has a captured NEW_ONLY baseline`);
     const observed=await this.observations.observeLane(source,lane,new Date(now).toISOString());
-    const sampleFileNames=[...new Set(observed.map(item=>item.metadata.fileName??item.metadata.name??item.locator).filter(Boolean))]
+    const sampleFileNames=[...new Set(observed.map(item=>item.metadata.fileName??item.metadata.name??item.locator))]
       .sort((a,b)=>a.localeCompare(b,"de-AT",{numeric:true,sensitivity:"base"}))
       .slice(0,8);
     return{
