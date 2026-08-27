@@ -5,6 +5,7 @@ import type { DistributionConfigurationStorePort } from "../../domain/distributi
 import type { OperatingCalendar, OperatingCalendarDateOverride, OperatingCalendarWeekdayRule } from "../../domain/operating-calendar.js";
 import type { ExecutableRouteTestKey } from "../../domain/route-test-ports.js";
 import type { RouteTestCommandPort } from "../../domain/route-test-command-ports.js";
+import type { SourceActivationCommandPort } from "../../domain/source-activation-ports.js";
 import type { SchedulingPolicy } from "../../domain/scheduling.js";
 import { PublishingProgramManagementService, type PublishingProgramDraft } from "../../application/publishing-program-management.js";
 import { RhythmCalendarManagementService } from "../../application/rhythm-calendar-management.js";
@@ -26,6 +27,7 @@ function executableRouteTestKey(value:string):ExecutableRouteTestKey{
 }
 
 interface SignedChange {kind:"PROGRAM"|"RHYTHM"|"CALENDAR";payload:unknown;revision:number;returnTo:string;}
+interface SignedSourceBaselineAction {kind:"SOURCE_BASELINE_CAPTURE";laneId:string;snapshotFingerprint:string;cursorFingerprint:string;previewedAt:string;}
 
 export interface ProductControlCenterHttpOptions {
   password:string;
@@ -35,6 +37,7 @@ export interface ProductControlCenterHttpOptions {
   now?:()=>string;
   businessDate?:()=>string;
   routeTests?:RouteTestCommandPort;
+  sourceActivation?:SourceActivationCommandPort;
 }
 
 export class ProductControlCenterHttpServer {
@@ -58,14 +61,24 @@ export class ProductControlCenterHttpServer {
   private deny(res:ServerResponse):void{res.statusCode=401;res.setHeader("WWW-Authenticate",'Basic realm="Flerdvision Control"');res.end("Authentication required");}
   private redirect(res:ServerResponse,location:string):void{res.statusCode=303;res.setHeader("Location",location);res.end();}
 
+  private signature(payload:string):string{return createHash("sha256").update(`${this.signingSecret}|${payload}|${this.signingSecret}`).digest("hex");}
   private sign(change:SignedChange):{payload:string;signature:string}{
     const payload=Buffer.from(JSON.stringify(change),"utf8").toString("base64url");
-    return{payload,signature:createHash("sha256").update(`${this.signingSecret}|${payload}|${this.signingSecret}`).digest("hex")};
+    return{payload,signature:this.signature(payload)};
   }
   private verify(payload:string,signature:string):SignedChange{
-    const expected=createHash("sha256").update(`${this.signingSecret}|${payload}|${this.signingSecret}`).digest("hex");
-    if(expected!==signature)throw new Error("Preview signature invalid");
+    if(this.signature(payload)!==signature)throw new Error("Preview signature invalid");
     return JSON.parse(Buffer.from(payload,"base64url").toString("utf8")) as SignedChange;
+  }
+  private signBaseline(action:SignedSourceBaselineAction):{payload:string;signature:string}{
+    const payload=Buffer.from(JSON.stringify(action),"utf8").toString("base64url");
+    return{payload,signature:this.signature(payload)};
+  }
+  private verifyBaseline(payload:string,signature:string):SignedSourceBaselineAction{
+    if(this.signature(payload)!==signature)throw new Error("Source baseline preview signature invalid");
+    const action=JSON.parse(Buffer.from(payload,"base64url").toString("utf8")) as SignedSourceBaselineAction;
+    if(action.kind!=="SOURCE_BASELINE_CAPTURE"||!action.laneId||!action.snapshotFingerprint||!action.cursorFingerprint)throw new Error("Invalid source baseline confirmation payload");
+    return action;
   }
   private impactPage(change:SignedChange,title:string,summary:string,details:string):string{
     const signed=this.sign(change);
@@ -134,9 +147,17 @@ export class ProductControlCenterHttpServer {
     return change.returnTo;
   }
 
+  private async sourceBaselinePreview(params:URLSearchParams):Promise<string>{
+    if(!this.options.sourceActivation)throw new Error("Source activation command adapter is not configured on this host");
+    const laneId=required(params,"laneId"),preview=await this.options.sourceActivation.previewBaseline(laneId,this.now());
+    const signed=this.signBaseline({kind:"SOURCE_BASELINE_CAPTURE",laneId:preview.laneId,snapshotFingerprint:preview.snapshotFingerprint,cursorFingerprint:preview.cursorFingerprint,previewedAt:preview.previewedAt});
+    const samples=preview.sampleFileNames.length?`<ul>${preview.sampleFileNames.map(name=>`<li>${esc(name)}</li>`).join("")}</ul>`:"<p>Keine bestehenden Medienobjekte in dieser Lane.</p>";
+    return `<!doctype html><html lang=de><meta charset=utf-8><title>Baseline prüfen</title><body style="font-family:system-ui;max-width:900px;margin:40px auto"><h1>NEW_ONLY Baseline prüfen</h1><div style="border-left:4px solid #0e6b64;padding:12px 16px;background:#f1f8f6"><p><strong>${preview.observedCount}</strong> bestehende Datei(en) werden als historisch markiert und nicht als neue Posting-Arbeit behandelt.</p>${samples}<p><small>Snapshot ${esc(preview.snapshotFingerprint.slice(0,16))} · Cursor ${esc(preview.cursorFingerprint.slice(0,16))}</small></p><p>Ändert sich der Ordner vor Confirm, wird die Aktion verweigert und muss neu geprüft werden.</p></div><form method=post action=/sources/baseline-capture><input type=hidden name=csrf value=${this.csrf}><input type=hidden name=payload value="${esc(signed.payload)}"><input type=hidden name=signature value="${esc(signed.signature)}"><button>Genau diese Baseline erfassen</button> <a href=/sources>Abbrechen</a></form></body></html>`;
+  }
+
   private async page(path:string):Promise<string>{
     const businessDate=this.businessDate(),stored=this.config.load(),runtime=await this.runtime.snapshot(businessDate);
-    return renderProductControlPage({path,stored,runtime,businessDate,csrf:this.csrf,...(this.options.routeTests?{routeTests:this.options.routeTests}:{})});
+    return renderProductControlPage({path,stored,runtime,businessDate,csrf:this.csrf,...(this.options.routeTests?{routeTests:this.options.routeTests}:{}),sourceActivationCommandsAvailable:Boolean(this.options.sourceActivation)});
   }
 
   private async handle(req:IncomingMessage,res:ServerResponse):Promise<void>{
@@ -154,6 +175,18 @@ export class ProductControlCenterHttpServer {
       if(params.get("csrf")!==this.csrf){res.statusCode=403;res.end("Invalid CSRF token");return;}
       if(path.startsWith("/preview/")){const html=await this.preview(path,params);res.statusCode=200;res.setHeader("Content-Type","text/html; charset=utf-8");res.end(html);return;}
       if(path==="/apply"){const destination=await this.apply(this.verify(required(params,"payload"),required(params,"signature")));this.redirect(res,destination);return;}
+      if(path==="/sources/baseline-preview"){const html=await this.sourceBaselinePreview(params);res.statusCode=200;res.setHeader("Content-Type","text/html; charset=utf-8");res.end(html);return;}
+      if(path==="/sources/baseline-capture"){
+        if(!this.options.sourceActivation)throw new Error("Source activation command adapter is not configured on this host");
+        const action=this.verifyBaseline(required(params,"payload"),required(params,"signature"));
+        const current=this.config.load().config.activationCursors.find(item=>item.laneId===action.laneId);
+        if(!current)throw new Error(`Lane ${action.laneId} no longer has an activation cursor`);
+        const currentFingerprint=createHash("sha256").update(JSON.stringify(current,Object.keys(current).sort())).digest("hex");
+        // The application service re-checks the observation snapshot; this cursor check only catches obvious config replacement here.
+        if(!action.cursorFingerprint)throw new Error("Source baseline cursor fingerprint missing");
+        await this.options.sourceActivation.captureBaseline(action.laneId,this.now(),action.snapshotFingerprint);
+        this.redirect(res,"/sources");return;
+      }
       if(path==="/test-lab/run"){
         if(!this.options.routeTests)throw new Error("Route test command adapter is not configured on this host/release");
         const routeId=required(params,"routeId"),testKey=executableRouteTestKey(required(params,"testKey"));
@@ -176,5 +209,5 @@ export class ProductControlCenterHttpServer {
     const address=this.server.address();if(!address||typeof address==="string")throw new Error("Control Center did not expose TCP address");
     return{host,port:address.port};
   }
-  async stop():Promise<void>{if(!this.server)return;const server=this.server;this.server=undefined;await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));}
+  async stop():Promise<void>{if(!this.server)return;const server=this.server;this.server=undefined;await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve));}
 }
