@@ -2,15 +2,14 @@ import type { DistributionConfigurationStorePort } from "../domain/distribution-
 import type { DistributionRuntimeStateStorePort } from "../domain/distribution-runtime-ports.js";
 import type { PlatformSurfaceStorePort } from "../domain/platform-surface-ports.js";
 import type { ExecutableRouteTestKey, RouteTestEvidenceStorePort } from "../domain/route-test-ports.js";
-import type { RouteTestCommandCapability, RouteTestCommandPort, RouteTestCommandResult } from "../domain/route-test-command-ports.js";
+import type { CapabilityAwareRouteTestExecutionAdapterPort, RouteTestCommandCapability, RouteTestCommandPort, RouteTestCommandResult } from "../domain/route-test-command-ports.js";
 import { RouteTestExecutionService } from "./route-test-execution.js";
-import type { SafeObserverRouteTestRunner } from "../adapters/runtime/safe-route-test-runner.js";
 
 export class PersistingRouteTestCommandService implements RouteTestCommandPort {
   private readonly execution:RouteTestExecutionService;
   constructor(
     evidence:RouteTestEvidenceStorePort,
-    private readonly runner:SafeObserverRouteTestRunner,
+    private readonly runner:CapabilityAwareRouteTestExecutionAdapterPort,
     private readonly config:DistributionConfigurationStorePort,
     private readonly runtime:DistributionRuntimeStateStorePort,
     private readonly surfaces:PlatformSurfaceStorePort,
