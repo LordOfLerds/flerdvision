@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { dirname, resolve } from "node:path";
 import type { DistributionConfigurationStorePort, StoredDistributionConfiguration } from "../../domain/distribution-ports.js";
 import { DEFAULT_DISTRIBUTION_RUNTIME_POLICY } from "../../domain/distribution-operations.js";
+import { assertOperatingCalendarCatalog, assertRouteCalendarReference } from "../../domain/operating-calendar.js";
 import { DEFAULT_SCHEDULING_POLICY } from "../../domain/scheduling.js";
 import { assertConfigurationReferentialIntegrity } from "../../application/distribution-config.js";
 
@@ -10,6 +11,7 @@ export class DistributionConfigurationRevisionConflict extends Error {}
 const EMPTY: Omit<StoredDistributionConfiguration, "revision" | "updatedAt"> = {
   config: { sources: [], lanes: [], postingProfiles: [], copyProfiles: [], routes: [], activationCursors: [] },
   schedulePolicies: { default: DEFAULT_SCHEDULING_POLICY },
+  operatingCalendars: [],
   planningPolicy: {
     contentOrder: "FILENAME_NUMERIC_PREFIX",
     lateArrival: "NEXT_AVAILABLE_SLOT",
@@ -18,8 +20,19 @@ const EMPTY: Omit<StoredDistributionConfiguration, "revision" | "updatedAt"> = {
   runtimePolicy: DEFAULT_DISTRIBUTION_RUNTIME_POLICY
 };
 
-function normalizeRuntimePolicy(value: StoredDistributionConfiguration): StoredDistributionConfiguration {
-  return value.runtimePolicy ? value : { ...value, runtimePolicy: DEFAULT_DISTRIBUTION_RUNTIME_POLICY };
+function normalize(value: StoredDistributionConfiguration): StoredDistributionConfiguration {
+  return {
+    ...value,
+    operatingCalendars: value.operatingCalendars ?? [],
+    runtimePolicy: value.runtimePolicy ?? DEFAULT_DISTRIBUTION_RUNTIME_POLICY
+  };
+}
+
+function assertStoredIntegrity(value: StoredDistributionConfiguration): void {
+  assertConfigurationReferentialIntegrity(value.config);
+  const calendars = value.operatingCalendars ?? [];
+  assertOperatingCalendarCatalog(calendars, value.schedulePolicies);
+  for (const route of value.config.routes) assertRouteCalendarReference(route, calendars);
 }
 
 export class JsonDistributionConfigurationStore implements DistributionConfigurationStorePort {
@@ -39,9 +52,9 @@ export class JsonDistributionConfigurationStore implements DistributionConfigura
   }
 
   load(): StoredDistributionConfiguration {
-    const parsed = normalizeRuntimePolicy(JSON.parse(readFileSync(this.path, "utf8")) as StoredDistributionConfiguration);
+    const parsed = normalize(JSON.parse(readFileSync(this.path, "utf8")) as StoredDistributionConfiguration);
     if (!Number.isInteger(parsed.revision) || parsed.revision < 0) throw new Error("Distribution configuration has invalid revision");
-    assertConfigurationReferentialIntegrity(parsed.config);
+    assertStoredIntegrity(parsed);
     return parsed;
   }
 
@@ -50,13 +63,12 @@ export class JsonDistributionConfigurationStore implements DistributionConfigura
     if (current.revision !== expectedRevision) {
       throw new DistributionConfigurationRevisionConflict(`Distribution configuration revision changed: expected ${expectedRevision}, current ${current.revision}`);
     }
-    assertConfigurationReferentialIntegrity(next.config);
-    const stored: StoredDistributionConfiguration = {
+    const stored: StoredDistributionConfiguration = normalize({
       ...next,
-      runtimePolicy: next.runtimePolicy ?? DEFAULT_DISTRIBUTION_RUNTIME_POLICY,
       revision: current.revision + 1,
       updatedAt: new Date(next.updatedAt).toISOString()
-    };
+    });
+    assertStoredIntegrity(stored);
     this.atomicWrite(stored);
     return stored;
   }
