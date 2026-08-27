@@ -11,6 +11,7 @@
     "test:repair": "npm run build && node --test tests/r*.test.mjs tests/completeness-gate.test.mjs",
     "check": "npm run test",
     "admin": "npm run build && node dist/cli/admin.js",
+    "control-center": "npm run build && node dist/cli/control-center.js",
     "test:w1": "npm run build && node --test tests/w1-*.test.mjs",
     "test:w2": "npm run build && node --test tests/w2-*.test.mjs",
     "browser": "npm run build && node dist/cli/browser.js",
