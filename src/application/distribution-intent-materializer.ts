@@ -4,6 +4,7 @@ import type { DistributionConfigurationStorePort } from "../domain/distribution-
 import type { DailyPlan, PlannedDelivery } from "../domain/distribution.js";
 import type { DistributionProvenanceStorePort } from "../domain/distribution-provenance-ports.js";
 import type { DistributionPublicationIntentEnvelope } from "../domain/distribution-provenance.js";
+import type { RouteExecutionQualificationPort } from "../domain/route-execution-ports.js";
 import { publicationIntentForDelivery } from "./distribution-planner.js";
 import { assertPlanRouteStillCurrent, captureDailyPlanProvenance } from "./distribution-plan-provenance.js";
 
@@ -23,7 +24,12 @@ export class DistributionPlanProvenanceService {
 }
 
 export class DistributionIntentMaterializer {
-  constructor(private readonly control: PublicationIntentStorePort & ScheduleStorePort, private readonly config: DistributionConfigurationStorePort, private readonly provenance: DistributionProvenanceStorePort) {}
+  constructor(
+    private readonly control: PublicationIntentStorePort & ScheduleStorePort,
+    private readonly config: DistributionConfigurationStorePort,
+    private readonly provenance: DistributionProvenanceStorePort,
+    private readonly qualification?: RouteExecutionQualificationPort
+  ) {}
 
   ensureIntents(plan: DailyPlan, now: string, actor: Actor = { type:"system", id:"distribution-intent-materializer" }): DistributionIntentMaterializationReport {
     const planRecord=this.provenance.getPlan(plan.planId);
@@ -35,6 +41,7 @@ export class DistributionIntentMaterializer {
         if(snapshot.route.accountId!==delivery.accountId||snapshot.route.laneId!==delivery.laneId) throw new Error(`Delivery ${delivery.deliveryId} no longer matches frozen route identity`);
         if(snapshot.postingProfile.postingProfileId!==delivery.postingProfileId||snapshot.postingProfile.format!==delivery.format) throw new Error(`Delivery ${delivery.deliveryId} no longer matches frozen posting profile`);
         if(snapshot.copyProfile.copyProfileId!==delivery.copyProfileId||snapshot.copyProfile.versionId!==delivery.copyVersionId) throw new Error(`Delivery ${delivery.deliveryId} no longer matches frozen copy profile`);
+        this.qualification?.assertAllowed(delivery);
         const intent=publicationIntentForDelivery(delivery);
         const envelope:DistributionPublicationIntentEnvelope={intent,provenance:{planId:plan.planId,deliveryId:delivery.deliveryId,routeId:delivery.routeId,laneId:delivery.laneId,assetId:delivery.assetId,postingProfileId:delivery.postingProfileId,copyProfileId:delivery.copyProfileId,schedulePolicyId:snapshot.route.schedulePolicyId,routeSnapshotFingerprint:snapshot.fingerprint,postingProfileSnapshot:snapshot.postingProfile}};
         // Provenance first: a crash can leave inert provenance, never a runnable intent without provenance.
