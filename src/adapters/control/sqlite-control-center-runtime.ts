@@ -24,7 +24,7 @@ export class SqliteControlCenterRuntimeAdapter implements ControlCenterRuntimePo
   private readonly provenance:SqliteDistributionProvenanceStore;
   private readonly cycles:SqliteRuntimeCycleReportStore;
 
-  constructor(databasePath:string,private readonly config:DistributionConfigurationStorePort,workspaceId:string){
+  constructor(databasePath:string,private readonly config:DistributionConfigurationStorePort,workspaceId:string="control-center"){
     this.control=new SqliteControlPlaneStore(databasePath);
     this.distribution=new SqliteDistributionRuntimeStateStore(databasePath);
     this.surfaces=new SqlitePlatformSurfaceStore(databasePath);
