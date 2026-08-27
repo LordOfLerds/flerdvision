@@ -38,7 +38,7 @@ export class PlatformPreparationCoordinator {
     private readonly store: PrepareStore,
     private readonly browserRuntime: BrowserRuntimePort,
     private readonly profileLocks: BrowserProfileLockPort,
-    private readonly sessionProbes: Readonly<Record<PublicationIntent["platform"], SessionProbePort>>,
+    private readonly sessionProbes: Readonly<Partial<Record<PublicationIntent["platform"], SessionProbePort>>>,
     private readonly payloadResolver: PublicationPayloadResolverPort,
     private readonly mediaMaterializer: MediaMaterializerPort,
     private readonly artifacts: PrepareArtifactSinkPort,
