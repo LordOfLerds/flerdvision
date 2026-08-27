@@ -1,11 +1,14 @@
 import type { StoredDistributionConfiguration } from "../domain/distribution-ports.js";
 import type { ContentAsset, DailyPlan } from "../domain/distribution.js";
+import { effectiveRouteCalendar } from "../domain/operating-calendar.js";
 
 export interface RouteContentDemand {
   routeId: string;
   accountId: string;
   requirement: "REQUIRED" | "OPTIONAL";
   slotCount: number;
+  schedulePolicyId: string;
+  calendarSource: "ROUTE_DEFAULT" | "WEEKDAY" | "DATE_OVERRIDE";
 }
 
 export interface LaneContentDemand {
@@ -35,26 +38,30 @@ export function projectContentDemand(
   businessDate: string,
   plan?: DailyPlan
 ): ContentDemandProjection {
-  const activeRoutes = stored.config.routes.filter((route) => route.enabled);
+  const calendars = Object.fromEntries((stored.operatingCalendars ?? []).map((item)=>[item.calendarId,item]));
+  const activeRoutes = stored.config.routes
+    .filter((route) => route.enabled)
+    .map((route)=>({route,calendar:effectiveRouteCalendar(route,businessDate,calendars)}))
+    .filter((entry)=>entry.calendar.active);
   const lanes: LaneContentDemand[] = [];
-  const plannedAssetIds = new Set(
-    plan?.businessDate === businessDate ? plan.deliveries.map((delivery) => delivery.assetId) : []
-  );
+  const plannedAssetIds = new Set(plan?.businessDate === businessDate ? plan.deliveries.map((delivery) => delivery.assetId) : []);
 
   for (const lane of stored.config.lanes.filter((item) => item.enabled)) {
-    const routes = activeRoutes.filter((route) => route.laneId === lane.laneId).map((route): RouteContentDemand => {
-      const schedule = stored.schedulePolicies[route.schedulePolicyId];
+    const routes = activeRoutes.filter((entry) => entry.route.laneId === lane.laneId).map((entry): RouteContentDemand => {
+      const schedule = stored.schedulePolicies[entry.calendar.schedulePolicyId];
       return {
-        routeId: route.routeId,
-        accountId: route.accountId,
-        requirement: route.requirement,
-        slotCount: schedule?.slots.length ?? 0
+        routeId: entry.route.routeId,
+        accountId: entry.route.accountId,
+        requirement: entry.route.requirement,
+        slotCount: schedule?.slots.length ?? 0,
+        schedulePolicyId: entry.calendar.schedulePolicyId,
+        calendarSource: entry.calendar.source
       };
     });
     if (routes.length === 0) continue;
 
-    // The same source asset may fan out to several routes. Therefore source demand is the maximum
-    // number of source positions required by a route, never the sum of all cross-post deliveries.
+    // Same source asset may fan out to several routes; demand is the maximum source positions
+    // required by one route, not the sum of all cross-post deliveries.
     const requiredAssetCount = Math.max(0, ...routes.filter((route) => route.requirement === "REQUIRED").map((route) => route.slotCount));
     const optionalAssetCount = Math.max(0, ...routes.filter((route) => route.requirement === "OPTIONAL").map((route) => route.slotCount));
     const relevantAssets = assets.filter((asset) =>
