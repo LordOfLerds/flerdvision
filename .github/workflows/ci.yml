@@ -1,0 +1,57 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - 'repair/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flerdvision-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fresh-clone-full-suite:
+    name: fresh-clone-full-suite
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      TZ: Europe/Vienna
+      ALLOW_FINAL_PUBLISH: 'false'
+      CHROMIUM_EXECUTABLE_PATH: /usr/bin/google-chrome
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Use Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install pinned build dependency
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Verify final publishing remains disabled
+        shell: bash
+        run: |
+          test "${ALLOW_FINAL_PUBLISH}" = "false"
+          test -x "${CHROMIUM_EXECUTABLE_PATH}"
+
+      - name: Build and run complete suite
+        run: npm test
+
+      - name: Validate architecture JSON
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          for (const path of ['architecture/graph.json', 'architecture/repair-graph.json', 'architecture/completeness-matrix.json']) {
+            JSON.parse(readFileSync(path, 'utf8'));
+            console.log(`valid JSON: ${path}`);
+          }
+          NODE
