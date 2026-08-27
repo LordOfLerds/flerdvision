@@ -23,7 +23,6 @@ function bool(params:URLSearchParams,key:string):boolean{return params.get(key)=
 function positiveInt(raw:string,label:string):number{const value=Number(raw);if(!Number.isInteger(value)||value<0)throw new Error(`${label} must be a non-negative integer`);return value;}
 function executableRouteTestKey(value:string):ExecutableRouteTestKey{
   if(value==="SOURCE"||value==="SESSION"||value==="IDENTITY"||value==="SURFACE"||value==="PREPARE_ONLY"||value==="VERIFICATION"||value==="CLEANUP")return value;
-  // SECRET_LIVE can never enter this generic command path.
   throw new Error(`Unsupported executable route test key: ${value}`);
 }
 
@@ -48,11 +47,7 @@ export class ProductControlCenterHttpServer {
   private readonly now:()=>string;
   private readonly businessDate:()=>string;
 
-  constructor(
-    private readonly config:DistributionConfigurationStorePort,
-    private readonly runtime:ControlCenterRuntimePort,
-    private readonly options:ProductControlCenterHttpOptions
-  ){
+  constructor(private readonly config:DistributionConfigurationStorePort,private readonly runtime:ControlCenterRuntimePort,private readonly options:ProductControlCenterHttpOptions){
     if(!options.password)throw new Error("Control Center password is required");
     this.now=options.now??(()=>new Date().toISOString());
     this.businessDate=options.businessDate??(()=>new Date(this.now()).toISOString().slice(0,10));
@@ -61,20 +56,10 @@ export class ProductControlCenterHttpServer {
   private authorized(req:IncomingMessage):boolean{const auth=parseBasic(req.headers.authorization);return Boolean(auth&&auth.username===(this.options.username??"flerdvision")&&auth.password===this.options.password);}
   private deny(res:ServerResponse):void{res.statusCode=401;res.setHeader("WWW-Authenticate",'Basic realm="Flerdvision Control"');res.end("Authentication required");}
   private redirect(res:ServerResponse,location:string):void{res.statusCode=303;res.setHeader("Location",location);res.end();}
-
   private signature(payload:string):string{return createHash("sha256").update(`${this.signingSecret}|${payload}|${this.signingSecret}`).digest("hex");}
-  private sign(change:SignedChange):{payload:string;signature:string}{
-    const payload=Buffer.from(JSON.stringify(change),"utf8").toString("base64url");
-    return{payload,signature:this.signature(payload)};
-  }
-  private verify(payload:string,signature:string):SignedChange{
-    if(this.signature(payload)!==signature)throw new Error("Preview signature invalid");
-    return JSON.parse(Buffer.from(payload,"base64url").toString("utf8")) as SignedChange;
-  }
-  private signBaseline(action:SignedSourceBaselineAction):{payload:string;signature:string}{
-    const payload=Buffer.from(JSON.stringify(action),"utf8").toString("base64url");
-    return{payload,signature:this.signature(payload)};
-  }
+  private sign(change:SignedChange):{payload:string;signature:string}{const payload=Buffer.from(JSON.stringify(change),"utf8").toString("base64url");return{payload,signature:this.signature(payload)};}
+  private verify(payload:string,signature:string):SignedChange{if(this.signature(payload)!==signature)throw new Error("Preview signature invalid");return JSON.parse(Buffer.from(payload,"base64url").toString("utf8")) as SignedChange;}
+  private signBaseline(action:SignedSourceBaselineAction):{payload:string;signature:string}{const payload=Buffer.from(JSON.stringify(action),"utf8").toString("base64url");return{payload,signature:this.signature(payload)};}
   private verifyBaseline(payload:string,signature:string):SignedSourceBaselineAction{
     if(this.signature(payload)!==signature)throw new Error("Source baseline preview signature invalid");
     const action=JSON.parse(Buffer.from(payload,"base64url").toString("utf8")) as SignedSourceBaselineAction;
@@ -93,18 +78,15 @@ export class ProductControlCenterHttpServer {
     const targets=accounts.map((accountId,index)=>({accountId,postingProfileId:profiles[index]??"",copyProfileId:copies[index]??"",schedulePolicyId:schedules[index]??"",...(calendars[index]?{operatingCalendarId:calendars[index]}:{}),requirement:requirements[index]==="OPTIONAL"?"OPTIONAL" as const:"REQUIRED" as const,enabled:true}));
     return{laneId,...(businessDate?{businessDate}:{}),targets};
   }
-
   private rhythmFrom(params:URLSearchParams):{id:string;policy:SchedulingPolicy}{
     const id=required(params,"schedulePolicyId");
     const slots=required(params,"slots").split(",").map(part=>part.trim()).filter(Boolean).map((part,index)=>{const [key,time]=part.includes("@")?part.split("@",2):[`slot-${index+1}`,part];if(!key||!time)throw new Error(`Invalid slot: ${part}`);return{key:key.trim(),localTime:time.trim()};});
     return{id,policy:{timeZone:required(params,"timeZone"),slots,windowMinutes:positiveInt(required(params,"windowMinutes"),"windowMinutes"),maxPerAccountPerBusinessDate:positiveInt(required(params,"maxPerDay"),"maxPerDay"),minimumSpacingMinutes:positiveInt(required(params,"minimumSpacingMinutes"),"minimumSpacingMinutes"),overflowAllowed:false,overflowMinimumSpacingMinutes:240}};
   }
-
   private calendarFrom(params:URLSearchParams):OperatingCalendar{
     const weekdayRules:OperatingCalendarWeekdayRule[]=[];
     for(const line of (params.get("weekdays")??"").split("\n").map(value=>value.trim()).filter(Boolean)){
-      const [day,rawActive,schedule]=line.split("|").map(value=>value.trim()),number=Number(day);
-      if(!Number.isInteger(number)||number<1||number>7)throw new Error(`Invalid ISO weekday: ${day}`);
+      const [day,rawActive,schedule]=line.split("|").map(value=>value.trim()),number=Number(day);if(!Number.isInteger(number)||number<1||number>7)throw new Error(`Invalid ISO weekday: ${day}`);
       weekdayRules.push({isoWeekday:number as 1|2|3|4|5|6|7,active:rawActive!=="off",...(schedule?{schedulePolicyId:schedule}:{})});
     }
     const dateOverrides:OperatingCalendarDateOverride[]=[];
@@ -133,18 +115,13 @@ export class ProductControlCenterHttpServer {
     }
     throw new Error("Unknown preview action");
   }
-
   private async apply(change:SignedChange):Promise<string>{
     if(change.kind==="PROGRAM"){
-      const snapshot=await this.runtime.snapshot(this.businessDate());
-      new PublishingProgramManagementService(this.config,()=>snapshot.accounts).apply(change.payload as PublishingProgramDraft,change.revision,this.now());
-      return change.returnTo;
+      const snapshot=await this.runtime.snapshot(this.businessDate());new PublishingProgramManagementService(this.config,()=>snapshot.accounts).apply(change.payload as PublishingProgramDraft,change.revision,this.now());return change.returnTo;
     }
     const service=new RhythmCalendarManagementService(this.config);
-    if(change.kind==="RHYTHM"){
-      const payload=change.payload as {id:string;policy:SchedulingPolicy};
-      service.saveSchedulePolicy(payload.id,payload.policy,change.revision,this.now());
-    }else service.saveOperatingCalendar(change.payload as OperatingCalendar,change.revision,this.now());
+    if(change.kind==="RHYTHM"){const payload=change.payload as {id:string;policy:SchedulingPolicy};service.saveSchedulePolicy(payload.id,payload.policy,change.revision,this.now());}
+    else service.saveOperatingCalendar(change.payload as OperatingCalendar,change.revision,this.now());
     return change.returnTo;
   }
 
@@ -155,10 +132,23 @@ export class ProductControlCenterHttpServer {
     const samples=preview.sampleFileNames.length?`<ul>${preview.sampleFileNames.map(name=>`<li>${esc(name)}</li>`).join("")}</ul>`:"<p>Keine bestehenden Medienobjekte in dieser Lane.</p>";
     return `<!doctype html><html lang=de><meta charset=utf-8><title>Baseline prüfen</title><body style="font-family:system-ui;max-width:900px;margin:40px auto"><h1>NEW_ONLY Baseline prüfen</h1><div style="border-left:4px solid #0e6b64;padding:12px 16px;background:#f1f8f6"><p><strong>${preview.observedCount}</strong> bestehende Datei(en) werden als historisch markiert und nicht als neue Posting-Arbeit behandelt.</p>${samples}<p><small>Snapshot ${esc(preview.snapshotFingerprint.slice(0,16))} · Cursor ${esc(preview.cursorFingerprint.slice(0,16))}</small></p><p>Ändert sich der Ordner vor Confirm, wird die Aktion verweigert und muss neu geprüft werden.</p></div><form method=post action=/sources/baseline-capture><input type=hidden name=csrf value=${this.csrf}><input type=hidden name=payload value="${esc(signed.payload)}"><input type=hidden name=signature value="${esc(signed.signature)}"><button>Genau diese Baseline erfassen</button> <a href=/sources>Abbrechen</a></form></body></html>`;
   }
+  private sourceActivationControls(stored:ReturnType<DistributionConfigurationStorePort["load"]>,runtime:Awaited<ReturnType<ControlCenterRuntimePort["snapshot"]>>):string{
+    if(!this.options.sourceActivation)return"";
+    const statusMap=new Map((runtime.sourceActivation??[]).map(item=>[item.laneId,item]));
+    const rows=stored.config.lanes.map(lane=>{
+      const status=statusMap.get(lane.laneId);
+      if(status?.state==="MISSING_BASELINE")return`<tr><td>${esc(lane.displayName)}</td><td class=bad>MISSING_BASELINE</td><td><form method=post action=/sources/baseline-preview><input type=hidden name=csrf value=${this.csrf}><input type=hidden name=laneId value="${esc(lane.laneId)}"><button>Bestehende Dateien prüfen</button></form></td></tr>`;
+      if(status?.state==="CAPTURED")return`<tr><td>${esc(lane.displayName)}</td><td class=ok>CAPTURED</td><td>${status.baselineCount??0} bestehende Datei(en) · ${status.capturedAt?esc(new Date(status.capturedAt).toLocaleString("de-AT",{timeZone:"Europe/Vienna"})):""}</td></tr>`;
+      return`<tr><td>${esc(lane.displayName)}</td><td>${esc(status?.state??"NOT_EVALUATED")}</td><td>${status?.reason?esc(status.reason):"—"}</td></tr>`;
+    }).join("");
+    return`<div class=card><h2>Activation Actions</h2><p class=muted>NEW_ONLY wird erst aktiv, nachdem die vorhandenen Dateien per Preview → Confirm als Baseline erfasst wurden.</p><table><tr><th>Lane</th><th>Status</th><th>Aktion</th></tr>${rows||"<tr><td colspan=3>Keine Lanes.</td></tr>"}</table></div>`;
+  }
 
   private async page(path:string):Promise<string>{
     const businessDate=this.businessDate(),stored=this.config.load(),runtime=await this.runtime.snapshot(businessDate);
-    return renderProductControlPage({path,stored,runtime,businessDate,csrf:this.csrf,...(this.options.routeTests?{routeTests:this.options.routeTests}:{}),sourceActivationCommandsAvailable:Boolean(this.options.sourceActivation)});
+    let html=renderProductControlPage({path,stored,runtime,businessDate,csrf:this.csrf,...(this.options.routeTests?{routeTests:this.options.routeTests}:{})});
+    if(path==="/sources")html=html.replace("</main>",`${this.sourceActivationControls(stored,runtime)}</main>`);
+    return html;
   }
 
   private async handle(req:IncomingMessage,res:ServerResponse):Promise<void>{
@@ -172,41 +162,29 @@ export class ProductControlCenterHttpServer {
         const html=await this.page(path);res.statusCode=200;res.setHeader("Content-Type","text/html; charset=utf-8");res.end(html);return;
       }
       if(method!=="POST"){res.statusCode=404;res.end("Not found");return;}
-      const params=await form(req);
-      if(params.get("csrf")!==this.csrf){res.statusCode=403;res.end("Invalid CSRF token");return;}
+      const params=await form(req);if(params.get("csrf")!==this.csrf){res.statusCode=403;res.end("Invalid CSRF token");return;}
       if(path.startsWith("/preview/")){const html=await this.preview(path,params);res.statusCode=200;res.setHeader("Content-Type","text/html; charset=utf-8");res.end(html);return;}
       if(path==="/apply"){const destination=await this.apply(this.verify(required(params,"payload"),required(params,"signature")));this.redirect(res,destination);return;}
       if(path==="/sources/baseline-preview"){const html=await this.sourceBaselinePreview(params);res.statusCode=200;res.setHeader("Content-Type","text/html; charset=utf-8");res.end(html);return;}
       if(path==="/sources/baseline-capture"){
         if(!this.options.sourceActivation)throw new Error("Source activation command adapter is not configured on this host");
         const action=this.verifyBaseline(required(params,"payload"),required(params,"signature"));
-        const current=this.config.load().config.activationCursors.find(item=>item.laneId===action.laneId);
-        if(!current)throw new Error(`Lane ${action.laneId} no longer has an activation cursor`);
+        const current=this.config.load().config.activationCursors.find(item=>item.laneId===action.laneId);if(!current)throw new Error(`Lane ${action.laneId} no longer has an activation cursor`);
         if(sourceActivationCursorFingerprint(current)!==action.cursorFingerprint)throw new Error(`Lane ${action.laneId} activation cursor changed after preview; preview again before capture`);
-        await this.options.sourceActivation.captureBaseline(action.laneId,this.now(),action.snapshotFingerprint);
-        this.redirect(res,"/sources");return;
+        await this.options.sourceActivation.captureBaseline(action.laneId,this.now(),action.snapshotFingerprint);this.redirect(res,"/sources");return;
       }
       if(path==="/test-lab/run"){
         if(!this.options.routeTests)throw new Error("Route test command adapter is not configured on this host/release");
-        const routeId=required(params,"routeId"),testKey=executableRouteTestKey(required(params,"testKey"));
-        await this.options.routeTests.run(routeId,testKey,this.now());
-        this.redirect(res,"/test-lab");return;
+        const routeId=required(params,"routeId"),testKey=executableRouteTestKey(required(params,"testKey"));await this.options.routeTests.run(routeId,testKey,this.now());this.redirect(res,"/test-lab");return;
       }
       res.statusCode=404;res.end("Not found");
-    }catch(error){
-      res.statusCode=error instanceof DistributionConfigurationRevisionConflict?409:400;
-      res.setHeader("Content-Type","text/plain; charset=utf-8");
-      res.end(error instanceof Error?error.message:String(error));
-    }
+    }catch(error){res.statusCode=error instanceof DistributionConfigurationRevisionConflict?409:400;res.setHeader("Content-Type","text/plain; charset=utf-8");res.end(error instanceof Error?error.message:String(error));}
   }
 
   async start():Promise<{host:string;port:number}>{
     if(this.server)throw new Error("Control Center already started");
-    const host=this.options.host??"127.0.0.1",port=this.options.port??0;
-    this.server=createServer((req,res)=>{void this.handle(req,res);});
-    await new Promise<void>(resolve=>this.server!.listen(port,host,resolve));
-    const address=this.server.address();if(!address||typeof address==="string")throw new Error("Control Center did not expose TCP address");
-    return{host,port:address.port};
+    const host=this.options.host??"127.0.0.1",port=this.options.port??0;this.server=createServer((req,res)=>{void this.handle(req,res);});
+    await new Promise<void>(resolve=>this.server!.listen(port,host,resolve));const address=this.server.address();if(!address||typeof address==="string")throw new Error("Control Center did not expose TCP address");return{host,port:address.port};
   }
   async stop():Promise<void>{if(!this.server)return;const server=this.server;this.server=undefined;await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));}
 }
