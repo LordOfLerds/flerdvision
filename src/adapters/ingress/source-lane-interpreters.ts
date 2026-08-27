@@ -35,10 +35,12 @@ export class ConfiguredSourceLaneInterpreterFactory implements SourceLaneInterpr
       const aliases: Record<string, string> = { ...(this.config.creatorAliases ?? {}) };
       const scopedAlias=lane.interpretation.creatorAlias??(explicitCreatorId?lane.laneId:undefined);
       if (scopedAlias && explicitCreatorId) aliases[scopedAlias] = explicitCreatorId;
+      const weekStartBySegment=lane.interpretation.weekStartBySegment??this.config.weekStartBySegment;
+      const formatFolderHints=lane.interpretation.formatFolderHints??this.config.formatFolderHints;
       return new CurrentCreatorWeekDayPathInterpreter({
         creatorAliases: aliases,
-        ...((lane.interpretation.weekStartBySegment??this.config.weekStartBySegment) ? { weekStartBySegment: lane.interpretation.weekStartBySegment??this.config.weekStartBySegment } : {}),
-        ...((lane.interpretation.formatFolderHints??this.config.formatFolderHints) ? { formatFolderHints: lane.interpretation.formatFolderHints??this.config.formatFolderHints } : {})
+        ...(weekStartBySegment ? { weekStartBySegment } : {}),
+        ...(formatFolderHints ? { formatFolderHints } : {})
       });
     }
     // Flat lanes intentionally require SourceLane.creatorId or source metadata. They never infer
