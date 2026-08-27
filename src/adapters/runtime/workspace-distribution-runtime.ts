@@ -12,6 +12,7 @@ import { JsonDistributionConfigurationStore } from "../distribution/json-config-
 import { SqliteDistributionRuntimeStateStore } from "../distribution/sqlite-runtime-state.js";
 import { SqliteSourceActivationBaselineStore } from "../distribution/sqlite-source-activation.js";
 import { SqliteDistributionProvenanceStore } from "../distribution/sqlite-provenance.js";
+import { PersistedPlanningCommitmentAdapter } from "../distribution/sqlite-planning-commitments.js";
 import { SqliteControlPlaneStore } from "../storage/sqlite.js";
 import { NoopSourceDispositionAdapter } from "../disposition/adapters.js";
 import { ConfiguredDistributionDispositionExecutor } from "../disposition/distribution-executor.js";
@@ -87,7 +88,8 @@ export class WorkspaceDistributionRuntime {
       {notifyBlocksExternally:false}
     );
     this.source=new RuntimeDistributionSourceScanAdapter(scan);
-    const persistedPlanner=new PersistedDistributionPlannerAdapter(this.config,this.state);
+    const commitmentAdapter=new PersistedPlanningCommitmentAdapter(this.state,this.provenance,this.control);
+    const persistedPlanner=new PersistedDistributionPlannerAdapter(this.config,this.state,commitmentAdapter);
     const provenanceService=new DistributionPlanProvenanceService(this.config,this.provenance);
     this.planner=new ProvenancedRuntimePlannerAdapter(persistedPlanner,provenanceService);
     const materializer=new DistributionIntentMaterializer(this.control,this.config,this.provenance);
