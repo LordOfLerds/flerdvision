@@ -2,12 +2,15 @@ import type { Instant } from "./model.js";
 import type { Actor } from "./control-plane.js";
 import type { ChannelSourceBinding, StoredChannelSourceBinding } from "./source-binding.js";
 
+/**
+ * @deprecated Historical storage/migration compatibility only.
+ *
+ * New code must depend on DistributionConfigurationStorePort and DistributionRoute instead.
+ * The mutating method remains implemented by the SQLite compatibility store so old migrations can
+ * be opened and audited, but active Product Setup never calls it; SetupChannelRegistrationService
+ * explicitly refuses legacy binding calls.
+ */
 export interface ChannelSourceBindingStorePort {
-  /**
-   * Binds a folder to an account. Re-binding the same account to a different folder is an
-   * explicit update, not a second binding: the one-folder-per-account rule is enforced here
-   * rather than left to callers.
-   */
   bindChannelSource(
     binding: ChannelSourceBinding,
     now: Instant,
@@ -16,6 +19,11 @@ export interface ChannelSourceBindingStorePort {
   getChannelSourceBinding(bindingId: string): StoredChannelSourceBinding | null;
   getChannelSourceBindingForAccount(accountId: string): StoredChannelSourceBinding | null;
   listChannelSourceBindings(): readonly StoredChannelSourceBinding[];
-  /** Every account fed by this folder — the cross-posting case. */
   listChannelSourceBindingsForFolder(folderId: string): readonly StoredChannelSourceBinding[];
 }
+
+/** Read-only subset allowed for migration/audit projections. */
+export type LegacyChannelSourceBindingReadPort = Pick<
+  ChannelSourceBindingStorePort,
+  "getChannelSourceBinding" | "getChannelSourceBindingForAccount" | "listChannelSourceBindings" | "listChannelSourceBindingsForFolder"
+>;
