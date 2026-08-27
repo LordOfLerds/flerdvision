@@ -4,6 +4,7 @@ import type { ChannelReadiness, SurfaceReadiness } from "../../application/contr
 import type { DailyPlan } from "../../domain/distribution.js";
 import { sourceActivationStatus } from "../../application/source-activation-command.js";
 import { DistributionDeliveryAggregateProjector } from "../../application/distribution-delivery-aggregate.js";
+import { auditLegacySourceBindings } from "../../application/legacy-source-binding-audit.js";
 import { SqliteControlPlaneStore } from "../storage/sqlite.js";
 import { SqliteDistributionRuntimeStateStore } from "../distribution/sqlite-runtime-state.js";
 import { SqlitePlatformSurfaceStore } from "../distribution/sqlite-surface-store.js";
@@ -57,15 +58,14 @@ export class SqliteControlCenterRuntimeAdapter implements ControlCenterRuntimePo
     const plan=this.distribution.latestDailyPlan(businessDate)?.plan??missingPlan(businessDate);
     const aggregates=new DistributionDeliveryAggregateProjector(this.distribution,this.provenance,this.control,this.control).project().map((item)=>item.aggregate);
     const sourceActivation=stored.config.lanes.map((lane)=>sourceActivationStatus(stored,this.baselines,lane.laneId)),sourcePolling=this.polling.get();
+    const legacySourceBindings=auditLegacySourceBindings(stored,this.control.listChannelSourceBindings());
     return{
       plan,accounts,channelReadiness,surfaceReadiness,
-      routeTests:this.distribution.listRouteTestReadiness().map((record)=>record.readiness),assets:this.distribution.listAssets().map((record)=>record.asset),deliveryAggregates:aggregates,sourceActivation,
+      routeTests:this.distribution.listRouteTestReadiness().map((record)=>record.readiness),assets:this.distribution.listAssets().map((record)=>record.asset),deliveryAggregates:aggregates,sourceActivation,legacySourceBindings,
       ...(sourcePolling?{sourcePolling}:{}),
       incidents:this.control.listIncidents(),auditEvents:this.control.listEvents(),runtimeCycles:this.cycles.latest(50)
     };
   }
 
-  close():void{
-    this.cycles.close();this.polling.close();this.provenance.close();this.baselines.close();this.surfaces.close();this.distribution.close();this.control.close();
-  }
+  close():void{this.cycles.close();this.polling.close();this.provenance.close();this.baselines.close();this.surfaces.close();this.distribution.close();this.control.close();}
 }
