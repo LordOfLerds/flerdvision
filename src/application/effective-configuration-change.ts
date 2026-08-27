@@ -9,6 +9,7 @@ import { RhythmCalendarManagementService } from "./rhythm-calendar-management.js
 
 function id(value:string):string{return createHash("sha256").update(value).digest("hex").slice(0,24);}
 function validDate(value:string):string{if(!/^\d{4}-\d{2}-\d{2}$/.test(value))throw new Error(`Invalid effective business date: ${value}`);const d=new Date(`${value}T00:00:00.000Z`);if(d.toISOString().slice(0,10)!==value)throw new Error(`Invalid effective business date: ${value}`);return value;}
+function clone<T>(value:T):T{return JSON.parse(JSON.stringify(value)) as T;}
 
 export type EffectiveChangeDraft =
   | {kind:"PROGRAM";payload:PublishingProgramDraft}
@@ -19,10 +20,10 @@ export interface EffectiveChangeApplyReport {inspected:number;applied:number;nee
 
 class MemoryDistributionStore implements DistributionConfigurationStorePort {
   constructor(private value:StoredDistributionConfiguration){}
-  load():StoredDistributionConfiguration{return structuredClone(this.value);}
+  load():StoredDistributionConfiguration{return clone(this.value);}
   save(next:Omit<StoredDistributionConfiguration,"revision">,expectedRevision:number):StoredDistributionConfiguration{
     if(this.value.revision!==expectedRevision)throw new Error(`memory config revision changed: expected ${expectedRevision}, current ${this.value.revision}`);
-    this.value={...structuredClone(next),revision:this.value.revision+1};return this.load();
+    this.value={...clone(next),revision:this.value.revision+1};return this.load();
   }
 }
 
