@@ -29,7 +29,14 @@ export interface SourceConnection {
 
 export type SourceLaneInterpretation =
   | { kind: "flat" }
-  | { kind: "creator_week_day"; creatorAlias?: string }
+  | {
+      kind: "creator_week_day";
+      creatorAlias?: string;
+      /** Explicit week-folder -> Monday ISO-date mapping; no calendar date is guessed from a label. */
+      weekStartBySegment?: Readonly<Record<string,string>>;
+      /** Optional folder-name -> posting hint mapping carried with workspace config. */
+      formatFolderHints?: Readonly<Record<string,readonly string[]>>;
+    }
   | { kind: "metadata"; creatorField?: string; businessDateField?: string };
 
 export interface SourceLane {
