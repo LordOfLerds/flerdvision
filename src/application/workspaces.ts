@@ -1,4 +1,4 @@
-import { mkdirSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import type { WorkspaceRegistryPort } from "../domain/workspace-ports.js";
 import { assertWorkspaceId, type Workspace, type WorkspaceRuntimeLayout } from "../domain/workspace.js";
@@ -7,6 +7,20 @@ function privateDir(path: string): void {
   mkdirSync(path, { recursive: true, mode: 0o700 });
   const mode = statSync(path).mode & 0o777;
   if ((mode & 0o077) !== 0) throw new Error(`Workspace runtime directory is not private: ${path} mode=${mode.toString(8)}`);
+}
+
+export function ensureWorkspaceCalibrationTemplates(configDir:string,templateRoot=resolve(process.cwd(),"config")):void{
+  const templates=[
+    ["platform-ui.example.json","platform-ui.json"],
+    ["session-probes.example.json","session-probes.json"],
+    ["profile-verification.example.json","profile-verification.json"]
+  ] as const;
+  for(const [sourceName,targetName] of templates){
+    const source=resolve(templateRoot,sourceName),target=resolve(configDir,targetName);
+    if(existsSync(target))continue;
+    if(!existsSync(source))continue;
+    copyFileSync(source,target);
+  }
 }
 
 export function workspaceRuntimeLayout(runtimeRoot: string, workspaceId: string): WorkspaceRuntimeLayout {
@@ -34,6 +48,7 @@ export function initializeWorkspaceRuntime(runtimeRoot: string, workspaceId: str
   privateDir(layout.mediaCacheDir);
   privateDir(layout.configDir);
   privateDir(layout.logsDir);
+  ensureWorkspaceCalibrationTemplates(layout.configDir);
   return layout;
 }
 
