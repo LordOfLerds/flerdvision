@@ -7,7 +7,16 @@ export interface SurfaceEnvironment { browserFamily:"chromium"; browserMajor:num
 export interface SurfaceLocatorCandidate { locator:UiLocator; confidence:"HIGH"|"MEDIUM"|"LOW"; reason:string; }
 export interface SurfaceStepDefinition { stepKey:string; label:string; actionMode:CalibrationActionMode; required:boolean; }
 export interface SurfaceStepObservation { observationId:string; accountId:string; platform:Platform; format:PublicationFormat; stepKey:string; observedAt:string; environment:SurfaceEnvironment; currentUrl:string; tagName:string; candidates:readonly SurfaceLocatorCandidate[]; actionBlocked:boolean; }
-export interface SurfaceContractStep { stepKey:string; label:string; actionMode:CalibrationActionMode; locator:UiLocator; fallbackLocators:readonly UiLocator[]; observations:number; }
+export interface SurfaceContractStep {
+  stepKey:string;
+  label:string;
+  actionMode:CalibrationActionMode;
+  locator:UiLocator;
+  fallbackLocators:readonly UiLocator[];
+  observations:number;
+  /** DIRECT means checked/on equals the requested setting; INVERTED models controls such as "Turn off commenting". */
+  booleanPolarity?:"DIRECT"|"INVERTED";
+}
 export type PlatformSurfaceContractStatus = "RECORDED" | "CALIBRATED";
 export interface PlatformSurfaceContract { contractId:string; accountId:string; platform:Platform; format:PublicationFormat; postingProfileId:string; environment:SurfaceEnvironment; steps:readonly SurfaceContractStep[]; status:PlatformSurfaceContractStatus; createdAt:string; calibratedAt?:string; }
 export interface SurfaceReplayEvidence { replayId:string; contractId:string; checkedAt:string; passed:boolean; reachedFinalActionBoundary:boolean; finalActionInvoked:boolean; environmentFingerprint:string; artifactRefs:readonly string[]; }
