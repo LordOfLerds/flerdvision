@@ -21,24 +21,20 @@ async function main():Promise<void>{
   const notificationChannelKeys=channelKeys(value(argv,"--notification-channels")??process.env.FLERDVISION_NOTIFICATION_CHANNELS);
   const uiBaseUrl=value(argv,"--ui-base-url")??process.env.FLERDVISION_UI_BASE_URL;
 
-  // intervalSeconds is the cheap control-cycle cadence. Actual Drive/folder polling is independently
-  // gated by runtimePolicy.sourcePolling inside WorkspaceDistributionRuntime.
-  const runtime=new WorkspaceDistributionRuntime({
-    runtimeRoot,
-    workspaceId,
-    timeZone,
-    notificationChannelKeys,
-    ...(uiBaseUrl?{uiBaseUrl}:{})
-  });
+  // Runtime cycle cadence and source polling cadence are separate. Source polling is gated by the
+  // workspace policy; verified-cache maintenance is post-cycle and cannot affect publish outcome.
+  const runtime=new WorkspaceDistributionRuntime({runtimeRoot,workspaceId,timeZone,notificationChannelKeys,...(uiBaseUrl?{uiBaseUrl}:{})});
   let stopping=false;
   process.on("SIGINT",()=>{stopping=true;});
   process.on("SIGTERM",()=>{stopping=true;});
   try{
     do{
-      const now=new Date().toISOString();
-      const businessDate=businessDateForInstant(now,timeZone);
+      const now=new Date().toISOString(),businessDate=businessDateForInstant(now,timeZone);
       const report=await runtime.supervisor(ownerId).runCycle(now,businessDate);
-      console.log(JSON.stringify({mode:"R0_LIVE_FREEZE",workspaceId,sourcePolling:runtime.source.snapshot(),report}));
+      let mediaMaintenance;
+      try{mediaMaintenance=await runtime.maintainMediaCache(now);}
+      catch(error){mediaMaintenance={error:error instanceof Error?error.message:String(error)};}
+      console.log(JSON.stringify({mode:"R0_LIVE_FREEZE",workspaceId,sourcePolling:runtime.source.snapshot(),report,mediaMaintenance}));
       if(intervalSeconds===null||stopping)break;
       await sleep(intervalSeconds*1000);
     }while(!stopping);
