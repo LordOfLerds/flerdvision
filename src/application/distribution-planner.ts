@@ -12,6 +12,7 @@ import {
   type SourceLane,
   assertRouteCatalogIntegrity
 } from "../domain/distribution.js";
+import { effectiveRouteCalendar } from "../domain/operating-calendar.js";
 import { addMinutes, instantForLocalDateTime, minutesBetween } from "../domain/scheduling.js";
 
 function sha(value: string): string {
@@ -82,9 +83,7 @@ function backlog(
     assetId: asset.assetId,
     reason
   };
-  if (carryToBusinessDate) {
-    Object.assign(item, { carriedFromBusinessDate: businessDate, carryToBusinessDate });
-  }
+  if (carryToBusinessDate) Object.assign(item, { carriedFromBusinessDate: businessDate, carryToBusinessDate });
   return item;
 }
 
@@ -122,7 +121,13 @@ export class DistributionPlanner {
       }
       if (!lane) continue;
 
-      const schedule = input.catalog.schedulePolicies[route.schedulePolicyId]!;
+      const calendar = effectiveRouteCalendar(route, input.businessDate, input.catalog.operatingCalendars ?? {});
+      if (!calendar.active) continue;
+      const schedule = input.catalog.schedulePolicies[calendar.schedulePolicyId];
+      if (!schedule) {
+        gaps.push(routeGap(route, input.businessDate, "ROUTE_CONFIGURATION_INVALID", `Effective schedule policy ${calendar.schedulePolicyId} does not exist`));
+        continue;
+      }
       const posting = input.catalog.postingProfiles[route.postingProfileId]!;
       const copy = input.catalog.copyProfiles[route.copyProfileId]!;
       const carriedAssetIds = new Set(
@@ -155,13 +160,7 @@ export class DistributionPlanner {
             continue;
           }
           if (input.policy.lateArrival === "MANUAL_REVIEW") {
-            gaps.push(routeGap(
-              route,
-              input.businessDate,
-              "LATE_ARRIVAL_REQUIRES_REVIEW",
-              `Asset ${asset.assetId} became ready after ${slot.key} window`,
-              { slotKey: slot.key, assetId: asset.assetId }
-            ));
+            gaps.push(routeGap(route, input.businessDate, "LATE_ARRIVAL_REQUIRES_REVIEW", `Asset ${asset.assetId} became ready after ${slot.key} window`, { slotKey: slot.key, assetId: asset.assetId }));
             backlogItems.push(backlog(route, asset, input.businessDate, "MANUAL_REVIEW"));
             assetIndex += 1;
             asset = routeAssets[assetIndex];
@@ -175,8 +174,6 @@ export class DistributionPlanner {
           gaps.push(routeGap(route, input.businessDate, "MISSING_CONTENT", `No ready content for ${slot.key}`, { slotKey: slot.key }));
           continue;
         }
-
-        // NEXT_AVAILABLE_SLOT preserves a late asset for the next still-valid slot.
         if (asset.readyAt && asset.readyAt > windowEndAt) {
           gaps.push(routeGap(route, input.businessDate, "MISSING_CONTENT", `No asset was ready before ${slot.key} closed`, { slotKey: slot.key }));
           continue;
@@ -196,7 +193,7 @@ export class DistributionPlanner {
           postingProfileId: posting.postingProfileId,
           copyProfileId: copy.copyProfileId,
           copyVersionId: copy.versionId,
-          schedulePolicyId: route.schedulePolicyId,
+          schedulePolicyId: calendar.schedulePolicyId,
           requirement: route.requirement,
           businessDate: input.businessDate,
           slotKey: slot.key,
@@ -208,18 +205,10 @@ export class DistributionPlanner {
       }
 
       for (const asset of routeAssets.slice(assetIndex)) {
-        backlogItems.push(backlog(
-          route,
-          asset,
-          input.businessDate,
-          input.policy.overflow === "BACKLOG_NEXT_DAY" ? "NEXT_DAY" : "MANUAL_REVIEW",
-          input.policy.overflow === "BACKLOG_NEXT_DAY" ? carryToNextDay : undefined
-        ));
+        backlogItems.push(backlog(route, asset, input.businessDate, input.policy.overflow === "BACKLOG_NEXT_DAY" ? "NEXT_DAY" : "MANUAL_REVIEW", input.policy.overflow === "BACKLOG_NEXT_DAY" ? carryToNextDay : undefined));
       }
     }
 
-    // A social account cannot receive two distinct deliveries in the same slot. Keep neither:
-    // silently picking one would make route iteration order a hidden business rule.
     const conflicted = new Set<string>();
     const collisionGroups = new Map<string, PlannedDelivery[]>();
     for (const delivery of deliveries) {
@@ -233,19 +222,10 @@ export class DistributionPlanner {
       for (const delivery of group) {
         conflicted.add(delivery.deliveryId);
         const route = input.routes.find((candidate) => candidate.routeId === delivery.routeId)!;
-        gaps.push(routeGap(
-          route,
-          input.businessDate,
-          "ACCOUNT_SLOT_CONFLICT",
-          `Account ${delivery.accountId} has multiple deliveries at ${delivery.scheduledFor}`,
-          { slotKey: delivery.slotKey, assetId: delivery.assetId }
-        ));
+        gaps.push(routeGap(route, input.businessDate, "ACCOUNT_SLOT_CONFLICT", `Account ${delivery.accountId} has multiple deliveries at ${delivery.scheduledFor}`, { slotKey: delivery.slotKey, assetId: delivery.assetId }));
       }
     }
 
-    // Daily cap and minimum spacing are account-wide constraints, not route-local constraints.
-    // When several routes violate them and no explicit priority rule exists, fail closed rather
-    // than silently selecting whichever route happened to be iterated first.
     const byAccount = new Map<string, PlannedDelivery[]>();
     for (const delivery of deliveries.filter((item) => !conflicted.has(item.deliveryId))) {
       const group = byAccount.get(delivery.accountId) ?? [];
@@ -260,13 +240,7 @@ export class DistributionPlanner {
         for (const delivery of group) {
           conflicted.add(delivery.deliveryId);
           const route = input.routes.find((candidate) => candidate.routeId === delivery.routeId)!;
-          gaps.push(routeGap(
-            route,
-            input.businessDate,
-            "ACCOUNT_DAILY_CAP_CONFLICT",
-            `Account ${accountId} has ${group.length} deliveries but effective daily cap is ${effectiveCap}`,
-            { slotKey: delivery.slotKey, assetId: delivery.assetId }
-          ));
+          gaps.push(routeGap(route, input.businessDate, "ACCOUNT_DAILY_CAP_CONFLICT", `Account ${accountId} has ${group.length} deliveries but effective daily cap is ${effectiveCap}`, { slotKey: delivery.slotKey, assetId: delivery.assetId }));
           const asset = input.assets.find((candidate) => candidate.assetId === delivery.assetId);
           if (asset) backlogItems.push(backlog(route, asset, input.businessDate, "ACCOUNT_CAP", carryToNextDay));
         }
@@ -282,13 +256,7 @@ export class DistributionPlanner {
           if (conflicted.has(delivery.deliveryId)) continue;
           conflicted.add(delivery.deliveryId);
           const route = input.routes.find((candidate) => candidate.routeId === delivery.routeId)!;
-          gaps.push(routeGap(
-            route,
-            input.businessDate,
-            "ACCOUNT_MINIMUM_SPACING_CONFLICT",
-            `Account ${accountId} violates effective minimum spacing of ${effectiveSpacing} minutes`,
-            { slotKey: delivery.slotKey, assetId: delivery.assetId }
-          ));
+          gaps.push(routeGap(route, input.businessDate, "ACCOUNT_MINIMUM_SPACING_CONFLICT", `Account ${accountId} violates effective minimum spacing of ${effectiveSpacing} minutes`, { slotKey: delivery.slotKey, assetId: delivery.assetId }));
           const asset = input.assets.find((candidate) => candidate.assetId === delivery.assetId);
           if (asset) backlogItems.push(backlog(route, asset, input.businessDate, "ACCOUNT_SPACING", carryToNextDay));
         }
@@ -297,31 +265,11 @@ export class DistributionPlanner {
 
     const acceptedDeliveries = deliveries
       .filter((delivery) => !conflicted.has(delivery.deliveryId))
-      .sort((a, b) =>
-        a.scheduledFor.localeCompare(b.scheduledFor) ||
-        a.accountId.localeCompare(b.accountId) ||
-        a.routeId.localeCompare(b.routeId) ||
-        a.assetId.localeCompare(b.assetId)
-      );
-    const stableGaps = dedupeById(gaps, (item) => item.gapId).sort((a, b) =>
-      a.kind.localeCompare(b.kind) ||
-      (a.routeId ?? "").localeCompare(b.routeId ?? "") ||
-      (a.slotKey ?? "").localeCompare(b.slotKey ?? "") ||
-      (a.assetId ?? "").localeCompare(b.assetId ?? "")
-    );
-    const stableBacklog = dedupeById(backlogItems, (item) => item.backlogId).sort((a, b) =>
-      (a.carryToBusinessDate ?? "").localeCompare(b.carryToBusinessDate ?? "") ||
-      a.routeId.localeCompare(b.routeId) ||
-      a.assetId.localeCompare(b.assetId) ||
-      a.reason.localeCompare(b.reason)
-    );
+      .sort((a, b) => a.scheduledFor.localeCompare(b.scheduledFor) || a.accountId.localeCompare(b.accountId) || a.routeId.localeCompare(b.routeId) || a.assetId.localeCompare(b.assetId));
+    const stableGaps = dedupeById(gaps, (item) => item.gapId).sort((a, b) => a.kind.localeCompare(b.kind) || (a.routeId ?? "").localeCompare(b.routeId ?? "") || (a.slotKey ?? "").localeCompare(b.slotKey ?? "") || (a.assetId ?? "").localeCompare(b.assetId ?? ""));
+    const stableBacklog = dedupeById(backlogItems, (item) => item.backlogId).sort((a, b) => (a.carryToBusinessDate ?? "").localeCompare(b.carryToBusinessDate ?? "") || a.routeId.localeCompare(b.routeId) || a.assetId.localeCompare(b.assetId) || a.reason.localeCompare(b.reason));
 
-    const semanticPayload = JSON.stringify({
-      businessDate: input.businessDate,
-      deliveries: acceptedDeliveries,
-      gaps: stableGaps,
-      backlog: stableBacklog
-    });
+    const semanticPayload = JSON.stringify({ businessDate: input.businessDate, deliveries: acceptedDeliveries, gaps: stableGaps, backlog: stableBacklog });
     return {
       planId: `daily-plan:${input.businessDate}:${sha(semanticPayload)}`,
       businessDate: input.businessDate,
