@@ -8,17 +8,12 @@ import { deriveAccountId, deriveIdentityId, deriveProfileKey, selectDiscoveredCh
 import { validateBrowserIdentityRegistration } from "./browser-identity-service.js";
 
 export interface RegisterFromDiscoveryParams {
-  /** The full probe output, not a handle. A channel absent from it cannot be registered. */
   result: ChannelDiscoveryResult;
   channelKey: string;
   checkId: UUID;
   now: Instant;
   actor: Actor;
   creatorId?: string;
-  /**
-   * Profile to give this identity. Defaults to one derived from the channel key. The setup wizard
-   * passes the seeded copy of the login profile so the session carries over without a second login.
-   */
   profileKey?: string;
 }
 
@@ -30,21 +25,13 @@ export interface RegisteredChannel {
   observedHandle: string;
 }
 
-/**
- * Registers only the social account + isolated BrowserIdentity proven by live session discovery.
- *
- * Source routing is intentionally absent. Product onboarding creates SourceConnection/SourceLane
- * independently, and Programs later create canonical DistributionRoute records. Keeping channel
- * registration unable to write a folder/account binding makes the route-first architecture a code
- * property rather than a UI convention.
- */
+/** Registers only account + isolated BrowserIdentity proven by live session discovery. */
 export class SetupChannelRegistrationService {
   constructor(private readonly store: BrowserIdentityStorePort) {}
 
   registerFromDiscovery(params: RegisterFromDiscoveryParams): RegisteredChannel {
     const { result, channelKey, now, actor } = params;
     const channel = selectDiscoveredChannel(result, channelKey);
-
     const accountId = deriveAccountId(result.platform, channel.channelKey);
     const identityId = deriveIdentityId(result.platform, channel.channelKey);
     const expectedHandle = normalizeSocialHandle(channel.handle);
@@ -68,23 +55,25 @@ export class SetupChannelRegistrationService {
 
     const storedAccount = this.store.registerSocialAccount(account, now, actor).record;
     const storedIdentity = this.store.registerBrowserIdentity(identity, now, actor).record;
-
-    // Registration discovery is durable identity evidence. It proves which session/handle was read;
-    // it does not imply any content source or DistributionRoute.
-    this.store.recordSessionHealth(
-      {
-        checkId: params.checkId,
-        identityId,
-        checkedAt: result.discoveredAt,
-        state: "HEALTHY",
-        expectedHandle,
-        observedHandle: expectedHandle,
-        note: `Registered from channel discovery (${result.channels.length} channel(s) offered)`,
-        ...(result.currentUrl ? { currentUrl: result.currentUrl } : {})
-      },
-      actor
-    );
+    this.store.recordSessionHealth({
+      checkId: params.checkId,
+      identityId,
+      checkedAt: result.discoveredAt,
+      state: "HEALTHY",
+      expectedHandle,
+      observedHandle: expectedHandle,
+      note: `Registered from channel discovery (${result.channels.length} channel(s) offered)`,
+      ...(result.currentUrl ? { currentUrl: result.currentUrl } : {})
+    }, actor);
 
     return { account: storedAccount, identity: storedIdentity, accountId, identityId, observedHandle: expectedHandle };
+  }
+
+  /**
+   * Compatibility guard for the retired SelfServiceHttpServer. It intentionally has no typed
+   * source-binding dependency and can never mutate legacy binding state.
+   */
+  bindSource(_legacyParams: unknown): never {
+    throw new Error("LEGACY_SOURCE_BINDING_DISABLED: source/account routing moved to Product Control Center / Programs");
   }
 }
