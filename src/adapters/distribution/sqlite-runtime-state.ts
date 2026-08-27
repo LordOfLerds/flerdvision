@@ -131,6 +131,16 @@ export class SqliteDistributionRuntimeStateStore implements DistributionRuntimeS
     return rows.map(row=>({plan:JSON.parse(row.plan_json) as DailyPlan,recordedAt:row.recorded_at}));
   }
 
+  listCurrentDailyPlans():readonly StoredDailyPlanRevision[]{
+    const rows=this.db.prepare(`
+      SELECT v.*
+      FROM distribution_daily_plan_heads h
+      JOIN distribution_daily_plan_versions v ON v.plan_id=h.plan_id
+      ORDER BY h.business_date
+    `).all() as PlanRow[];
+    return rows.map(row=>({plan:JSON.parse(row.plan_json) as DailyPlan,recordedAt:row.recorded_at}));
+  }
+
   putAsset(asset:ContentAsset,recordedAt:string):{created:boolean;record:StoredContentAssetRevision}{
     const at=iso(recordedAt),payload=json(asset),digest=hash(payload),current=this.getAsset(asset.assetId);
     if(current){
