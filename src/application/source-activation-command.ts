@@ -1,7 +1,24 @@
-import type { DistributionConfigurationStorePort } from "../domain/distribution-ports.js";
+import type { StoredDistributionConfiguration, DistributionConfigurationStorePort } from "../domain/distribution-ports.js";
 import type { SourceActivationCommandPort, SourceActivationStatus } from "../domain/source-activation-ports.js";
 import type { SourceActivationBaselineStorePort, SourceLaneObservationPort } from "../domain/source-lane-runtime.js";
 import { SourceActivationService, sourceActivationCursorFingerprint } from "./source-activation.js";
+
+export function sourceActivationStatus(
+  stored:StoredDistributionConfiguration,
+  baselines:SourceActivationBaselineStorePort,
+  laneId:string
+):SourceActivationStatus{
+  const lane=stored.config.lanes.find((item)=>item.laneId===laneId);
+  if(!lane)return{laneId,state:"MISCONFIGURED",reason:"lane_not_found"};
+  const source=stored.config.sources.find((item)=>item.connectionId===lane.connectionId);
+  if(!source)return{laneId,state:"MISCONFIGURED",reason:"source_not_found"};
+  const cursor=stored.config.activationCursors.find((item)=>item.laneId===laneId);
+  if(!cursor)return{laneId,state:"MISCONFIGURED",reason:"activation_cursor_missing"};
+  if(cursor.mode!=="NEW_ONLY")return{laneId,mode:cursor.mode,state:"NOT_REQUIRED"};
+  const baseline=baselines.getBaseline(laneId,sourceActivationCursorFingerprint(cursor));
+  if(!baseline)return{laneId,mode:cursor.mode,state:"MISSING_BASELINE"};
+  return{laneId,mode:cursor.mode,state:"CAPTURED",baselineCount:baseline.baseline.externalObjectIds.length,capturedAt:baseline.baseline.capturedAt};
+}
 
 export class SourceActivationCommandService implements SourceActivationCommandPort {
   private readonly activation:SourceActivationService;
@@ -14,17 +31,7 @@ export class SourceActivationCommandService implements SourceActivationCommandPo
   }
 
   status(laneId:string):SourceActivationStatus{
-    const stored=this.config.load();
-    const lane=stored.config.lanes.find((item)=>item.laneId===laneId);
-    if(!lane)return{laneId,state:"MISCONFIGURED",reason:"lane_not_found"};
-    const source=stored.config.sources.find((item)=>item.connectionId===lane.connectionId);
-    if(!source)return{laneId,state:"MISCONFIGURED",reason:"source_not_found"};
-    const cursor=stored.config.activationCursors.find((item)=>item.laneId===laneId);
-    if(!cursor)return{laneId,state:"MISCONFIGURED",reason:"activation_cursor_missing"};
-    if(cursor.mode!=="NEW_ONLY")return{laneId,mode:cursor.mode,state:"NOT_REQUIRED"};
-    const baseline=this.baselines.getBaseline(laneId,sourceActivationCursorFingerprint(cursor));
-    if(!baseline)return{laneId,mode:cursor.mode,state:"MISSING_BASELINE"};
-    return{laneId,mode:cursor.mode,state:"CAPTURED",baselineCount:baseline.baseline.externalObjectIds.length,capturedAt:baseline.baseline.capturedAt};
+    return sourceActivationStatus(this.config.load(),this.baselines,laneId);
   }
 
   async captureBaseline(laneId:string,now:string):Promise<SourceActivationStatus>{
