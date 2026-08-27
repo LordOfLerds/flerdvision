@@ -150,10 +150,13 @@ export class CalibratedWorkspaceRouteTestRunner implements CapabilityAwareRouteT
       const execution=await new SafePlatformExecutionRunner(session,artifacts,()=>new Date(new Date(at).getTime()+tick++).toISOString()).execute(plan,identity,{mediaPath:media.localPath,caption:"[PREPARE_ONLY TEST]",title:"Flerdvision PREPARE_ONLY Test"});
       const passed=execution.environmentFingerprint===surface.contract.environment.fingerprint,registry=new PlatformSurfaceRegistryService(this.surfaces),ordinal=this.surfaces.listReplays(surface.contract.contractId).length+1;
       registry.recordReplay({replayId:`surface-replay:${surface.contract.contractId}:${ordinal}`,contractId:surface.contract.contractId,checkedAt:at,passed,reachedFinalActionBoundary:true,finalActionInvoked:false,environmentFingerprint:execution.environmentFingerprint,artifactRefs:[...execution.artifactRefs]});
-      let promoted=false;const replays=this.surfaces.listReplays(surface.contract.contractId),lastThree=replays.slice(-3);
-      if(surface.contract.status==="RECORDED"&&lastThree.length===3&&lastThree.every(item=>item.passed&&item.reachedFinalActionBoundary&&!item.finalActionInvoked&&item.environmentFingerprint===surface.contract.environment.fingerprint)){registry.qualify(context.intent.accountId,context.postingProfile,at);promoted=true;}
+      let promoted=false,stale=false;const replays=this.surfaces.listReplays(surface.contract.contractId),lastThree=replays.slice(-3),latest=this.surfaces.latestContract(context.intent.accountId,context.postingProfile.postingProfileId);
+      if(surface.contract.status==="RECORDED"&&lastThree.length===3&&lastThree.every(item=>item.passed&&item.reachedFinalActionBoundary&&!item.finalActionInvoked&&item.environmentFingerprint===surface.contract.environment.fingerprint)){
+        if(latest?.contract.contractId===surface.contract.contractId){registry.qualify(context.intent.accountId,context.postingProfile,at);promoted=true;}
+        else stale=true;
+      }
       const current=this.surfaces.latestContract(context.intent.accountId,context.postingProfile.postingProfileId)?.contract.status??surface.contract.status;
-      return{passed,summary:`PREPARE_ONLY replay reached final boundary from canonical SurfaceContract; final action invoked=false; environment=${passed?"MATCH":"MISMATCH"}; surface=${promoted?"PROMOTED_TO_CALIBRATED":current}.`,artifactRefs:[...execution.artifactRefs]};
+      return{passed,summary:`PREPARE_ONLY replay reached final boundary from canonical SurfaceContract; final action invoked=false; environment=${passed?"MATCH":"MISMATCH"}; surface=${promoted?"PROMOTED_TO_CALIBRATED":stale?"STALE_REPLAY_NOT_PROMOTED":current}.`,artifactRefs:[...execution.artifactRefs]};
     }finally{
       if(media)await materializer.release(media).catch(()=>{});
       if(session)await session.close().catch(()=>{});
