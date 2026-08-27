@@ -25,9 +25,10 @@ export class PollingRuntimeSourceScanAdapter implements RuntimeSourceScanPort {
     private readonly config: DistributionConfigurationStorePort
   ) {}
 
+  private policy(){return this.config.load().runtimePolicy?.sourcePolling ?? DEFAULT_DISTRIBUTION_RUNTIME_POLICY.sourcePolling;}
+
   async scan(now: string): Promise<RuntimeSourceScanReport> {
-    const timestamp = new Date(now).toISOString();
-    const policy = this.config.load().runtimePolicy?.sourcePolling ?? DEFAULT_DISTRIBUTION_RUNTIME_POLICY.sourcePolling;
+    const timestamp = new Date(now).toISOString(),policy=this.policy();
     const decision = decideSourcePoll({ now: timestamp, ...(this.lastPollAt ? { lastPollAt: this.lastPollAt } : {}), policy });
     this.nextPollAt = decision.nextPollAt;
     this.lastTrigger = decision.trigger;
@@ -35,8 +36,18 @@ export class PollingRuntimeSourceScanAdapter implements RuntimeSourceScanPort {
       this.skippedCycles += 1;
       return { observed: 0, ready: 0, stabilizing: 0, blocked: 0 };
     }
+    return await this.execute(timestamp,decision.trigger,policy);
+  }
+
+  async forceScan(now:string,trigger:Exclude<SourcePollTrigger,"INTERVAL">="MANUAL"):Promise<RuntimeSourceScanReport>{
+    const timestamp=new Date(now).toISOString(),policy=this.policy();
+    return await this.execute(timestamp,trigger,policy);
+  }
+
+  private async execute(timestamp:string,trigger:SourcePollTrigger,policy:ReturnType<PollingRuntimeSourceScanAdapter["policy"]>):Promise<RuntimeSourceScanReport>{
     const report = await this.inner.scan(timestamp);
     this.lastPollAt = timestamp;
+    this.lastTrigger=trigger;
     this.nextPollAt = decideSourcePoll({ now: timestamp, lastPollAt: timestamp, policy }).nextPollAt;
     return report;
   }
