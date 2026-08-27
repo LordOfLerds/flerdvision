@@ -1,6 +1,10 @@
 import type { DailyPlan } from "./distribution.js";
 
-export interface RuntimeCycleLease { release(): void; }
+export interface RuntimeCycleLease {
+  /** Optional for compatibility fakes; concrete host lease adapters heartbeat between phases. */
+  heartbeat?(now:string):void;
+  release(now?:string):void;
+}
 export interface RuntimeCycleLeasePort { acquire(ownerId: string, now: string): RuntimeCycleLease; }
 export interface RuntimeSourceScanReport { observed: number; ready: number; stabilizing: number; blocked: number; }
 export interface RuntimeSourceScanPort { scan(now: string): Promise<RuntimeSourceScanReport>; }
