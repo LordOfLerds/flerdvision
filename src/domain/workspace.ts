@@ -28,14 +28,26 @@ export type QualificationGateKind =
   | "WORKSPACE_ISOLATION"
   | "CORE_TESTS"
   | "HOST_PREFLIGHT"
+  /** Historical W8A gate retained so old persisted runs remain readable. */
   | "SELF_SERVICE_UI"
+  /** Historical W8 demo gate retained for persisted compatibility. */
   | "DEMO_DRIVE"
+  | "PRODUCT_CONTROL_CENTER"
+  | "SOURCE_WORKFLOW"
+  | "PROGRAM_ROUTING"
+  | "CONTENT_READINESS"
   | "BROWSER_IDENTITY"
+  | "ROUTE_QUALIFICATION"
   | "INSTAGRAM_PREPARE"
   | "TIKTOK_PREPARE"
+  | "VERIFICATION_CLEANUP"
   | "SECRET_E2E"
+  | "NOTIFICATION_FLOW"
+  | "INDEPENDENT_USER_ACCEPTANCE"
+  | "SERVICE_LIFECYCLE"
   | "FAILURE_CAMPAIGN"
-  | "RESTART_PERSISTENCE";
+  | "RESTART_PERSISTENCE"
+  | "SOAK";
 
 export interface ReleaseQualificationRun {
   runId: string;
@@ -78,12 +90,46 @@ export function stagePredecessor(stage: DeploymentStage): DeploymentStage | null
   return index <= 0 ? null : STAGE_ORDER[index - 1]!;
 }
 
+const PRODUCT_ACCEPTANCE_GATES: readonly QualificationGateKind[] = [
+  "INSTALLER",
+  "WORKSPACE_ISOLATION",
+  "CORE_TESTS",
+  "HOST_PREFLIGHT",
+  "PRODUCT_CONTROL_CENTER",
+  "SOURCE_WORKFLOW",
+  "PROGRAM_ROUTING",
+  "CONTENT_READINESS",
+  "BROWSER_IDENTITY",
+  "ROUTE_QUALIFICATION",
+  "INSTAGRAM_PREPARE",
+  "TIKTOK_PREPARE",
+  "VERIFICATION_CLEANUP",
+  "SECRET_E2E",
+  "NOTIFICATION_FLOW"
+];
+
 export function requiredQualificationGates(stage: DeploymentStage): readonly QualificationGateKind[] {
-  const common: QualificationGateKind[] = ["INSTALLER", "WORKSPACE_ISOLATION", "CORE_TESTS", "HOST_PREFLIGHT", "SELF_SERVICE_UI"];
-  if (stage === "LUCA_MAC") return [...common, "DEMO_DRIVE", "BROWSER_IDENTITY", "INSTAGRAM_PREPARE", "TIKTOK_PREPARE"];
-  if (stage === "FABIAN_MAC") return [...common, "DEMO_DRIVE", "BROWSER_IDENTITY", "INSTAGRAM_PREPARE", "TIKTOK_PREPARE", "SECRET_E2E"];
-  if (stage === "VPS_STAGING") return [...common, "DEMO_DRIVE", "BROWSER_IDENTITY", "INSTAGRAM_PREPARE", "TIKTOK_PREPARE", "SECRET_E2E", "FAILURE_CAMPAIGN", "RESTART_PERSISTENCE"];
-  return [...common, "FAILURE_CAMPAIGN", "RESTART_PERSISTENCE"];
+  if (stage === "LUCA_MAC") return [...PRODUCT_ACCEPTANCE_GATES];
+  if (stage === "FABIAN_MAC") return [...PRODUCT_ACCEPTANCE_GATES, "INDEPENDENT_USER_ACCEPTANCE"];
+  if (stage === "VPS_STAGING") return [
+    ...PRODUCT_ACCEPTANCE_GATES,
+    "SERVICE_LIFECYCLE",
+    "FAILURE_CAMPAIGN",
+    "RESTART_PERSISTENCE",
+    "SOAK"
+  ];
+  return [
+    "INSTALLER",
+    "WORKSPACE_ISOLATION",
+    "CORE_TESTS",
+    "HOST_PREFLIGHT",
+    "PRODUCT_CONTROL_CENTER",
+    "SERVICE_LIFECYCLE",
+    "NOTIFICATION_FLOW",
+    "FAILURE_CAMPAIGN",
+    "RESTART_PERSISTENCE",
+    "SOAK"
+  ];
 }
 
 export function promotionState(releaseSha: string, passedStages: readonly DeploymentStage[]): ReleasePromotionState {
