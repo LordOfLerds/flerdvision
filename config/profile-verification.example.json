@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "specs": [
+    {
+      "specId": "instagram-profile-default",
+      "platform": "instagram",
+      "calibrationStatus": "UNVERIFIED",
+      "spec": {
+        "platform": "instagram",
+        "bootstrapUrl": "https://www.instagram.com/",
+        "profileUrlTemplate": "https://www.instagram.com/{handle}/",
+        "profileReadyLocators": [{ "kind": "css", "value": "__CALIBRATE__" }],
+        "postMatchLocators": [{ "kind": "css", "value": "__CALIBRATE__" }],
+        "permalinkAttribute": "href"
+      }
+    },
+    {
+      "specId": "tiktok-profile-default",
+      "platform": "tiktok",
+      "calibrationStatus": "UNVERIFIED",
+      "spec": {
+        "platform": "tiktok",
+        "bootstrapUrl": "https://www.tiktok.com/",
+        "profileUrlTemplate": "https://www.tiktok.com/@{handle}",
+        "profileReadyLocators": [{ "kind": "css", "value": "__CALIBRATE__" }],
+        "postMatchLocators": [{ "kind": "css", "value": "__CALIBRATE__" }],
+        "permalinkAttribute": "href"
+      }
+    },
+    {
+      "specId": "youtube-profile-default",
+      "platform": "youtube",
+      "calibrationStatus": "UNVERIFIED",
+      "spec": {
+        "platform": "youtube",
+        "bootstrapUrl": "https://www.youtube.com/",
+        "profileUrlTemplate": "https://www.youtube.com/@{handle}/shorts",
+        "profileReadyLocators": [{ "kind": "css", "value": "__CALIBRATE__" }],
+        "postMatchLocators": [{ "kind": "css", "value": "__CALIBRATE__" }],
+        "permalinkAttribute": "href"
+      }
+    }
+  ]
+}
