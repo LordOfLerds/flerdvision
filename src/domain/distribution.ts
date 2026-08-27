@@ -1,4 +1,5 @@
 import type { Instant, Platform, PublicationFormat } from "./model.js";
+import type { OperatingCalendar } from "./operating-calendar.js";
 import type { SchedulingPolicy } from "./scheduling.js";
 
 /**
@@ -151,7 +152,9 @@ export interface DistributionRoute {
   platform: Platform;
   postingProfileId: string;
   copyProfileId: string;
+  /** Default posting rhythm. OperatingCalendar may override this on weekdays or dates. */
   schedulePolicyId: string;
+  operatingCalendarId?: string;
   requirement: DeliveryRequirement;
   enabled: boolean;
 }
@@ -170,6 +173,7 @@ export interface PlanningCatalog {
   postingProfiles: Readonly<Record<string, PostingProfile>>;
   copyProfiles: Readonly<Record<string, CopyProfile>>;
   schedulePolicies: Readonly<Record<string, SchedulingPolicy>>;
+  operatingCalendars?: Readonly<Record<string, OperatingCalendar>>;
 }
 
 export interface PlannedDelivery {
@@ -270,4 +274,7 @@ export function assertRouteCatalogIntegrity(
   const copy = catalog.copyProfiles[route.copyProfileId];
   if (!copy || !copy.enabled) throw new Error(`Route ${route.routeId} references a missing or disabled copy profile`);
   if (!catalog.schedulePolicies[route.schedulePolicyId]) throw new Error(`Route ${route.routeId} references a missing schedule policy`);
+  if (route.operatingCalendarId && !catalog.operatingCalendars?.[route.operatingCalendarId]) {
+    throw new Error(`Route ${route.routeId} references a missing operating calendar`);
+  }
 }
