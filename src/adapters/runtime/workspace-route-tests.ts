@@ -39,11 +39,11 @@ export class WorkspaceRouteTestCommands implements RouteTestCommandPort {
     this.baselines=new SqliteSourceActivationBaselineStore(layout.databasePath);
     this.surfaces=new SqlitePlatformSurfaceStore(layout.databasePath);
     this.evidence=new SqliteRouteTestEvidenceStore(layout.databasePath);
-    const token=workspaceDriveAccessTokenProvider({configDir:layout.configDir,env:options.env??process.env});
+    const env=options.env??process.env,token=workspaceDriveAccessTokenProvider({configDir:layout.configDir,env});
     const driveClient=token?new GoogleDriveRestReadClient(token):undefined;
     const observations=new SourceLaneObservationAdapter(driveClient?{googleDriveClient:driveClient}:{});
     const safe=new SafeObserverRouteTestRunner(config,this.control,this.surfaces,observations,this.baselines);
-    const runner=new CalibratedWorkspaceRouteTestRunner(safe,config,this.control,this.runtime,options.runtimeRoot,options.workspaceId,options.releaseSha,options.env?.CHROMIUM_EXECUTABLE_PATH);
+    const runner=new CalibratedWorkspaceRouteTestRunner(safe,config,this.control,this.runtime,this.surfaces,options.runtimeRoot,options.workspaceId,options.releaseSha,env,env.CHROMIUM_EXECUTABLE_PATH);
     this.service=new PersistingRouteTestCommandService(this.evidence,runner,config,this.runtime,this.surfaces,options.releaseSha);
   }
 
