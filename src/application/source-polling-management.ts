@@ -14,7 +14,6 @@ export interface SourcePollingPolicyPreview {
 function validate(policy:SourcePollingPolicy):SourcePollingPolicy{
   if(!Number.isInteger(policy.activeIntervalMinutes)||policy.activeIntervalMinutes<1)throw new Error("Active source polling interval must be at least 1 minute");
   if(!Number.isInteger(policy.idleIntervalMinutes)||policy.idleIntervalMinutes<1)throw new Error("Idle source polling interval must be at least 1 minute");
-  // Exercises timezone and local-time parsing in the canonical poll decision implementation.
   decideSourcePoll({now:"2026-01-15T12:00:00.000Z",policy});
   return policy;
 }
@@ -26,12 +25,8 @@ export class SourcePollingPolicyManagementService {
     const current=this.store.load(),currentPolicy=current.runtimePolicy?.sourcePolling??DEFAULT_DISTRIBUTION_RUNTIME_POLICY.sourcePolling;
     validate(next);
     return{
-      currentRevision:current.revision,
-      current:currentPolicy,
-      next,
-      invalidateFutureDailyPlans:false,
-      requireRouteRetest:false,
-      preserveCommittedDeliveries:true,
+      currentRevision:current.revision,current:currentPolicy,next,
+      invalidateFutureDailyPlans:false,requireRouteRetest:false,preserveCommittedDeliveries:true,
       operatorSummary:`Source polling changes from ${currentPolicy.activeIntervalMinutes}/${currentPolicy.idleIntervalMinutes} min to ${next.activeIntervalMinutes}/${next.idleIntervalMinutes} min. Posting schedules, committed deliveries and route qualification remain unchanged.`
     };
   }
@@ -45,7 +40,7 @@ export class SourcePollingPolicyManagementService {
       config:current.config,
       schedulePolicies:current.schedulePolicies,
       planningPolicy:current.planningPolicy,
-      operatingCalendars:current.operatingCalendars,
+      ...(current.operatingCalendars?{operatingCalendars:current.operatingCalendars}:{}),
       runtimePolicy:{...runtimePolicy,sourcePolling:next}
     },expectedRevision);
     return preview;
