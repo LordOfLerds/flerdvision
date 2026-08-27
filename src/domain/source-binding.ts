@@ -1,56 +1,43 @@
 import type { Instant } from "./model.js";
 
 /**
- * Which source folder feeds which social channel.
+ * @deprecated Historical W9 setup model only. Do not use for new routing.
  *
- * The setup UI used to hold a single Drive root per workspace, which made "this folder belongs to
- * that one account" impossible to express. A binding is the per-channel mapping instead.
- *
- * Cardinality is deliberately asymmetric:
- *  - an account watches EXACTLY ONE folder, so an arriving file has one unambiguous destination;
- *  - a folder MAY feed several accounts, which is how the same clip cross-posts to Instagram
- *    and TikTok without being uploaded to Drive twice.
- */
-
-/**
- * Where a channel's material comes from. A mounted cloud folder (Google Drive for Desktop,
- * OneDrive, Dropbox) is an ordinary directory, so it needs no API credential at all -- the same
- * picker and the same bindings work either way.
+ * Canonical routing is SourceConnection -> SourceLane -> DistributionRoute. This type remains so
+ * existing SQLite rows and migrations can be read and audited. Active Product Setup and Product
+ * Control Center must never create new ChannelSourceBinding rows.
  */
 export type SourceKind = "google_drive" | "local_folder";
 
+/** @deprecated Read/migration compatibility only. */
 export interface ChannelSourceBinding {
   bindingId: string;
   accountId: string;
   source: SourceKind;
-  /** Opaque provider id. Never parsed, never used to build a path. */
+  /** Historical opaque provider folder id. */
   folderId: string;
-  /** Human-readable trail shown in the UI, e.g. "Meine Ablage / Flerdvision / Instagram Luca". */
+  /** Historical display trail. */
   folderPath: string;
-  /**
-   * Off: everything in the folder belongs to this channel.
-   * On: creator/week/day subfolders are additionally interpreted for scheduling.
-   * The flag lives on the binding, not on the workspace, so one channel can use the simple case
-   * while another uses the structured one.
-   */
+  /** Historical interpretation flag; new configuration lives on SourceLane. */
   interpretSubstructure: boolean;
   enabled: boolean;
 }
 
+/** @deprecated Read/migration compatibility only. */
 export interface StoredChannelSourceBinding {
   binding: ChannelSourceBinding;
   createdAt: Instant;
   updatedAt: Instant;
 }
 
+/** @deprecated Retained so historical storage code can report old conflicts. */
 export class ChannelSourceBindingConflictError extends Error {}
 
+/** Historical opaque-id validator also reused by compatibility readers. */
 export function assertFolderId(value: string): string {
   const normalized = value.trim();
   if (!normalized) throw new Error("Source folder id cannot be empty");
   if (normalized.length > 512) throw new Error("Source folder id is implausibly long");
-  // A provider id is an opaque token. Anything that looks like a path or a shell fragment is a
-  // sign the caller passed something it interpreted, which is exactly what must not happen here.
   if (/[\s/\\<>|"'`$;]/.test(normalized)) throw new Error(`Unsafe source folder id: ${value}`);
   return normalized;
 }
@@ -62,20 +49,12 @@ export function normalizeFolderPath(value: string): string {
   return normalized;
 }
 
+/** @deprecated Used only by historical persistence compatibility. */
 export function normalizeChannelSourceBinding(binding: ChannelSourceBinding): ChannelSourceBinding {
-  return {
-    ...binding,
-    folderId: assertFolderId(binding.folderId),
-    folderPath: normalizeFolderPath(binding.folderPath)
-  };
+  return { ...binding, folderId: assertFolderId(binding.folderId), folderPath: normalizeFolderPath(binding.folderPath) };
 }
 
+/** @deprecated Used only by historical persistence compatibility. */
 export function sameChannelSourceBinding(a: ChannelSourceBinding, b: ChannelSourceBinding): boolean {
-  return a.bindingId === b.bindingId &&
-    a.accountId === b.accountId &&
-    a.source === b.source &&
-    a.folderId === b.folderId &&
-    a.folderPath === b.folderPath &&
-    a.interpretSubstructure === b.interpretSubstructure &&
-    a.enabled === b.enabled;
+  return a.bindingId === b.bindingId && a.accountId === b.accountId && a.source === b.source && a.folderId === b.folderId && a.folderPath === b.folderPath && a.interpretSubstructure === b.interpretSubstructure && a.enabled === b.enabled;
 }
