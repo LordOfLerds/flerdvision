@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "statusVocabulary": [
+    "NOT_STARTED",
+    "CODE_ON_BRANCH",
+    "LOCAL_FOCUSED_TESTED",
+    "FRESH_CLONE_FULL_SUITE",
+    "INTEGRATED_ENTRYPOINT",
+    "HOST_VALIDATED",
+    "REAL_SURFACE_VALIDATED",
+    "USER_ACCEPTED",
+    "STAGING_VALIDATED",
+    "CANARY_VALIDATED"
+  ],
+  "rule": "No stage or feature may be called GREEN, DONE, COMPLETE or READY unless every required evidence item for that claim is true and has a durable evidenceRef.",
+  "currentAudit": {
+    "auditedPr": 1,
+    "baseSha": "0c9f2af1f12cee1bed5755e9d3bcbc77eefe59c7",
+    "auditedHeadSha": "1d134795b601810dbce4b23cc06e5dd3572c1bda",
+    "githubCiPresent": false,
+    "freshCloneFullSuiteVerified": false,
+    "allRepairChangesIntegratedIntoExistingEntrypoints": false,
+    "realSocialSurfaceTested": false,
+    "lucaMacPassed": false,
+    "fabianMacPassed": false,
+    "vpsStagingPassed": false,
+    "customerCanaryPassed": false
+  },
+  "claimRequirements": {
+    "FRESH_CLONE_FULL_SUITE": ["codeOnBranch", "freshCloneBuild", "fullSuitePass", "noSkippedRequiredTests"],
+    "INTEGRATED_ENTRYPOINT": ["codeOnBranch", "freshCloneBuild", "fullSuitePass", "wiredIntoEntrypoint", "migrationOrCompatibilityTest", "endToEndSyntheticTest"],
+    "HOST_VALIDATED": ["freshCloneBuild", "fullSuitePass", "wiredIntoEntrypoint", "hostInstallPass", "hostRestartPass"],
+    "REAL_SURFACE_VALIDATED": ["hostInstallPass", "realAuthorizedAccount", "threePrepareOnlyPasses", "verificationSurfacePass", "noUnexpectedFinalAction"],
+    "USER_ACCEPTED": ["realAuthorizedAccount", "selfServiceSetupPass", "independentUserPass", "developerInterventionsZero"],
+    "STAGING_VALIDATED": ["userAcceptancePass", "vpsInstallPass", "soakPass", "failureCampaignPass", "restartRecoveryPass"],
+    "CANARY_VALIDATED": ["stagingPass", "customerCanaryPass", "duplicatePostsZero", "wrongAccountPostsZero", "unverifiedSuccessZero"]
+  },
+  "stages": [
+    {"id":"R1","label":"Domain","highestVerified":"LOCAL_FOCUSED_TESTED","green":false,"open":["legacy binding migration/coexistence not completed","new domain not wired into existing setup/runtime entrypoints"]},
+    {"id":"R2","label":"Source lifecycle","highestVerified":"LOCAL_FOCUSED_TESTED","green":false,"open":["existing Drive/local ingress not yet wired through activation cursor + ContentAsset readiness in production runtime","asset/readiness persistence and real source scan integration incomplete","external disposition adapters not integrated from new DeliveryAggregate"]},
+    {"id":"R3","label":"Planner","highestVerified":"LOCAL_FOCUSED_TESTED","green":false,"open":["committed planner still derives planId using generatedAt","next-day backlog carry-over not committed","account-wide cap/spacing hardening not committed","DailyPlan/backlog/gap durable runtime persistence incomplete"]},
+    {"id":"R4","label":"Control UI","highestVerified":"LOCAL_FOCUSED_TESTED","green":false,"open":["no package/CLI entrypoint for Control Center","Schedule page is read-only","Content/Test Lab/Incidents/Activity projections are not integrated into Control Center navigation","new management UI not connected to existing setup/ops product","no fresh-browser user acceptance"]},
+    {"id":"R5","label":"Platform automation","highestVerified":"LOCAL_FOCUSED_TESTED","green":false,"open":["real Instagram/TikTok selectors/contracts uncalibrated","Playwright execution driver and enum-option hardening are not committed to PR","Playwright package/provider not installed or validated on target host","real prepare-only replay not run"]},
+    {"id":"R6","label":"Route Test Lab","highestVerified":"LOCAL_FOCUSED_TESTED","green":false,"open":["route test models/executor are not integrated into Control Center action flow","no real route test evidence on authorized accounts","secret-live remains intentionally gated and unrun"]},
+    {"id":"R7","label":"Runtime supervisor","highestVerified":"LOCAL_FOCUSED_TESTED","green":false,"open":["supervisor has no daemon/CLI/service entrypoint","ports are not wired to concrete Drive/planner/publisher/reconciliation/notification adapters as one deployed process","no restart/soak/failure campaign on real host"]},
+    {"id":"R8","label":"Operations and notifications","highestVerified":"CODE_ON_BRANCH","green":false,"open":["new AttentionItem policy not fully wired into existing notification outbox/operator UI","deep links/escalation policies incomplete","single unified Control UI + existing Ops UI migration incomplete"]},
+    {"id":"R9","label":"Extra workflows","highestVerified":"NOT_STARTED","green":false,"open":["daily Story workflow","metrics/tracker automation","contract-specific recurring tasks"]},
+    {"id":"R10","label":"Luca Mac","highestVerified":"NOT_STARTED","green":false,"open":["fresh clone/install","full suite","self-service setup","real account prepare-only","private E2E"]},
+    {"id":"R11","label":"Fabian Mac","highestVerified":"NOT_STARTED","green":false,"open":["independent-user acceptance on same release"]},
+    {"id":"R12","label":"VPS staging","highestVerified":"NOT_STARTED","green":false,"open":["install","service lifecycle","soak","failure campaign","restart recovery"]},
+    {"id":"R13","label":"Customer canary","highestVerified":"NOT_STARTED","green":false,"open":["blocked until all predecessor evidence is durable"]}
+  ]
+}
