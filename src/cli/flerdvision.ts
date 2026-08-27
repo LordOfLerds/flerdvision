@@ -4,6 +4,7 @@ import { authorizeWorkspaceDrive } from "../application/headless-drive-auth.js";
 import { bootstrapHeadlessWorkspace, loadWorkspaceSpecFile } from "../application/headless-bootstrap.js";
 import { runHeadlessDemo } from "../application/headless-demo.js";
 import { ensureHeadlessLogin } from "../application/headless-login.js";
+import { inspectHeadlessWorkspace } from "../application/headless-status.js";
 
 function value(argv: readonly string[], name: string): string | undefined {
   const index = argv.indexOf(name);
@@ -12,13 +13,23 @@ function value(argv: readonly string[], name: string): string | undefined {
 function values(argv: readonly string[], name: string): readonly string[] {
   const out: string[] = [];
   for (let index = 0; index < argv.length; index += 1) if (argv[index] === name && argv[index + 1]) out.push(argv[index + 1]!);
-  return out;
+  return [...new Set(out)];
 }
 function flag(argv: readonly string[], name: string): boolean { return argv.includes(name); }
 function required(argv: readonly string[], name: string): string {
   const found = value(argv, name)?.trim();
   if (!found) throw new Error(`${name} is required`);
   return found;
+}
+function positiveInteger(raw: string | undefined, fallback: number, label: string, minimum: number, maximum: number): number {
+  const parsed = raw === undefined ? fallback : Number(raw);
+  if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) throw new Error(`${label} must be an integer from ${minimum} to ${maximum}`);
+  return parsed;
+}
+function canonicalSpecPath(argv: readonly string[]): string {
+  const found = value(argv, "--spec") ?? process.env.FLERDVISION_SPEC;
+  if (!found?.trim()) throw new Error("Set --spec or FLERDVISION_SPEC to the canonical flerdvision.json file");
+  return found.trim();
 }
 function releaseSha(argv: readonly string[]): string {
   const explicit = value(argv, "--release-sha") ?? process.env.FLERDVISION_RELEASE_SHA;
@@ -35,7 +46,7 @@ function authorizedMode(argv: readonly string[]): "canary" | "production" {
   return mode;
 }
 function usage(): never {
-  console.error(`Flerdvision headless commands:\n\n  npm run flerdvision -- bootstrap --spec <flerdvision.json>\n  npm run flerdvision -- drive-auth --spec <flerdvision.json>\n  npm run flerdvision -- login --spec <flerdvision.json> --channel <channel-key>\n  npm run flerdvision -- demo --spec <flerdvision.json> [--channel <key>] [--private-publish] [--force-login] [--headless]\n  npm run flerdvision -- run-once --spec <flerdvision.json> --channel <key> --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH\n  npm run flerdvision -- daemon --spec <flerdvision.json> --channel <key> --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH [--interval 60]\n\nThe default product path has no setup/calibration UI. A social login browser opens only when human login or 2FA is needed. Final publishing additionally requires ALLOW_FINAL_PUBLISH=true.`);
+  console.error(`Flerdvision headless commands:\n\n  npm run flerdvision -- bootstrap [--spec <flerdvision.json>]\n  npm run flerdvision -- drive-auth [--spec <flerdvision.json>]\n  npm run flerdvision -- login --channel <channel-key>\n  npm run flerdvision -- doctor [--release-sha <sha>]\n  npm run flerdvision -- demo [--channel <key>] [--private-publish] [--force-login] [--headless]\n  npm run flerdvision -- run-once --channel <key> --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH\n  npm run flerdvision -- daemon --channel <key> --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH [--interval 60]\n\nSet FLERDVISION_SPEC once to avoid repeating --spec. The default product path has no setup/calibration UI. A social login browser opens only when human login or 2FA is needed. Final publishing additionally requires ALLOW_FINAL_PUBLISH=true.`);
   process.exitCode = 2;
   throw new Error("invalid arguments");
 }
@@ -43,7 +54,7 @@ function usage(): never {
 async function main(): Promise<void> {
   const [command, ...argv] = process.argv.slice(2);
   if (!command || command === "help" || flag(argv, "--help")) return usage();
-  const specPath = required(argv, "--spec");
+  const specPath = canonicalSpecPath(argv);
   if (command === "bootstrap") {
     const result = await bootstrapHeadlessWorkspace({ specPath });
     console.log(JSON.stringify({
@@ -57,13 +68,21 @@ async function main(): Promise<void> {
     return;
   }
   if (command === "drive-auth") {
-    const result = await authorizeWorkspaceDrive({ specPath, port: Number(value(argv, "--port") ?? process.env.FLERDVISION_DRIVE_OAUTH_PORT ?? "8765"), openBrowser: !flag(argv, "--no-open") });
+    const result = await authorizeWorkspaceDrive({
+      specPath,
+      port: positiveInteger(value(argv, "--port") ?? process.env.FLERDVISION_DRIVE_OAUTH_PORT, 8765, "--port", 1024, 65535),
+      openBrowser: !flag(argv, "--no-open")
+    });
     console.log(JSON.stringify(result, null, 2));
     return;
   }
   if (command === "login") {
     const result = await ensureHeadlessLogin({ specPath, channelKey: required(argv, "--channel"), onProgress: (message) => console.error(message) });
     console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  if (command === "doctor") {
+    console.log(JSON.stringify(inspectHeadlessWorkspace({ specPath, releaseSha: releaseSha(argv) }), null, 2));
     return;
   }
   if (command === "demo" || command === "auto") {
@@ -94,7 +113,7 @@ async function main(): Promise<void> {
       channelKeys: channels,
       allowFinalPublish: true,
       headless: !flag(argv, "--show-browser"),
-      maxPerCycle: Number(value(argv, "--max-per-cycle") ?? "4")
+      maxPerCycle: positiveInteger(value(argv, "--max-per-cycle"), 4, "--max-per-cycle", 1, 100)
     });
     try {
       if (command === "run-once") {
@@ -106,7 +125,7 @@ async function main(): Promise<void> {
       process.on("SIGINT", abort);
       process.on("SIGTERM", abort);
       await runtime.runDaemon({
-        intervalSeconds: Number(value(argv, "--interval") ?? "60"),
+        intervalSeconds: positiveInteger(value(argv, "--interval"), 60, "--interval", 15, 3600),
         signal,
         onCycle: (report) => console.log(JSON.stringify(report))
       });
