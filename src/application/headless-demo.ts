@@ -1,11 +1,13 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { bootstrapHeadlessWorkspace } from "./headless-bootstrap.js";
 import { ensureHeadlessLogin } from "./headless-login.js";
 import { AutonomousRouteQualifier, type AutonomousRouteQualificationResult } from "./autonomous-surface-qualification.js";
 import { accountIdForChannel } from "./workspace-spec-compiler.js";
 import { workspaceRuntimeLayout } from "./workspaces.js";
 import { calibratedSessionProbeFor, loadSessionProbeConfigFile } from "../adapters/browser/session-probe-config.js";
+import { JsonDistributionConfigurationStore } from "../adapters/distribution/json-config-store.js";
 import { WorkspaceDistributionRuntime } from "../adapters/runtime/workspace-distribution-runtime.js";
 import { WorkspacePrivateE2ECommands } from "../adapters/runtime/workspace-private-e2e.js";
 
@@ -40,6 +42,29 @@ function writeReport(path: string, report: Omit<HeadlessDemoReport, "reportPath"
   const complete: HeadlessDemoReport = { ...report, reportPath: path };
   writeFileSync(path, `${JSON.stringify(complete, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
   return complete;
+}
+function boundedSeconds(raw: string | undefined, fallback: number, label: string, minimum: number, maximum: number): number {
+  const parsed = raw === undefined ? fallback : Number(raw);
+  if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) throw new Error(`${label} must be an integer from ${minimum} to ${maximum}`);
+  return parsed;
+}
+async function verifyPrivatePublication(
+  commands: WorkspacePrivateE2ECommands,
+  runId: string,
+  env: Record<string, string | undefined>,
+  onProgress?: (message: string) => void
+): Promise<string> {
+  const timeoutSeconds = boundedSeconds(env.FLERDVISION_VERIFICATION_TIMEOUT_SECONDS, 180, "FLERDVISION_VERIFICATION_TIMEOUT_SECONDS", 30, 900);
+  const intervalSeconds = boundedSeconds(env.FLERDVISION_VERIFICATION_POLL_SECONDS, 10, "FLERDVISION_VERIFICATION_POLL_SECONDS", 5, 60);
+  const deadline = Date.now() + timeoutSeconds * 1000;
+  let last = "verification not started";
+  while (Date.now() <= deadline) {
+    last = await commands.verify(runId, new Date().toISOString());
+    if (last.includes("VERIFIED")) return last;
+    onProgress?.(`PRIVATE_PUBLISH verification pending · ${last}`);
+    await sleep(intervalSeconds * 1000);
+  }
+  throw new Error(`Private test publication was not verified within ${timeoutSeconds}s: ${last}`);
 }
 
 export async function runHeadlessDemo(input: {
@@ -98,7 +123,7 @@ export async function runHeadlessDemo(input: {
   const qualifier = new AutonomousRouteQualifier({ runtimeRoot: bootstrap.runtimeRoot, workspaceId: bootstrap.spec.workspace.id, releaseSha: input.releaseSha, env, headless: input.headlessBrowser ?? false });
   try {
     const routeIds = qualifier.routes();
-    const config = new (await import("../adapters/distribution/json-config-store.js")).JsonDistributionConfigurationStore(resolve(layout.configDir, "distribution.json"));
+    const config = new JsonDistributionConfigurationStore(resolve(layout.configDir, "distribution.json"));
     const routes = config.load().config.routes.filter((route) => routeIds.includes(route.routeId) && selectedAccountIds.has(route.accountId));
     for (const route of routes) {
       input.onProgress?.(`QUALIFY · ${route.displayName}`);
@@ -140,8 +165,7 @@ export async function runHeadlessDemo(input: {
       }, new Date().toISOString());
       await commands.prepare(run.runId, new Date().toISOString());
       const finalAction = await commands.invokeFinal(run.runId, "PRIVATE_E2E_FINAL_ACTION", new Date().toISOString());
-      const verification = await commands.verify(run.runId, new Date().toISOString());
-      if (!verification.includes("VERIFIED")) throw new Error(`Private test publication was not verified: ${verification}`);
+      const verification = await verifyPrivatePublication(commands, run.runId, env, input.onProgress);
       privatePublish = { runId: run.runId, intentId: candidate.intent.intentId, accountId: allowedAccountId, finalAction, verification, cleanupRequired: true };
       stages.push({ stage: "PRIVATE_PUBLISH", status: "PASS", summary: `${finalAction}; ${verification}; manual deletion confirmation remains required` });
       input.onProgress?.("PRIVATE_PUBLISH PASS · exactly one private test post invoked and verified");
