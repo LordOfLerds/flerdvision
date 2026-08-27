@@ -7,6 +7,7 @@ import type { ExecutableRouteTestKey } from "../../domain/route-test-ports.js";
 import type { RouteTestCommandPort } from "../../domain/route-test-command-ports.js";
 import type { SourceActivationCommandPort } from "../../domain/source-activation-ports.js";
 import type { SchedulingPolicy } from "../../domain/scheduling.js";
+import { sourceActivationCursorFingerprint } from "../../application/source-activation.js";
 import { PublishingProgramManagementService, type PublishingProgramDraft } from "../../application/publishing-program-management.js";
 import { RhythmCalendarManagementService } from "../../application/rhythm-calendar-management.js";
 import { DistributionConfigurationRevisionConflict } from "../distribution/json-config-store.js";
@@ -181,9 +182,7 @@ export class ProductControlCenterHttpServer {
         const action=this.verifyBaseline(required(params,"payload"),required(params,"signature"));
         const current=this.config.load().config.activationCursors.find(item=>item.laneId===action.laneId);
         if(!current)throw new Error(`Lane ${action.laneId} no longer has an activation cursor`);
-        const currentFingerprint=createHash("sha256").update(JSON.stringify(current,Object.keys(current).sort())).digest("hex");
-        // The application service re-checks the observation snapshot; this cursor check only catches obvious config replacement here.
-        if(!action.cursorFingerprint)throw new Error("Source baseline cursor fingerprint missing");
+        if(sourceActivationCursorFingerprint(current)!==action.cursorFingerprint)throw new Error(`Lane ${action.laneId} activation cursor changed after preview; preview again before capture`);
         await this.options.sourceActivation.captureBaseline(action.laneId,this.now(),action.snapshotFingerprint);
         this.redirect(res,"/sources");return;
       }
@@ -209,5 +208,5 @@ export class ProductControlCenterHttpServer {
     const address=this.server.address();if(!address||typeof address==="string")throw new Error("Control Center did not expose TCP address");
     return{host,port:address.port};
   }
-  async stop():Promise<void>{if(!this.server)return;const server=this.server;this.server=undefined;await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve));}
+  async stop():Promise<void>{if(!this.server)return;const server=this.server;this.server=undefined;await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));}
 }
