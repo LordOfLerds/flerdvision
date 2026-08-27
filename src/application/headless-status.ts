@@ -5,9 +5,11 @@ import { calibratedSessionProbeFor, loadSessionProbeConfigFile } from "../adapte
 import { JsonDistributionConfigurationStore } from "../adapters/distribution/json-config-store.js";
 import { SqliteDistributionRuntimeStateStore } from "../adapters/distribution/sqlite-runtime-state.js";
 import { SqlitePlatformSurfaceStore } from "../adapters/distribution/sqlite-surface-store.js";
+import { SqliteRouteTestEvidenceStore } from "../adapters/distribution/sqlite-route-test-evidence.js";
 import { FileDriveCredentialStore } from "../adapters/ingress/google-drive/drive-credentials.js";
 import { resolveFfprobeExecutablePath } from "../adapters/media/resolve-ffprobe.js";
 import { SqliteControlPlaneStore } from "../adapters/storage/sqlite.js";
+import type { RouteTestEvidenceRecord } from "../domain/route-test-ports.js";
 import { loadWorkspaceSpecFile } from "./headless-bootstrap.js";
 import { accountIdForChannel, identityIdForChannel } from "./workspace-spec-compiler.js";
 import { workspaceRuntimeLayout } from "./workspaces.js";
@@ -31,6 +33,9 @@ export interface HeadlessChannelStatus {
     prepareOnlyPasses: number;
     verificationPassed: boolean;
     releaseMatches: boolean;
+    privateE2EPassed: boolean;
+    cleanupPassedAfterPrivateE2E: boolean;
+    blockers: readonly string[];
     readyForAutonomousPublish: boolean;
   }[];
 }
@@ -57,6 +62,9 @@ function executableCheck(key: string, resolvePath: () => string | undefined): Do
   } catch (error) {
     return { key, status: "FAIL", detail: error instanceof Error ? error.message : String(error) };
   }
+}
+function latestPass(records: readonly RouteTestEvidenceRecord[], key: RouteTestEvidenceRecord["testKey"]): RouteTestEvidenceRecord | undefined {
+  return records.filter((record) => record.testKey === key && record.status === "PASS").sort((a, b) => a.checkedAt.localeCompare(b.checkedAt)).at(-1);
 }
 
 export function inspectHeadlessWorkspace(input: {
@@ -94,6 +102,7 @@ export function inspectHeadlessWorkspace(input: {
   const control = new SqliteControlPlaneStore(layout.databasePath);
   const runtime = new SqliteDistributionRuntimeStateStore(layout.databasePath);
   const surfaces = new SqlitePlatformSurfaceStore(layout.databasePath);
+  const routeEvidence = new SqliteRouteTestEvidenceStore(layout.databasePath);
   try {
     const probePath = resolve(layout.configDir, "session-probes.json");
     const probes = existsSync(probePath) ? loadSessionProbeConfigFile(probePath) : { schemaVersion: 1 as const, probes: [] };
@@ -107,37 +116,51 @@ export function inspectHeadlessWorkspace(input: {
       const sessionProbeCalibrated = Boolean(calibratedSessionProbeFor(probes, accountId, channel.platform));
       const routeRows = config.config.routes.filter((route) => route.accountId === accountId).map((route) => {
         const profile = config.config.postingProfiles.find((item) => item.postingProfileId === route.postingProfileId);
-        const latest = runtime.latestRouteTestReadiness(route.routeId)?.readiness;
+        const readiness = runtime.latestRouteTestReadiness(route.routeId)?.readiness;
         const surface = surfaces.latestContract(accountId, route.postingProfileId)?.contract;
         const readyAssets = assets.filter((item) => item.asset.laneId === route.laneId && item.asset.state === "READY").length;
-        const releaseMatches = latest?.releaseSha === input.releaseSha;
-        const readyForAutonomousPublish = Boolean(
-          latest &&
-          surface &&
-          route.enabled &&
-          account?.enabled &&
-          identity?.enabled &&
-          health?.state === "HEALTHY" &&
-          sessionProbeCalibrated &&
-          readyAssets > 0 &&
-          surface.status === "CALIBRATED" &&
-          latest.surfaceContractId === surface.contractId &&
-          latest.sourcePassed &&
-          latest.sessionPassed &&
-          latest.identityPassed &&
-          latest.prepareOnlyPasses >= 3 &&
-          latest.verificationPassed &&
-          releaseMatches
+        const releaseMatches = readiness?.releaseSha === input.releaseSha;
+        const records = routeEvidence.list(route.routeId).filter((record) =>
+          record.releaseSha === input.releaseSha &&
+          Boolean(surface) &&
+          record.surfaceContractId === surface!.contractId
         );
+        const privateE2E = latestPass(records, "SECRET_LIVE");
+        const cleanup = latestPass(records, "CLEANUP");
+        const privateE2EPassed = Boolean(privateE2E);
+        const cleanupPassedAfterPrivateE2E = Boolean(cleanup && privateE2E && cleanup.checkedAt > privateE2E.checkedAt);
+        const blockers: string[] = [];
+        if (!route.enabled) blockers.push("route_disabled");
+        if (!account?.enabled) blockers.push("account_missing_or_disabled");
+        if (!identity?.enabled) blockers.push("identity_missing_or_disabled");
+        if (health?.state !== "HEALTHY") blockers.push("session_not_healthy");
+        if (!sessionProbeCalibrated) blockers.push("session_probe_not_calibrated");
+        if (readyAssets < 1) blockers.push("no_ready_asset");
+        if (!surface || surface.status !== "CALIBRATED") blockers.push("surface_not_calibrated");
+        if (!readiness) blockers.push("route_readiness_missing");
+        else {
+          if (!releaseMatches) blockers.push("route_release_stale");
+          if (!readiness.sourcePassed) blockers.push("source_not_proven");
+          if (!readiness.sessionPassed) blockers.push("session_not_proven");
+          if (!readiness.identityPassed) blockers.push("identity_not_proven");
+          if (readiness.prepareOnlyPasses < 3) blockers.push("prepare_only_lt_3");
+          if (!readiness.verificationPassed) blockers.push("verification_surface_not_proven");
+          if (surface && readiness.surfaceContractId !== surface.contractId) blockers.push("surface_evidence_stale");
+        }
+        if (!privateE2EPassed) blockers.push("private_e2e_missing");
+        if (!cleanupPassedAfterPrivateE2E) blockers.push("private_e2e_cleanup_missing_or_stale");
         return {
           routeId: route.routeId,
           format: profile?.format ?? "unknown",
           readyAssets,
           surfaceStatus: surface?.status ?? "MISSING",
-          prepareOnlyPasses: latest?.prepareOnlyPasses ?? 0,
-          verificationPassed: latest?.verificationPassed ?? false,
+          prepareOnlyPasses: readiness?.prepareOnlyPasses ?? 0,
+          verificationPassed: readiness?.verificationPassed ?? false,
           releaseMatches,
-          readyForAutonomousPublish
+          privateE2EPassed,
+          cleanupPassedAfterPrivateE2E,
+          blockers,
+          readyForAutonomousPublish: blockers.length === 0
         };
       });
       return {
@@ -153,14 +176,16 @@ export function inspectHeadlessWorkspace(input: {
       };
     });
     for (const channel of channels) {
+      const ready = channel.routes.filter((route) => route.readyForAutonomousPublish).length;
       checks.push({
         key: `channel:${channel.channelKey}`,
-        status: channel.routes.length > 0 && channel.routes.every((route) => route.readyForAutonomousPublish) ? "PASS" : channel.accountRegistered && channel.identityRegistered ? "WARN" : "FAIL",
-        detail: `${channel.latestSessionState}; ${channel.routes.filter((route) => route.readyForAutonomousPublish).length}/${channel.routes.length} routes autonomous-ready`
+        status: channel.routes.length > 0 && ready === channel.routes.length ? "PASS" : channel.accountRegistered && channel.identityRegistered ? "WARN" : "FAIL",
+        detail: `${channel.latestSessionState}; ${ready}/${channel.routes.length} routes autonomous-ready${ready === channel.routes.length ? "" : `; blockers=${[...new Set(channel.routes.flatMap((route) => route.blockers))].join(",")}`}`
       });
     }
     return { schemaVersion: 1, checkedAt, workspaceId: spec.workspace.id, ownerEmail: spec.workspace.ownerEmail, releaseSha: input.releaseSha, checks, channels, overall: worst(checks.map((check) => check.status)) };
   } finally {
+    routeEvidence.close();
     surfaces.close();
     runtime.close();
     control.close();
