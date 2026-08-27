@@ -25,11 +25,21 @@ export interface AttentionItem {
   deepLink: string;
 }
 
+/** Login/session/identity is account-wide. Surface contracts are profile-specific below. */
 export interface ChannelReadiness {
   accountId: string;
   sessionHealth: SessionHealthState;
   identityVerified: boolean;
+  /** Legacy compatibility only. New runtime adapters must emit SurfaceReadiness separately. */
+  surfaceContract?: "CALIBRATED" | "UNVERIFIED" | "DRIFTED";
+}
+
+export interface SurfaceReadiness {
+  accountId: string;
+  postingProfileId: string;
   surfaceContract: "CALIBRATED" | "UNVERIFIED" | "DRIFTED";
+  contractId?: string;
+  environmentFingerprint?: string;
 }
 
 export interface RouteTestReadiness {
@@ -41,6 +51,8 @@ export interface RouteTestReadiness {
   secretLivePassed: boolean;
   verificationPassed: boolean;
   cleanupPassed: boolean;
+  releaseSha?: string;
+  surfaceContractId?: string;
 }
 
 export interface TodaySlotView {
@@ -68,6 +80,7 @@ export interface RouteManagementRow {
   requirement: string;
   enabled: boolean;
   readiness: "READY" | "NEEDS_TEST" | "BLOCKED";
+  blockers: readonly string[];
 }
 
 export interface ControlCenterReadModel {
@@ -83,23 +96,31 @@ export interface ControlCenterReadModel {
 }
 
 function gapAttention(gap: DailyPlanGap): AttentionItem {
-  const severity: AttentionSeverity = gap.kind === "ACCOUNT_SLOT_CONFLICT" || gap.kind === "ROUTE_CONFIGURATION_INVALID"
+  const severity: AttentionSeverity = [
+    "ACCOUNT_SLOT_CONFLICT",
+    "ACCOUNT_DAILY_CAP_CONFLICT",
+    "ACCOUNT_MINIMUM_SPACING_CONFLICT",
+    "ROUTE_CONFIGURATION_INVALID"
+  ].includes(gap.kind)
     ? "CRITICAL"
     : gap.kind === "LATE_ARRIVAL_REQUIRES_REVIEW"
       ? "ACTION_REQUIRED"
       : "WARNING";
-  const title = gap.kind === "MISSING_CONTENT"
-    ? "Content fehlt für geplanten Slot"
-    : gap.kind === "ACCOUNT_SLOT_CONFLICT"
-      ? "Konto hat zwei Deliveries im selben Slot"
-      : gap.kind === "ROUTE_CONFIGURATION_INVALID"
-        ? "Route ist unvollständig konfiguriert"
-        : "Späte Datei braucht Entscheidung";
+
+  const titleByKind: Record<DailyPlanGap["kind"], string> = {
+    MISSING_CONTENT: "Content fehlt für geplanten Slot",
+    ACCOUNT_SLOT_CONFLICT: "Konto hat zwei Deliveries im selben Slot",
+    ACCOUNT_DAILY_CAP_CONFLICT: "Tageslimit des Kontos wird überschritten",
+    ACCOUNT_MINIMUM_SPACING_CONFLICT: "Mindestabstand des Kontos wird verletzt",
+    ROUTE_CONFIGURATION_INVALID: "Route ist unvollständig konfiguriert",
+    LATE_ARRIVAL_REQUIRES_REVIEW: "Späte Datei braucht Entscheidung"
+  };
+
   return {
     attentionId: `attention:${gap.gapId}`,
     severity,
     kind: gap.kind,
-    title,
+    title: titleByKind[gap.kind],
     impact: gap.reason,
     ...(gap.routeId ? { routeId: gap.routeId } : {}),
     ...(gap.accountId ? { accountId: gap.accountId } : {}),
@@ -110,12 +131,14 @@ function gapAttention(gap: DailyPlanGap): AttentionItem {
 }
 
 function backlogAttention(item: BacklogItem): AttentionItem {
+  const actionRequired = item.reason === "MANUAL_REVIEW";
+  const carry = item.carryToBusinessDate ? ` Carry-over: ${item.carryToBusinessDate}.` : "";
   return {
     attentionId: `attention:${item.backlogId}`,
-    severity: item.reason === "MANUAL_REVIEW" ? "ACTION_REQUIRED" : "INFO",
+    severity: actionRequired ? "ACTION_REQUIRED" : "INFO",
     kind: "BACKLOG",
-    title: item.reason === "MANUAL_REVIEW" ? "Backlog braucht Entscheidung" : "Content in Backlog verschoben",
-    impact: `Asset ${item.assetId} hat in ${item.businessDate} keinen sicheren Slot erhalten (${item.reason}).`,
+    title: actionRequired ? "Backlog braucht Entscheidung" : "Content in Backlog verschoben",
+    impact: `Asset ${item.assetId} hat in ${item.businessDate} keinen sicheren Slot erhalten (${item.reason}).${carry}`,
     routeId: item.routeId,
     assetId: item.assetId,
     deepLink: `/content/${encodeURIComponent(item.assetId)}`
@@ -130,6 +153,7 @@ export interface ControlCenterProjectionInput {
   postingProfiles: Readonly<Record<string, PostingProfile>>;
   accounts: readonly SocialAccount[];
   channelReadiness: readonly ChannelReadiness[];
+  surfaceReadiness?: readonly SurfaceReadiness[];
   routeTests: readonly RouteTestReadiness[];
   assets: readonly ContentAsset[];
 }
@@ -138,6 +162,7 @@ export function projectControlCenter(input: ControlCenterProjectionInput): Contr
   const lanes = new Map(input.lanes.map((lane) => [lane.laneId, lane]));
   const accounts = new Map(input.accounts.map((account) => [account.accountId, account]));
   const health = new Map(input.channelReadiness.map((item) => [item.accountId, item]));
+  const surfaces = new Map((input.surfaceReadiness ?? []).map((item) => [`${item.accountId}|${item.postingProfileId}`, item]));
   const tests = new Map(input.routeTests.map((item) => [item.routeId, item]));
 
   const slotGroups = new Map<string, TodaySlotView>();
@@ -162,10 +187,30 @@ export function projectControlCenter(input: ControlCenterProjectionInput): Contr
     const lane = lanes.get(route.laneId);
     const account = accounts.get(route.accountId);
     const channel = health.get(route.accountId);
+    const surface = surfaces.get(`${route.accountId}|${route.postingProfileId}`);
+    const legacySurface = channel?.surfaceContract;
+    const surfaceStatus = surface?.surfaceContract ?? legacySurface ?? "UNVERIFIED";
     const test = tests.get(route.routeId);
     const posting = input.postingProfiles[route.postingProfileId];
-    const blocked = !route.enabled || !lane?.enabled || !account?.enabled || channel?.sessionHealth !== "HEALTHY" || !channel.identityVerified || channel.surfaceContract === "DRIFTED";
-    const tested = Boolean(test?.sourcePassed && test.sessionPassed && test.identityPassed && test.prepareOnlyPasses >= 3 && test.verificationPassed);
+    const blockers: string[] = [];
+
+    if (!route.enabled) blockers.push("route_paused");
+    if (!lane?.enabled) blockers.push("source_lane_missing_or_paused");
+    if (!account?.enabled) blockers.push("account_missing_or_paused");
+    if (!channel || channel.sessionHealth !== "HEALTHY") blockers.push(`session_${channel?.sessionHealth ?? "UNKNOWN"}`);
+    if (!channel?.identityVerified) blockers.push("identity_not_verified");
+    if (surfaceStatus === "DRIFTED") blockers.push("surface_contract_drifted");
+
+    const hardBlocked = blockers.length > 0;
+    const platformQualified = surfaceStatus === "CALIBRATED";
+    const tested = Boolean(
+      test?.sourcePassed &&
+      test.sessionPassed &&
+      test.identityPassed &&
+      test.prepareOnlyPasses >= 3 &&
+      test.verificationPassed
+    );
+
     return {
       routeId: route.routeId,
       displayName: route.displayName,
@@ -176,7 +221,8 @@ export function projectControlCenter(input: ControlCenterProjectionInput): Contr
       postingProfile: posting?.displayName ?? "MISSING",
       requirement: route.requirement,
       enabled: route.enabled,
-      readiness: blocked ? "BLOCKED" : tested ? "READY" : "NEEDS_TEST"
+      readiness: hardBlocked ? "BLOCKED" : platformQualified && tested ? "READY" : "NEEDS_TEST",
+      blockers
     };
   });
 
@@ -190,9 +236,20 @@ export function projectControlCenter(input: ControlCenterProjectionInput): Contr
       severity: "ACTION_REQUIRED",
       kind: "ROUTE_BLOCKED",
       title: `${row.displayName} ist nicht bereit`,
-      impact: "Mindestens Source, Account, Session, Identity oder Surface Contract blockiert die Route.",
+      impact: `Blocker: ${row.blockers.join(", ") || "unknown"}.`,
       routeId: row.routeId,
       deepLink: `/routes/${encodeURIComponent(row.routeId)}`
+    });
+  }
+  for (const row of routeRows.filter((route) => route.readiness === "NEEDS_TEST")) {
+    attention.push({
+      attentionId: `attention:route-test:${row.routeId}`,
+      severity: "WARNING",
+      kind: "ROUTE_NEEDS_TEST",
+      title: `${row.displayName} ist noch nicht qualifiziert`,
+      impact: "Surface Contract und/oder die verpflichtenden Prepare-only-/Verification-Tests fehlen.",
+      routeId: row.routeId,
+      deepLink: `/test-lab?routeId=${encodeURIComponent(row.routeId)}`
     });
   }
 
