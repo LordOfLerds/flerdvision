@@ -45,7 +45,8 @@ interface ReportRow { cycle_id:string; report_json:string; payload_hash:string; 
 
 export class SqliteRuntimeCycleReportStore implements RuntimeCycleReportStorePort {
   private readonly db:DatabaseSync;
-  constructor(databasePath:string){
+  constructor(databasePath:string,private readonly workspaceId:string){
+    if(!workspaceId.trim())throw new Error("Runtime cycle report workspaceId is required");
     this.db=new DatabaseSync(databasePath);
     this.db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;");
     this.db.exec(`
@@ -73,14 +74,13 @@ export class SqliteRuntimeCycleReportStore implements RuntimeCycleReportStorePor
       if(existing.payload_hash!==digest||existing.report_json!==payload)throw new RuntimeCycleReportConflictError(`Runtime cycle ${report.cycleId} already has different report payload`);
       return;
     }
-    const workspaceId=report.ownerId.split(":")[0]??"unknown";
     this.db.prepare("INSERT INTO runtime_cycle_reports(cycle_id,workspace_id,owner_id,started_at,finished_at,business_date,healthy,report_json,payload_hash) VALUES (?,?,?,?,?,?,?,?,?)")
-      .run(report.cycleId,workspaceId,report.ownerId,iso(report.startedAt),iso(report.finishedAt),report.businessDate,report.healthy?1:0,payload,digest);
+      .run(report.cycleId,this.workspaceId,report.ownerId,iso(report.startedAt),iso(report.finishedAt),report.businessDate,report.healthy?1:0,payload,digest);
   }
 
   latest(limit:number=20):readonly RuntimeCycleReport[]{
     if(!Number.isInteger(limit)||limit<1||limit>500)throw new Error("Runtime cycle report limit must be 1..500");
-    const rows=this.db.prepare("SELECT report_json FROM runtime_cycle_reports ORDER BY started_at DESC,cycle_id DESC LIMIT ?").all(limit) as {report_json:string}[];
+    const rows=this.db.prepare("SELECT report_json FROM runtime_cycle_reports WHERE workspace_id=? ORDER BY started_at DESC,cycle_id DESC LIMIT ?").all(this.workspaceId,limit) as {report_json:string}[];
     return rows.map(row=>JSON.parse(row.report_json) as RuntimeCycleReport);
   }
 
