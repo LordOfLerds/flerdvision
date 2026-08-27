@@ -40,3 +40,26 @@ test("runtime planner persists plan and carries explicit next-day backlog",async
   assert.equal(runtime.latestDailyPlan("2026-08-28").plan.planId,day2.planId);
   runtime.close();
 });
+
+test("superseded DailyPlan history cannot resurrect removed backlog",async()=>{
+  const root=mkdtempSync(join(tmpdir(),"flerdvision-runtime-heads-"));
+  const runtime=new SqliteDistributionRuntimeStateStore(join(root,"state.sqlite"));
+  runtime.putAsset(asset("old-backlog","02.mp4","2026-08-27"),"2026-08-27T06:10:00.000Z");
+  runtime.putDailyPlan({
+    planId:"daily-plan:old-revision",businessDate:"2026-08-27",generatedAt:"2026-08-27T06:15:00.000Z",deliveries:[],gaps:[],
+    backlog:[{backlogId:"backlog:old",businessDate:"2026-08-27",routeId:"route",assetId:"old-backlog",reason:"NEXT_DAY",carriedFromBusinessDate:"2026-08-27",carryToBusinessDate:"2026-08-28"}]
+  },"2026-08-27T06:15:00.000Z");
+  runtime.putDailyPlan({
+    planId:"daily-plan:replacement",businessDate:"2026-08-27",generatedAt:"2026-08-27T06:20:00.000Z",deliveries:[],gaps:[],backlog:[]
+  },"2026-08-27T06:20:00.000Z");
+
+  assert.equal(runtime.listDailyPlans("2026-08-27").length,2,"audit history is retained");
+  assert.equal(runtime.listCurrentDailyPlans().length,1,"only one operational head remains");
+  assert.equal(runtime.listCurrentDailyPlans()[0].plan.planId,"daily-plan:replacement");
+
+  const adapter=new PersistedDistributionPlannerAdapter({load(){return config();},save(){throw new Error("read only");}},runtime);
+  const day2=await adapter.ensureDailyPlan("2026-08-28","2026-08-28T06:15:00.000Z");
+  assert.equal(day2.deliveries.length,0,"removed backlog must not return from audit history");
+  assert.equal(day2.backlog.length,0);
+  runtime.close();
+});
