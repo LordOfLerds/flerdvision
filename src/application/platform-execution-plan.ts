@@ -3,6 +3,7 @@ import type { PlatformExecutionAction, PlatformExecutionPlan } from "../domain/p
 import type { PlatformSurfaceContract, SurfaceContractStep } from "../domain/platform-surface.js";
 
 function locators(step:SurfaceContractStep){return[step.locator,...step.fallbackLocators];}
+function booleanExpected(step:SurfaceContractStep,desired:boolean):boolean{return step.booleanPolarity==="INVERTED"?!desired:desired;}
 function actionFor(step:SurfaceContractStep,context:DistributionPostingContext):PlatformExecutionAction{
   const p=context.postingProfile;
   if(step.stepKey==="UPLOAD_MEDIA")return{stepKey:step.stepKey,operation:"SET_MEDIA",locators:locators(step)};
@@ -13,12 +14,12 @@ function actionFor(step:SurfaceContractStep,context:DistributionPostingContext):
     if(p.platform!=="tiktok"&&p.platform!=="youtube")throw new Error("Visibility step is not valid for this posting profile");
     return{stepKey:step.stepKey,operation:"SELECT_ENUM",locators:locators(step),settingKey:"visibility",expectedValue:p.visibility};
   }
-  if(step.stepKey==="COMMENTS")return{stepKey:step.stepKey,operation:"ENSURE_BOOLEAN",locators:locators(step),settingKey:"commentsEnabled",expectedValue:p.commentsEnabled};
-  if(step.stepKey==="DUET"){if(p.platform!=="tiktok")throw new Error("Duet step requires TikTok profile");return{stepKey:step.stepKey,operation:"ENSURE_BOOLEAN",locators:locators(step),settingKey:"duetEnabled",expectedValue:p.duetEnabled};}
-  if(step.stepKey==="STITCH"){if(p.platform!=="tiktok")throw new Error("Stitch step requires TikTok profile");return{stepKey:step.stepKey,operation:"ENSURE_BOOLEAN",locators:locators(step),settingKey:"stitchEnabled",expectedValue:p.stitchEnabled};}
-  if(step.stepKey==="SHARE_TO_FEED"){if(p.platform!=="instagram")throw new Error("Share-to-feed step requires Instagram profile");return{stepKey:step.stepKey,operation:"ENSURE_BOOLEAN",locators:locators(step),settingKey:"shareToFeed",expectedValue:p.shareToFeed};}
-  if(step.stepKey==="CROSSPOST_FACEBOOK"){if(p.platform!=="instagram")throw new Error("Facebook crosspost step requires Instagram profile");return{stepKey:step.stepKey,operation:"ENSURE_BOOLEAN",locators:locators(step),settingKey:"crosspostFacebook",expectedValue:p.crosspostFacebook};}
-  if(step.stepKey==="TRIAL_MODE")return{stepKey:step.stepKey,operation:"ENSURE_BOOLEAN",locators:locators(step),settingKey:"trialMode",expectedValue:true};
+  if(step.stepKey==="COMMENTS")return{stepKey:step.stepKey,operation:"ENSURE_BOOLEAN",locators:locators(step),settingKey:"commentsEnabled",expectedValue:booleanExpected(step,p.commentsEnabled)};
+  if(step.stepKey==="DUET"){if(p.platform!=="tiktok")throw new Error("Duet step requires TikTok profile");return{stepKey:step.stepKey,operation:"ENSURE_BOOLEAN",locators:locators(step),settingKey:"duetEnabled",expectedValue:booleanExpected(step,p.duetEnabled)};}
+  if(step.stepKey==="STITCH"){if(p.platform!=="tiktok")throw new Error("Stitch step requires TikTok profile");return{stepKey:step.stepKey,operation:"ENSURE_BOOLEAN",locators:locators(step),settingKey:"stitchEnabled",expectedValue:booleanExpected(step,p.stitchEnabled)};}
+  if(step.stepKey==="SHARE_TO_FEED"){if(p.platform!=="instagram")throw new Error("Share-to-feed step requires Instagram profile");return{stepKey:step.stepKey,operation:"ENSURE_BOOLEAN",locators:locators(step),settingKey:"shareToFeed",expectedValue:booleanExpected(step,p.shareToFeed)};}
+  if(step.stepKey==="CROSSPOST_FACEBOOK"){if(p.platform!=="instagram")throw new Error("Facebook crosspost step requires Instagram profile");return{stepKey:step.stepKey,operation:"ENSURE_BOOLEAN",locators:locators(step),settingKey:"crosspostFacebook",expectedValue:booleanExpected(step,p.crosspostFacebook)};}
+  if(step.stepKey==="TRIAL_MODE")return{stepKey:step.stepKey,operation:"ENSURE_BOOLEAN",locators:locators(step),settingKey:"trialMode",expectedValue:booleanExpected(step,true)};
   return{stepKey:step.stepKey,operation:"CLICK",locators:locators(step)};
 }
 
