@@ -1,4 +1,5 @@
 import { setTimeout as sleep } from "node:timers/promises";
+import { normalizeAutonomousSurfaceContract } from "../../application/autonomous-surface-contract.js";
 import type { BrowserIdentity } from "../../domain/browser-identity.js";
 import type { BrowserPageSessionPort } from "../../domain/browser-identity-ports.js";
 import type { PostingProfile } from "../../domain/distribution.js";
@@ -254,6 +255,7 @@ export class AutonomousSurfaceSettings {
     const final = input.contract.steps.at(-1)!;
     const base = input.contract.steps.slice(0, -1).filter((step) => !settings.some((setting) => setting.stepKey === step.stepKey));
     artifactRefs.push(await this.artifacts.writeJournal(input.intent, journal, this.now()));
-    return { contract: { ...input.contract, steps: [...base, ...settings, final] }, artifactRefs, journal };
+    const enriched: PlatformSurfaceContract = { ...input.contract, steps: [...base, ...settings, final] };
+    return { contract: normalizeAutonomousSurfaceContract(enriched, input.postingProfile), artifactRefs, journal };
   }
 }
