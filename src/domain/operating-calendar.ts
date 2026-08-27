@@ -1,4 +1,5 @@
 import type { DistributionRoute } from "./distribution.js";
+import type { SchedulingPolicy } from "./scheduling.js";
 
 export interface OperatingCalendarWeekdayRule {
   /** ISO weekday: Monday=1 ... Sunday=7. */
@@ -48,6 +49,34 @@ export function assertOperatingCalendar(calendar: OperatingCalendar): void {
   for (const override of calendar.dateOverrides) isoWeekday(override.businessDate);
   const dates = calendar.dateOverrides.map((item) => item.businessDate);
   if (new Set(dates).size !== dates.length) throw new Error(`Operating calendar ${calendar.calendarId} has duplicate date overrides`);
+}
+
+export function assertOperatingCalendarCatalog(
+  calendars: readonly OperatingCalendar[],
+  schedulePolicies: Readonly<Record<string, SchedulingPolicy>>
+): void {
+  const ids = calendars.map((calendar) => calendar.calendarId);
+  if (new Set(ids).size !== ids.length) throw new Error("Duplicate operating calendar id");
+  for (const calendar of calendars) {
+    assertOperatingCalendar(calendar);
+    for (const rule of calendar.weekdayRules) {
+      if (rule.schedulePolicyId && !schedulePolicies[rule.schedulePolicyId]) {
+        throw new Error(`Operating calendar ${calendar.calendarId} weekday ${rule.isoWeekday} references missing schedule policy ${rule.schedulePolicyId}`);
+      }
+    }
+    for (const override of calendar.dateOverrides) {
+      if (override.schedulePolicyId && !schedulePolicies[override.schedulePolicyId]) {
+        throw new Error(`Operating calendar ${calendar.calendarId} date ${override.businessDate} references missing schedule policy ${override.schedulePolicyId}`);
+      }
+    }
+  }
+}
+
+export function assertRouteCalendarReference(route: DistributionRoute, calendars: readonly OperatingCalendar[]): void {
+  if (!route.operatingCalendarId) return;
+  if (!calendars.some((calendar) => calendar.calendarId === route.operatingCalendarId)) {
+    throw new Error(`Route ${route.routeId} references missing operating calendar ${route.operatingCalendarId}`);
+  }
 }
 
 export function effectiveRouteCalendar(
