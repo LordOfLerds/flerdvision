@@ -24,7 +24,7 @@ export class LegacyBindingMigrationService {
       const key=`${record.binding.source}|${record.binding.folderId}`;
       const list=grouped.get(key)??[];list.push(record);grouped.set(key,list);
     }
-    const folderGroups:LegacyFolderMigrationGroup[]=[...grouped.entries()].map(([key,items])=>{
+    const folderGroups:LegacyFolderMigrationGroup[]=[...grouped.entries()].map(([key,items]):LegacyFolderMigrationGroup=>{
       const reasons:string[]=[];
       const paths=[...new Set(items.map(item=>item.binding.folderPath))];
       if(paths.length!==1)reasons.push("same provider folder id has conflicting display paths");
@@ -89,7 +89,7 @@ export class LegacyBindingMigrationService {
       const before=this.config.load(),map=new Map(before.config.routes.map(route=>[route.routeId,route]));
       for(const route of routes)map.set(route.routeId,route);
       const nextConfig={...before.config,routes:[...map.values()]};assertConfigurationReferentialIntegrity(nextConfig);
-      this.config.save({updatedAt:new Date(params.now).toISOString(),config:nextConfig,schedulePolicies:before.schedulePolicies,operatingCalendars:before.operatingCalendars,planningPolicy:before.planningPolicy,...(before.runtimePolicy?{runtimePolicy:before.runtimePolicy}:{})},before.revision);
+      this.config.save({updatedAt:new Date(params.now).toISOString(),config:nextConfig,schedulePolicies:before.schedulePolicies,...(before.operatingCalendars ? { operatingCalendars: before.operatingCalendars } : {}),planningPolicy:before.planningPolicy,...(before.runtimePolicy?{runtimePolicy:before.runtimePolicy}:{})},before.revision);
     }
     return{laneId:onboarding.lane.laneId,createdRoutes:routes.map(route=>route.routeId),manualReview};
   }

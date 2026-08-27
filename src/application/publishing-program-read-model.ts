@@ -65,7 +65,7 @@ export function projectPublishingPrograms(input:{
     postingProfiles,
     accounts:input.runtime.accounts,
     channelReadiness:input.runtime.channelReadiness,
-    surfaceReadiness:input.runtime.surfaceReadiness,
+    ...(input.runtime.surfaceReadiness ? { surfaceReadiness: input.runtime.surfaceReadiness } : {}),
     routeTests:input.runtime.routeTests,
     assets:input.runtime.assets
   });

@@ -29,7 +29,7 @@ export class WorkspaceQualificationSyncAdapter {
 
   private freshIdentityAccounts(checkedAfter:string):readonly string[]{
     const minimum=new Date(checkedAfter).getTime();
-    const groups=new Map<string,ReturnType<SqliteControlPlaneStore["listBrowserIdentities"]>>();
+    const groups=new Map<string,ReturnType<SqliteControlPlaneStore["listBrowserIdentities"]>[number][]>();
     for(const record of this.control.listBrowserIdentities()){
       const identity=record.identity;if(!identity.enabled)continue;
       const group=groups.get(identity.accountId)??[];group.push(record);groups.set(identity.accountId,group);

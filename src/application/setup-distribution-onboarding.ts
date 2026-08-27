@@ -95,7 +95,7 @@ export class SetupDistributionOnboardingService {
       updatedAt:timestamp,
       config:nextConfig,
       schedulePolicies:current.schedulePolicies,
-      operatingCalendars:current.operatingCalendars,
+      ...(current.operatingCalendars ? { operatingCalendars: current.operatingCalendars } : {}),
       planningPolicy:current.planningPolicy,
       ...(current.runtimePolicy?{runtimePolicy:current.runtimePolicy}:{})
     },current.revision);

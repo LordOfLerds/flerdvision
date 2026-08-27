@@ -52,10 +52,28 @@ declare module "node:fs" {
   export function accessSync(path: string, mode?: number): void;
   export const constants: { X_OK: number };
   export function createWriteStream(path: string, options?: { mode?: number }): unknown;
+  export interface ReadStream {
+    on(event: "data", listener: (chunk: Uint8Array) => void): this;
+    on(event: "error", listener: (error: Error) => void): this;
+    on(event: "end", listener: () => void): this;
+  }
+  export function createReadStream(path: string, options?: { encoding?: string }): ReadStream;
   export function mkdtempSync(prefix: string): string;
   export function copyFileSync(source: string, destination: string): void;
   export function cpSync(source: string, destination: string, options?: { recursive?: boolean; force?: boolean; errorOnExist?: boolean }): void;
   export function readdirSync(path: string): string[];
+}
+
+declare module "node:fs/promises" {
+  export function mkdir(path: string, options?: { recursive?: boolean; mode?: number }): Promise<string | undefined>;
+  export function readFile(path: string, encoding: "utf8"): Promise<string>;
+  export function readFile(path: string): Promise<Uint8Array>;
+  export function writeFile(path: string, data: string | Uint8Array, options?: { encoding?: string; mode?: number }): Promise<void>;
+  export function rename(oldPath: string, newPath: string): Promise<void>;
+  export function rm(path: string, options?: { force?: boolean; recursive?: boolean }): Promise<void>;
+  export function stat(path: string): Promise<{ size: number; mode: number; mtime: { toISOString(): string }; isFile(): boolean; isDirectory(): boolean }>;
+  export function copyFile(source: string, destination: string): Promise<void>;
+  export function readdir(path: string): Promise<string[]>;
 }
 
 declare module "node:path" {
@@ -65,6 +83,8 @@ declare module "node:path" {
   export function join(...paths: string[]): string;
   export function dirname(path: string): string;
   export function basename(path: string): string;
+  export function extname(path: string): string;
+  export function relative(from: string, to: string): string;
 }
 
 declare module "node:child_process" {

@@ -24,7 +24,7 @@ export class SqliteSourcePollingStateStore implements SourcePollingStateStorePor
     const state:SourcePollingRuntimeState={skippedCycles:row.skipped_cycles,updatedAt:row.updated_at};
     if(row.last_poll_at)state.lastPollAt=row.last_poll_at;
     if(row.next_poll_at)state.nextPollAt=row.next_poll_at;
-    if(row.last_trigger)state.lastTrigger=row.last_trigger as SourcePollingRuntimeState["lastTrigger"];
+    if(row.last_trigger)state.lastTrigger=row.last_trigger as NonNullable<SourcePollingRuntimeState["lastTrigger"]>;
     return state;
   }
   put(state:SourcePollingRuntimeState):SourcePollingRuntimeState{

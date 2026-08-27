@@ -73,7 +73,7 @@ export class RhythmCalendarManagementService {
       updatedAt:new Date(now).toISOString(),
       config:preview.next.config,
       schedulePolicies:preview.next.schedulePolicies,
-      operatingCalendars:preview.next.operatingCalendars,
+      ...(preview.next.operatingCalendars ? { operatingCalendars: preview.next.operatingCalendars } : {}),
       planningPolicy:preview.next.planningPolicy,
       ...(preview.next.runtimePolicy?{runtimePolicy:preview.next.runtimePolicy}:{})
     },expectedRevision);
@@ -112,7 +112,7 @@ export class RhythmCalendarManagementService {
       updatedAt:new Date(now).toISOString(),
       config:preview.next.config,
       schedulePolicies:preview.next.schedulePolicies,
-      operatingCalendars:preview.next.operatingCalendars,
+      ...(preview.next.operatingCalendars ? { operatingCalendars: preview.next.operatingCalendars } : {}),
       planningPolicy:preview.next.planningPolicy,
       ...(preview.next.runtimePolicy?{runtimePolicy:preview.next.runtimePolicy}:{})
     },expectedRevision);

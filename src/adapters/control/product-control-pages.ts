@@ -31,7 +31,7 @@ body{margin:0;font-family:system-ui,-apple-system,sans-serif;color:#18221f;backg
 
 function control(ctx:ProductControlPageContext){
   const postingProfiles=Object.fromEntries(ctx.stored.config.postingProfiles.map(item=>[item.postingProfileId,item]));
-  return projectControlCenter({plan:ctx.runtime.plan,sources:ctx.stored.config.sources,lanes:ctx.stored.config.lanes,routes:ctx.stored.config.routes,postingProfiles,accounts:ctx.runtime.accounts,channelReadiness:ctx.runtime.channelReadiness,surfaceReadiness:ctx.runtime.surfaceReadiness,routeTests:ctx.runtime.routeTests,assets:ctx.runtime.assets});
+  return projectControlCenter({plan:ctx.runtime.plan,sources:ctx.stored.config.sources,lanes:ctx.stored.config.lanes,routes:ctx.stored.config.routes,postingProfiles,accounts:ctx.runtime.accounts,channelReadiness:ctx.runtime.channelReadiness,...(ctx.runtime.surfaceReadiness ? { surfaceReadiness: ctx.runtime.surfaceReadiness } : {}),routeTests:ctx.runtime.routeTests,assets:ctx.runtime.assets});
 }
 
 function today(ctx:ProductControlPageContext):string{
@@ -71,7 +71,7 @@ function programs(ctx:ProductControlPageContext):string{
 }
 
 function content(ctx:ProductControlPageContext):string{
-  const rows=projectContentQueue({assets:ctx.runtime.assets,plan:ctx.runtime.plan,lanes:ctx.stored.config.lanes,routes:ctx.stored.config.routes,aggregates:ctx.runtime.deliveryAggregates});
+  const rows=projectContentQueue({assets:ctx.runtime.assets,plan:ctx.runtime.plan,lanes:ctx.stored.config.lanes,routes:ctx.stored.config.routes,...(ctx.runtime.deliveryAggregates ? { aggregates: ctx.runtime.deliveryAggregates } : {})});
   const html=rows.map(item=>`<tr><td><strong>${esc(item.filename)}</strong><br><code>${esc(item.assetId)}</code></td><td>${esc(item.laneName)}</td><td class="${item.status==="BLOCKED"?"bad":item.status==="PARTIAL"?"warn":item.status==="COMPLETE"?"ok":""}">${esc(item.status)}</td><td>${item.targetAccountIds.map(esc).join("<br>")||"—"}</td><td>${item.scheduledFor.map(value=>esc(new Date(value).toLocaleString("de-AT",{timeZone:"Europe/Vienna"}))).join("<br>")||"—"}</td></tr>`).join("");
   return shell("Content","/content",`<h1>Content</h1><div class=card><table><tr><th>Datei</th><th>Lane</th><th>Status</th><th>Targets</th><th>Geplant</th></tr>${html||"<tr><td colspan=5>Keine Assets.</td></tr>"}</table></div>`);
 }
@@ -105,7 +105,7 @@ function testLab(ctx:ProductControlPageContext):string{
   const profiles=new Map(ctx.stored.config.postingProfiles.map(item=>[item.postingProfileId,item])),evidence=new Map(ctx.runtime.routeTests.map(item=>[item.routeId,item]));
   const surfaces=new Map((ctx.runtime.surfaceReadiness??[]).map(item=>[`${item.accountId}|${item.postingProfileId}`,item]));
   const cards=ctx.stored.config.routes.map(route=>{
-    const matrix=buildRouteTestMatrix({route,profile:profiles.get(route.postingProfileId),account:accounts.get(route.accountId),channel:channels.get(route.accountId),surface:surfaces.get(`${route.accountId}|${route.postingProfileId}`),evidence:evidence.get(route.routeId)});
+    const matrix=buildRouteTestMatrix({route,profile:profiles.get(route.postingProfileId),account:accounts.get(route.accountId),channel:channels.get(route.accountId),...((s=>s?{surface:s}:{})(surfaces.get(`${route.accountId}|${route.postingProfileId}`))),evidence:evidence.get(route.routeId)});
     const caps=new Map((ctx.routeTests?.capabilities(route.routeId)??[]).map(item=>[item.testKey,item]));
     const cases=matrix.cases.map(test=>{
       if(test.testKey==="SECRET_LIVE")return`<div class=test-case><h4>${esc(test.label)}</h4><strong>${esc(test.status)}</strong><p>${esc(test.detail)}</p><small>Nur canonical Private-E2E + One-Shot Permit; kein normaler Run-Button.</small></div>`;

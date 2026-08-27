@@ -16,8 +16,22 @@ export function deriveWorkspaceQualificationEvidence(input:{
   releaseSha:string;
   stored:StoredDistributionConfiguration;
   runtime:ControlCenterRuntimeSnapshot;
+  /** When the run started. Identity evidence older than this does not qualify it. */
+  qualificationStartedAt?:string;
+  /**
+   * Evaluation time. A source poll that is already overdue describes a host that has stopped
+   * polling, so it must not qualify the source gate merely because it polled once in the past.
+   */
+  evaluatedAt?:string;
+  /**
+   * Accounts whose identity was verified after the run started. Without this constraint the
+   * identity gate can pass on a check collected before the release under qualification even
+   * existed, which is precisely the staleness the gate is meant to catch.
+   */
+  freshIdentityAccountIds?:readonly string[];
 }):readonly DerivedQualificationEvidence[]{
   const {workspaceId,releaseSha,stored,runtime}=input,out:DerivedQualificationEvidence[]=[];
+  const freshIdentity=input.freshIdentityAccountIds?new Set(input.freshIdentityAccountIds):null;
   const routes=stored.config.routes.filter(route=>route.enabled),requiredRoutes=routes.filter(route=>route.requirement==="REQUIRED");
   const routedLaneIds=[...new Set(routes.map(route=>route.laneId))];
   const activation=new Map((runtime.sourceActivation??[]).map(item=>[item.laneId,item]));
@@ -26,7 +40,15 @@ export function deriveWorkspaceQualificationEvidence(input:{
   const tests=new Map(runtime.routeTests.map(item=>[item.routeId,item]));
   const surfaces=new Map((runtime.surfaceReadiness??[]).map(item=>[`${item.accountId}|${item.postingProfileId}`,item]));
 
-  const sourceWorkflow=routes.length>0&&Boolean(runtime.sourcePolling?.lastPollAt)&&routedLaneIds.every(laneId=>{
+  // Being slightly past nextPollAt is ordinary jitter; having missed an entire further interval
+  // means the poller stopped. Only the latter invalidates the source evidence.
+  const nextPollAt=runtime.sourcePolling?.nextPollAt;
+  const intervalMinutes=stored.runtimePolicy?.sourcePolling?.activeIntervalMinutes??5;
+  const pollOverdue=Boolean(
+    input.evaluatedAt&&nextPollAt&&
+    new Date(nextPollAt).getTime()+intervalMinutes*60_000<new Date(input.evaluatedAt).getTime()
+  );
+  const sourceWorkflow=routes.length>0&&Boolean(runtime.sourcePolling?.lastPollAt)&&!pollOverdue&&routedLaneIds.every(laneId=>{
     const state=activation.get(laneId)?.state;
     const activated=state==="CAPTURED"||state==="NOT_REQUIRED";
     const hasAsset=runtime.assets.some(asset=>asset.laneId===laneId);
@@ -44,9 +66,13 @@ export function deriveWorkspaceQualificationEvidence(input:{
     artifactRefs:routes.map(route=>dbRef(workspaceId,"route",route.routeId))
   });
 
-  if(routes.length>0&&routedAccounts.every(accountId=>channel.get(accountId)?.sessionHealth==="HEALTHY"&&channel.get(accountId)?.identityVerified===true))out.push({
+  const identityQualified=(accountId:string):boolean=>
+    channel.get(accountId)?.sessionHealth==="HEALTHY"&&
+    channel.get(accountId)?.identityVerified===true&&
+    (freshIdentity===null||freshIdentity.has(accountId));
+  if(routes.length>0&&routedAccounts.every(identityQualified))out.push({
     gate:"BROWSER_IDENTITY",passed:true,
-    summary:`All ${routedAccounts.length} routed social account(s) have HEALTHY session and verified identity evidence.`,
+    summary:`All ${routedAccounts.length} routed social account(s) have HEALTHY session and verified identity evidence${freshIdentity?` re-checked after the run started${input.qualificationStartedAt?` (${input.qualificationStartedAt})`:""}`:""}.`,
     artifactRefs:routedAccounts.map(id=>dbRef(workspaceId,"browser-identity",id))
   });
 
