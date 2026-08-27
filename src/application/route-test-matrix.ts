@@ -1,6 +1,6 @@
 import type { SocialAccount } from "../domain/browser-identity.js";
 import type { DistributionRoute, PostingProfile } from "../domain/distribution.js";
-import type { ChannelReadiness, RouteTestReadiness } from "./control-center-read-model.js";
+import type { ChannelReadiness, RouteTestReadiness, SurfaceReadiness } from "./control-center-read-model.js";
 
 export type RouteTestRisk = "SAFE_LOCAL" | "PREPARE_ONLY" | "LIVE_SECRET";
 export type RouteTestStatus = "PASS" | "FAIL" | "NOT_RUN" | "BLOCKED";
@@ -55,13 +55,15 @@ export function buildRouteTestMatrix(input: {
   profile: PostingProfile | undefined;
   account: SocialAccount | undefined;
   channel: ChannelReadiness | undefined;
+  surface?: SurfaceReadiness;
   evidence: RouteTestReadiness | undefined;
   secretEligibility?: SecretLiveEligibility;
 }): RouteTestMatrix {
   const { route, profile, account, channel, evidence } = input;
   const accountLabel = account ? `@${account.expectedHandle}` : "MISSING";
   const platformCompatible = Boolean(profile && account && profile.platform === route.platform && account.platform === route.platform);
-  const surfacePass = channel?.surfaceContract === "CALIBRATED";
+  const surfaceStatus = input.surface?.surfaceContract ?? channel?.surfaceContract ?? "UNVERIFIED";
+  const surfacePass = surfaceStatus === "CALIBRATED";
   const preparePasses = evidence?.prepareOnlyPasses ?? 0;
   const defaultSecret = profile ? secretProfileDefault(profile) : { allowed: false, reason: "Posting profile is missing." };
   const eligibility = input.secretEligibility ?? { routeId: route.routeId, eligible: defaultSecret.allowed, reason: defaultSecret.reason };
@@ -75,14 +77,14 @@ export function buildRouteTestMatrix(input: {
     { testKey: "SOURCE", label: "Source / Lane erreichbar", risk: "SAFE_LOCAL", status: state(evidence?.sourcePassed), detail: "Die konfigurierte Lane kann gelesen und eindeutig dieser Route zugeordnet werden." },
     { testKey: "SESSION", label: "Browser-Session gesund", risk: "SAFE_LOCAL", status: channel?.sessionHealth === "HEALTHY" && evidence?.sessionPassed ? "PASS" : channel?.sessionHealth && channel.sessionHealth !== "HEALTHY" ? "FAIL" : state(evidence?.sessionPassed), detail: channel ? `Session health: ${channel.sessionHealth}` : "Keine Session-Readiness vorhanden." },
     { testKey: "IDENTITY", label: "Account Identity", risk: "SAFE_LOCAL", status: channel?.identityVerified && evidence?.identityPassed ? "PASS" : channel?.identityVerified === false ? "FAIL" : state(evidence?.identityPassed), detail: account ? `Erwarteter Account ${accountLabel}.` : "Social account fehlt." },
-    { testKey: "SURFACE", label: "Platform Surface Contract", risk: "SAFE_LOCAL", status: channel ? (surfacePass ? "PASS" : channel.surfaceContract === "DRIFTED" ? "FAIL" : "NOT_RUN") : "NOT_RUN", detail: channel ? `Surface: ${channel.surfaceContract}` : "Kein Surface-Status vorhanden." },
+    { testKey: "SURFACE", label: "Platform Surface Contract", risk: "SAFE_LOCAL", status: surfacePass ? "PASS" : surfaceStatus === "DRIFTED" ? "FAIL" : "NOT_RUN", detail: `Surface for ${route.accountId} + ${route.postingProfileId}: ${surfaceStatus}` },
     { testKey: "PREPARE_ONLY", label: "Prepare-only 3×", risk: "PREPARE_ONLY", status: preparePasses >= 3 ? "PASS" : preparePasses > 0 ? "FAIL" : "NOT_RUN", detail: `${preparePasses}/3 erfolgreiche Replays; finaler Publish bleibt verboten.` },
     { testKey: "SECRET_LIVE", label: "Secret-live E2E", risk: "LIVE_SECRET", status: secretStatus, detail: eligibility.reason },
     { testKey: "VERIFICATION", label: "Post-Verifikation", risk: "PREPARE_ONLY", status: state(evidence?.verificationPassed), detail: "Receipt/Profile-Evidence muss den Publication-Status beweisen." },
     { testKey: "CLEANUP", label: "Testpost-Cleanup", risk: "LIVE_SECRET", status: secretStatus === "BLOCKED" ? "BLOCKED" : state(evidence?.cleanupPassed), detail: "Nur für explizit erlaubte Live-Testpublikationen; Cleanup muss erneut verifiziert werden." }
   ];
 
-  const hardBlocked = !route.enabled || !platformCompatible || channel?.sessionHealth === "AUTH_REQUIRED" || channel?.sessionHealth === "CHALLENGE" || channel?.sessionHealth === "IDENTITY_MISMATCH" || channel?.surfaceContract === "DRIFTED";
+  const hardBlocked = !route.enabled || !platformCompatible || channel?.sessionHealth === "AUTH_REQUIRED" || channel?.sessionHealth === "CHALLENGE" || channel?.sessionHealth === "IDENTITY_MISMATCH" || surfaceStatus === "DRIFTED";
   const requiredPass = cases.filter((item) => ["SOURCE", "SESSION", "IDENTITY", "SURFACE", "PREPARE_ONLY", "VERIFICATION"].includes(item.testKey));
   const overall = hardBlocked ? "BLOCKED" : requiredPass.every((item) => item.status === "PASS") ? "READY" : "NEEDS_TEST";
   return { routeId: route.routeId, routeName: route.displayName, account: accountLabel, platform: route.platform, postingProfile: profile?.displayName ?? "MISSING", overall, cases };
