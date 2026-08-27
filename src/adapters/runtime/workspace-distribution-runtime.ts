@@ -25,6 +25,7 @@ import { SqliteSourcePollingStateStore } from "../distribution/sqlite-source-pol
 import { SqliteControlPlaneStore } from "../storage/sqlite.js";
 import { NoopSourceDispositionAdapter } from "../disposition/adapters.js";
 import { ConfiguredDistributionDispositionExecutor } from "../disposition/distribution-executor.js";
+import { buildWorkspaceDispositionAdapterRegistry } from "../disposition/workspace-registry.js";
 import { SourceLaneObservationAdapter } from "../ingress/source-lane-observer.js";
 import { ConfiguredSourceLaneInterpreterFactory } from "../ingress/source-lane-interpreters.js";
 import { GoogleDriveRestReadClient } from "../ingress/google-drive.js";
@@ -47,7 +48,7 @@ export interface WorkspaceDistributionRuntimeOptions {
   releaseSha?:string;
 }
 
-/** One composition root for Luca Mac, Fabian Mac and VPS. R0 keeps due execution physically frozen. */
+/** One composition root for Mac and VPS hosts. R0 keeps due execution physically frozen. */
 export class WorkspaceDistributionRuntime {
   readonly layout:WorkspaceRuntimeLayout;
   readonly config:JsonDistributionConfigurationStore;
@@ -115,7 +116,8 @@ export class WorkspaceDistributionRuntime {
     this.due=new FrozenRuntimeDueExecutionAdapter(this.control);
     this.reconciliation=new RecoveryOnlyRuntimeReconciliationAdapter(this.control);
     const aggregates=new DistributionDeliveryAggregateProjector(this.state,this.provenance,this.control,this.control);
-    const dispositionExecutor=new ConfiguredDistributionDispositionExecutor(this.control,{});
+    const dispositionAdapters=buildWorkspaceDispositionAdapterRegistry(this.config.load(),this.control,driveToken);
+    const dispositionExecutor=new ConfiguredDistributionDispositionExecutor(this.control,dispositionAdapters);
     this.disposition=new RuntimeDistributionDispositionAdapter(this.config,this.state,aggregates,dispositionExecutor);
     this.operations=new W6RuntimeOperationsAdapter(
       this.control,options.notificationChannelKeys??[],options.timeZone??"Europe/Vienna",
