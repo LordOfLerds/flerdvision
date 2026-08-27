@@ -1,0 +1,66 @@
+import { createHash } from "node:crypto";
+import type { E2EGateResult } from "../domain/e2e.js";
+import type { RouteTestExecutionAdapterPort, RouteTestEvidenceKey, RouteTestEvidenceRecord, RouteTestEvidenceStorePort, ExecutableRouteTestKey } from "../domain/route-test-ports.js";
+import type { RouteTestReadiness } from "./control-center-read-model.js";
+
+export class RouteTestExecutionError extends Error {}
+
+function id(routeId: string, key: string, checkedAt: string, summary: string): string {
+  return `route-test:${createHash("sha256").update(`${routeId}|${key}|${checkedAt}|${summary}`).digest("hex").slice(0,24)}`;
+}
+function latest(records: readonly RouteTestEvidenceRecord[], key: RouteTestEvidenceKey): RouteTestEvidenceRecord | undefined {
+  return records.filter((r)=>r.testKey===key).sort((a,b)=>a.checkedAt.localeCompare(b.checkedAt)).at(-1);
+}
+function passed(records: readonly RouteTestEvidenceRecord[], key: RouteTestEvidenceKey): boolean { return latest(records,key)?.status === "PASS"; }
+
+export class RouteTestExecutionService {
+  constructor(private readonly store: RouteTestEvidenceStorePort, private readonly runner: RouteTestExecutionAdapterPort) {}
+
+  async run(routeId: string, testKey: ExecutableRouteTestKey, releaseSha: string, now: string): Promise<RouteTestEvidenceRecord> {
+    if (!routeId.trim() || !releaseSha.trim()) throw new RouteTestExecutionError("Route and release SHA are required");
+    const existing = this.store.list(routeId);
+    if (testKey === "IDENTITY" && !passed(existing,"SESSION")) throw new RouteTestExecutionError("Identity test requires a passing session test");
+    if (testKey === "SURFACE" && !passed(existing,"IDENTITY")) throw new RouteTestExecutionError("Surface test requires a passing identity test");
+    if (testKey === "PREPARE_ONLY" && !(passed(existing,"SOURCE") && passed(existing,"SESSION") && passed(existing,"IDENTITY") && passed(existing,"SURFACE"))) throw new RouteTestExecutionError("Prepare-only requires source, session, identity and surface PASS");
+    if (testKey === "VERIFICATION" && !passed(existing,"SURFACE")) throw new RouteTestExecutionError("Verification contract test requires a calibrated/passing surface");
+    if (testKey === "CLEANUP" && !passed(existing,"SECRET_LIVE")) throw new RouteTestExecutionError("Cleanup may run only after canonical secret-live E2E evidence exists");
+    const result = await this.runner.run(routeId,testKey);
+    const checkedAt = new Date(now).toISOString();
+    return this.store.record({ evidenceId:id(routeId,testKey,checkedAt,result.summary), routeId, testKey, status:result.passed?"PASS":"FAIL", checkedAt, releaseSha, summary:result.summary, artifactRefs:[...result.artifactRefs] });
+  }
+
+  readiness(routeId: string): RouteTestReadiness {
+    const records=this.store.list(routeId);
+    return {
+      routeId,
+      sourcePassed: passed(records,"SOURCE"),
+      sessionPassed: passed(records,"SESSION"),
+      identityPassed: passed(records,"IDENTITY"),
+      prepareOnlyPasses: records.filter((r)=>r.testKey==="PREPARE_ONLY"&&r.status==="PASS").length,
+      secretLivePassed: passed(records,"SECRET_LIVE"),
+      verificationPassed: passed(records,"VERIFICATION"),
+      cleanupPassed: passed(records,"CLEANUP")
+    };
+  }
+
+  assertSecretLiveUsesPrivateE2E(): never {
+    throw new RouteTestExecutionError("SECRET_LIVE cannot be executed by RouteTestExecutionService; start the canonical PrivateE2E run and one-shot permit flow instead");
+  }
+}
+
+function mapGate(gate: E2EGateResult): RouteTestEvidenceKey | null {
+  if (gate.gate === "PREPARE_ONLY_REPLAY") return "PREPARE_ONLY";
+  if (gate.gate === "PRIVATE_PUBLISH") return "SECRET_LIVE";
+  if (gate.gate === "VERIFICATION") return "VERIFICATION";
+  if (gate.gate === "CLEANUP") return "CLEANUP";
+  return null;
+}
+
+export class RouteE2EGateBridge {
+  constructor(private readonly store: RouteTestEvidenceStorePort) {}
+  recordGate(routeId: string, gate: E2EGateResult, releaseSha: string): RouteTestEvidenceRecord | null {
+    const testKey=mapGate(gate); if(!testKey) return null;
+    const record:RouteTestEvidenceRecord={ evidenceId:id(routeId,testKey,gate.checkedAt,gate.gateResultId), routeId, testKey, status:gate.status==="PASS"?"PASS":"FAIL", checkedAt:gate.checkedAt, releaseSha, summary:`Private E2E ${gate.gate}: ${gate.summary}`, artifactRefs:[...gate.artifactRefs] };
+    return this.store.record(record);
+  }
+}
