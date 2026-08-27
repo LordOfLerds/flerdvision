@@ -39,5 +39,6 @@ export function normalizeAutonomousSurfaceContract(contract: PlatformSurfaceCont
   const orderedSettings = requiredSettings(profile).map((stepKey) => byStep.get(stepKey)!);
   const steps = [...base, ...(advanced ? [advanced] : []), ...orderedSettings, final];
   const contractId = `surface:${createHash("sha256").update(`${contract.accountId}|${contract.postingProfileId}|${contract.environment.fingerprint}|${steps.map(key).join("|")}`).digest("hex").slice(0, 24)}`;
-  return { ...contract, contractId, steps, status: "RECORDED", calibratedAt: undefined };
+  const { calibratedAt: _stale, ...recorded } = contract;
+  return { ...recorded, contractId, steps, status: "RECORDED" };
 }
