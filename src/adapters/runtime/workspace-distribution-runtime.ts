@@ -9,6 +9,8 @@ import { RuntimeSupervisor } from "../../application/runtime-supervisor.js";
 import { PollingRuntimeSourceScanAdapter } from "../../application/runtime-polling-source.js";
 import { PersistedRouteExecutionQualificationGate } from "../../application/route-execution-qualification.js";
 import { VerifiedMediaCacheMaintenance } from "../../application/verified-media-cache-maintenance.js";
+import { EffectiveConfigurationChangeService } from "../../application/effective-configuration-change.js";
+import { EffectiveConfigurationPlannerDecorator } from "../../application/effective-config-planner-decorator.js";
 import { DEFAULT_DISTRIBUTION_RUNTIME_POLICY } from "../../domain/distribution-operations.js";
 import { MaterializingMediaReadinessProbe } from "../distribution/materializing-readiness-probe.js";
 import { FfprobeMediaInspector } from "../media/ffprobe-inspector.js";
@@ -16,6 +18,7 @@ import { JsonDistributionConfigurationStore } from "../distribution/json-config-
 import { SqliteDistributionRuntimeStateStore } from "../distribution/sqlite-runtime-state.js";
 import { SqliteSourceActivationBaselineStore } from "../distribution/sqlite-source-activation.js";
 import { SqliteDistributionProvenanceStore } from "../distribution/sqlite-provenance.js";
+import { SqliteEffectiveConfigurationChangeStore } from "../distribution/sqlite-effective-config-changes.js";
 import { PersistedPlanningCommitmentAdapter } from "../distribution/sqlite-planning-commitments.js";
 import { SqlitePlatformSurfaceStore } from "../distribution/sqlite-surface-store.js";
 import { SqliteControlPlaneStore } from "../storage/sqlite.js";
@@ -52,13 +55,14 @@ export class WorkspaceDistributionRuntime {
   readonly baselines:SqliteSourceActivationBaselineStore;
   readonly provenance:SqliteDistributionProvenanceStore;
   readonly surfaces:SqlitePlatformSurfaceStore;
+  readonly effectiveChanges:SqliteEffectiveConfigurationChangeStore;
   readonly reports:SqliteRuntimeCycleReportStore;
   readonly observations:SourceLaneObservationAdapter;
   readonly activation:SourceActivationCommandService;
   readonly media:VerifiedMediaCacheMaterializer;
   readonly mediaMaintenance:VerifiedMediaCacheMaintenance;
   readonly source:PollingRuntimeSourceScanAdapter;
-  readonly planner:ProvenancedRuntimePlannerAdapter;
+  readonly planner:EffectiveConfigurationPlannerDecorator;
   readonly intents:RuntimeDistributionIntentMaterializerAdapter;
   readonly lease:ControlPlaneRuntimeCycleLeaseAdapter;
   readonly due:FrozenRuntimeDueExecutionAdapter;
@@ -75,6 +79,7 @@ export class WorkspaceDistributionRuntime {
     this.baselines=new SqliteSourceActivationBaselineStore(this.layout.databasePath);
     this.provenance=new SqliteDistributionProvenanceStore(this.layout.databasePath);
     this.surfaces=new SqlitePlatformSurfaceStore(this.layout.databasePath);
+    this.effectiveChanges=new SqliteEffectiveConfigurationChangeStore(this.layout.databasePath);
     this.reports=new SqliteRuntimeCycleReportStore(this.layout.databasePath,options.workspaceId);
 
     const driveToken=workspaceDriveAccessTokenProvider({configDir:this.layout.configDir,env});
@@ -87,21 +92,17 @@ export class WorkspaceDistributionRuntime {
     this.mediaMaintenance=new VerifiedMediaCacheMaintenance(this.media);
     const inspector=new FfprobeMediaInspector(env.FFPROBE_EXECUTABLE_PATH??"ffprobe");
     const scan=new DistributionSourceScanCoordinator(
-      this.config,
-      this.observations,
-      new ConfiguredSourceLaneInterpreterFactory(),
-      this.control,
-      new NoopSourceDispositionAdapter(),
-      this.baselines,
-      this.state,
-      new MaterializingMediaReadinessProbe(this.media,inspector),
-      {notifyBlocksExternally:false}
+      this.config,this.observations,new ConfiguredSourceLaneInterpreterFactory(),this.control,new NoopSourceDispositionAdapter(),this.baselines,this.state,
+      new MaterializingMediaReadinessProbe(this.media,inspector),{notifyBlocksExternally:false}
     );
     this.source=new PollingRuntimeSourceScanAdapter(new RuntimeDistributionSourceScanAdapter(scan),this.config);
     const commitmentAdapter=new PersistedPlanningCommitmentAdapter(this.state,this.provenance,this.control);
     const persistedPlanner=new PersistedDistributionPlannerAdapter(this.config,this.state,commitmentAdapter);
     const provenanceService=new DistributionPlanProvenanceService(this.config,this.provenance);
-    this.planner=new ProvenancedRuntimePlannerAdapter(persistedPlanner,provenanceService);
+    const provenancedPlanner=new ProvenancedRuntimePlannerAdapter(persistedPlanner,provenanceService);
+    const effectiveService=new EffectiveConfigurationChangeService(this.effectiveChanges,this.config,()=>this.control.listSocialAccounts().map(record=>record.account));
+    this.planner=new EffectiveConfigurationPlannerDecorator(effectiveService,provenancedPlanner);
+
     const releaseSha=options.releaseSha??env.FLERDVISION_RELEASE_SHA??"UNSET_RELEASE_SHA";
     const qualification=new PersistedRouteExecutionQualificationGate(this.config,this.state,this.surfaces,releaseSha);
     const materializer=new DistributionIntentMaterializer(this.control,this.config,this.provenance,qualification);
@@ -114,9 +115,7 @@ export class WorkspaceDistributionRuntime {
     const dispositionExecutor=new ConfiguredDistributionDispositionExecutor(this.control,{});
     this.disposition=new RuntimeDistributionDispositionAdapter(this.config,this.state,aggregates,dispositionExecutor);
     this.operations=new W6RuntimeOperationsAdapter(
-      this.control,
-      options.notificationChannelKeys??[],
-      options.timeZone??"Europe/Vienna",
+      this.control,options.notificationChannelKeys??[],options.timeZone??"Europe/Vienna",
       {distributionConfig:this.config,distributionRuntime:this.state,...(options.uiBaseUrl?{uiBaseUrl:options.uiBaseUrl}:{})}
     );
   }
@@ -132,6 +131,7 @@ export class WorkspaceDistributionRuntime {
 
   close():void{
     this.reports.close();
+    this.effectiveChanges.close();
     this.surfaces.close();
     this.provenance.close();
     this.baselines.close();
