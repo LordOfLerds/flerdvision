@@ -1,5 +1,5 @@
-import type { Platform, PublicationFormat } from "./model.js";
 import { normalizeSocialHandle } from "./browser-identity.js";
+import type { Platform, PublicationFormat } from "./model.js";
 
 export type WorkspaceFormat = Exclude<PublicationFormat, "unknown">;
 export type WorkspaceActivationMode = "NEW_ONLY" | "IMPORT_BACKLOG";
@@ -24,7 +24,7 @@ export interface WorkspaceFormatSettings {
 
 export interface WorkspaceChannelFormatSpec {
   type: WorkspaceFormat;
-  /** Canonical local posting times in workspace timezone. */
+  /** Canonical, strictly increasing local posting times in workspace timezone. */
   times: readonly string[];
   sourceMatch: readonly string[];
   captionTemplate?: string;
@@ -111,9 +111,22 @@ function identifier(value: unknown, path: string): string {
   if (!normalized || normalized.length > 80) throw new WorkspaceSpecError(`${path} is not a safe identifier`);
   return normalized;
 }
+function ownerEmail(value: unknown): string {
+  const email = optionalString(value, "workspace.ownerEmail") ?? "info@flerdvision.com";
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new WorkspaceSpecError("workspace.ownerEmail is invalid");
+  return email.toLocaleLowerCase("en-US");
+}
 function localTime(value: string, path: string): string {
   if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value)) throw new WorkspaceSpecError(`${path} must use HH:mm`);
   return value;
+}
+function timeMinutes(value: string): number {
+  const [hours, minutes] = value.split(":").map(Number);
+  return hours! * 60 + minutes!;
+}
+function canonicalTimes(values: readonly string[], path: string): readonly string[] {
+  if (new Set(values).size !== values.length) throw new WorkspaceSpecError(`${path} contains duplicates`);
+  return [...values].sort((left, right) => timeMinutes(left) - timeMinutes(right));
 }
 function defaultTimes(perDay: number): readonly string[] {
   const presets: Readonly<Record<number, readonly string[]>> = {
@@ -148,18 +161,26 @@ function format(value: unknown, platformValue: Platform, path: string): Workspac
 }
 function settings(value: unknown, platformValue: Platform, path: string): WorkspaceFormatSettings {
   const item = value === undefined ? {} : record(value, path);
+  const allowedBoolean = platformValue === "instagram"
+    ? new Set(["commentsEnabled", "shareToFeed", "crosspostFacebook"])
+    : platformValue === "tiktok"
+      ? new Set(["commentsEnabled", "duetEnabled", "stitchEnabled"])
+      : new Set(["commentsEnabled"]);
   const out: WorkspaceFormatSettings = {};
   for (const key of ["commentsEnabled", "shareToFeed", "crosspostFacebook", "duetEnabled", "stitchEnabled"] as const) {
-    if (item[key] !== undefined) {
-      if (typeof item[key] !== "boolean") throw new WorkspaceSpecError(`${path}.${key} must be boolean`);
-      Object.assign(out, { [key]: item[key] });
-    }
+    if (item[key] === undefined) continue;
+    if (!allowedBoolean.has(key)) throw new WorkspaceSpecError(`${path}.${key} is not valid for ${platformValue}`);
+    if (typeof item[key] !== "boolean") throw new WorkspaceSpecError(`${path}.${key} must be boolean`);
+    Object.assign(out, { [key]: item[key] });
   }
   if (item.visibility !== undefined) {
+    if (platformValue === "instagram") throw new WorkspaceSpecError(`${path}.visibility is not valid for instagram`);
     const allowed = platformValue === "youtube" ? ["private", "unlisted", "public"] : ["only_you", "friends", "followers", "everyone"];
     if (typeof item.visibility !== "string" || !allowed.includes(item.visibility)) throw new WorkspaceSpecError(`${path}.visibility is invalid for ${platformValue}`);
     Object.assign(out, { visibility: item.visibility });
   }
+  const known = new Set(["commentsEnabled", "shareToFeed", "crosspostFacebook", "duetEnabled", "stitchEnabled", "visibility"]);
+  for (const key of Object.keys(item)) if (!known.has(key)) throw new WorkspaceSpecError(`${path}.${key} is unknown`);
   return out;
 }
 
@@ -167,18 +188,24 @@ function parseFormat(value: unknown, platformValue: Platform, path: string): Wor
   const item = record(value, path);
   const type = format(item.type, platformValue, `${path}.type`);
   const explicitTimes = stringArray(item.times, `${path}.times`).map((time, index) => localTime(time, `${path}.times[${index}]`));
-  const perDay = integerValue(item.frequencyPerDay, explicitTimes.length || 1, `${path}.frequencyPerDay`, 1, 12);
-  const times = explicitTimes.length > 0 ? explicitTimes : defaultTimes(perDay);
-  if (new Set(times).size !== times.length) throw new WorkspaceSpecError(`${path}.times contains duplicates`);
+  const explicitFrequency = item.frequencyPerDay === undefined ? undefined : integerValue(item.frequencyPerDay, 1, `${path}.frequencyPerDay`, 1, 12);
+  if (explicitTimes.length > 0 && explicitFrequency !== undefined && explicitFrequency !== explicitTimes.length) {
+    throw new WorkspaceSpecError(`${path}.frequencyPerDay must equal the number of explicit times`);
+  }
+  const perDay = explicitFrequency ?? explicitTimes.length || 1;
+  const times = canonicalTimes(explicitTimes.length > 0 ? explicitTimes : defaultTimes(perDay), `${path}.times`);
   const requirement = item.requirement === undefined ? "REQUIRED" : item.requirement;
   if (requirement !== "REQUIRED" && requirement !== "OPTIONAL") throw new WorkspaceSpecError(`${path}.requirement must be REQUIRED or OPTIONAL`);
+  const captionTemplate = optionalString(item.captionTemplate, `${path}.captionTemplate`);
+  const titleTemplate = optionalString(item.titleTemplate, `${path}.titleTemplate`);
+  const descriptionTemplate = optionalString(item.descriptionTemplate, `${path}.descriptionTemplate`);
   return {
     type,
     times,
     sourceMatch: stringArray(item.sourceMatch, `${path}.sourceMatch`),
-    ...(optionalString(item.captionTemplate, `${path}.captionTemplate`) ? { captionTemplate: optionalString(item.captionTemplate, `${path}.captionTemplate`)! } : {}),
-    ...(optionalString(item.titleTemplate, `${path}.titleTemplate`) ? { titleTemplate: optionalString(item.titleTemplate, `${path}.titleTemplate`)! } : {}),
-    ...(optionalString(item.descriptionTemplate, `${path}.descriptionTemplate`) ? { descriptionTemplate: optionalString(item.descriptionTemplate, `${path}.descriptionTemplate`)! } : {}),
+    ...(captionTemplate ? { captionTemplate } : {}),
+    ...(titleTemplate ? { titleTemplate } : {}),
+    ...(descriptionTemplate ? { descriptionTemplate } : {}),
     hashtags: stringArray(item.hashtags, `${path}.hashtags`).map((tag) => tag.replace(/^#/, "")),
     requirement,
     verificationMarker: booleanValue(item.verificationMarker, false, `${path}.verificationMarker`),
@@ -215,6 +242,8 @@ export function parseWorkspaceSpec(value: unknown): WorkspaceSpecV1 {
   if (!Array.isArray(root.channels) || root.channels.length === 0) throw new WorkspaceSpecError("channels must be a non-empty array");
   const channels = root.channels.map(parseChannel);
   if (new Set(channels.map((channel) => channel.key)).size !== channels.length) throw new WorkspaceSpecError("channel keys must be unique");
+  const accountScopes = channels.map((channel) => `${channel.platform}|${channel.handle}`);
+  if (new Set(accountScopes).size !== accountScopes.length) throw new WorkspaceSpecError("each platform/handle account may appear only once; put all formats under the same channel entry");
   const notifications = root.notifications === undefined ? {} : record(root.notifications, "notifications");
   const onSuccess = notifications.onSuccess ?? "daily_summary";
   const onBlocked = notifications.onBlocked ?? "immediate";
@@ -222,13 +251,25 @@ export function parseWorkspaceSpec(value: unknown): WorkspaceSpecV1 {
   if (onSuccess !== "none" && onSuccess !== "each" && onSuccess !== "daily_summary") throw new WorkspaceSpecError("notifications.onSuccess is invalid");
   if (onBlocked !== "immediate" && onBlocked !== "daily_summary") throw new WorkspaceSpecError("notifications.onBlocked is invalid");
   if (onUncertain !== "immediate") throw new WorkspaceSpecError("notifications.onUncertain must be immediate");
-  const privateTest = root.privateTest === undefined ? {} : record(root.privateTest, "privateTest");
+  const privateInput = root.privateTest === undefined ? {} : record(root.privateTest, "privateTest");
+  const privateTest: WorkspacePrivateTestSpec = {
+    enabled: booleanValue(privateInput.enabled, false, "privateTest.enabled"),
+    accountPrivate: booleanValue(privateInput.accountPrivate, false, "privateTest.accountPrivate"),
+    approvedFollowers: integerValue(privateInput.approvedFollowers, 0, "privateTest.approvedFollowers", 0, 1_000_000_000),
+    contactsSyncOff: booleanValue(privateInput.contactsSyncOff, false, "privateTest.contactsSyncOff"),
+    crossPostingOff: booleanValue(privateInput.crossPostingOff, false, "privateTest.crossPostingOff"),
+    autoCleanup: booleanValue(privateInput.autoCleanup, false, "privateTest.autoCleanup")
+  };
+  if (privateTest.autoCleanup) throw new WorkspaceSpecError("privateTest.autoCleanup is not implemented; delete the zero-viewer test post manually and record cleanup evidence");
+  if (privateTest.enabled && (!privateTest.accountPrivate || privateTest.approvedFollowers !== 0 || !privateTest.contactsSyncOff || !privateTest.crossPostingOff)) {
+    throw new WorkspaceSpecError("enabled privateTest requires a private account, zero approved followers, contacts sync off and cross-posting off");
+  }
   return {
     schemaVersion: 1,
     workspace: {
       id: identifier(workspace.id, "workspace.id"),
       name: requiredString(workspace.name, "workspace.name"),
-      ownerEmail: optionalString(workspace.ownerEmail, "workspace.ownerEmail") ?? "info@flerdvision.com",
+      ownerEmail: ownerEmail(workspace.ownerEmail),
       timezone: optionalString(workspace.timezone, "workspace.timezone") ?? "Europe/Vienna",
       runtimeRoot: optionalString(workspace.runtimeRoot, "workspace.runtimeRoot") ?? "runtime"
     },
@@ -241,13 +282,6 @@ export function parseWorkspaceSpec(value: unknown): WorkspaceSpecV1 {
     },
     channels,
     notifications: { onSuccess, onBlocked, onUncertain },
-    privateTest: {
-      enabled: booleanValue(privateTest.enabled, false, "privateTest.enabled"),
-      accountPrivate: booleanValue(privateTest.accountPrivate, false, "privateTest.accountPrivate"),
-      approvedFollowers: integerValue(privateTest.approvedFollowers, 0, "privateTest.approvedFollowers", 0, 1_000_000_000),
-      contactsSyncOff: booleanValue(privateTest.contactsSyncOff, false, "privateTest.contactsSyncOff"),
-      crossPostingOff: booleanValue(privateTest.crossPostingOff, false, "privateTest.crossPostingOff"),
-      autoCleanup: booleanValue(privateTest.autoCleanup, false, "privateTest.autoCleanup")
-    }
+    privateTest
   };
 }
