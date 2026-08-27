@@ -41,7 +41,9 @@ export class VerifiedMediaCacheMaterializer implements MediaMaterializerPort, Ve
 
   async materialize(content:ContentItem):Promise<LocalMediaArtifact>{
     const existing=await this.get(content.contentId,content.mediaFingerprint);
-    if(existing){
+    if(existing&&existing.sourceRef!==content.immutableMediaRef){
+      await this.evict(content.contentId,content.mediaFingerprint);
+    }else if(existing){
       const touched:{[K in keyof VerifiedMediaCacheRecord]:VerifiedMediaCacheRecord[K]}={...existing,lastAccessedAt:new Date(this.clock()).toISOString()};
       await writeFile(this.manifestPath(content.contentId,content.mediaFingerprint),`${JSON.stringify(touched,null,2)}\n`,{encoding:"utf8",mode:0o600});
       return{contentId:touched.contentId,sourceRef:touched.sourceRef,localPath:touched.localPath,sha256:touched.sha256,sizeBytes:touched.sizeBytes};
@@ -55,6 +57,7 @@ export class VerifiedMediaCacheMaterializer implements MediaMaterializerPort, Ve
     const artifact=await this.inner.materialize(content);
     try{
       if(artifact.contentId!==content.contentId)throw new Error("Materializer returned content for a different contentId");
+      if(artifact.sourceRef!==content.immutableMediaRef)throw new Error("Materializer returned media for a different immutable source ref");
       if(!/^[a-f0-9]{64}$/i.test(artifact.sha256)||artifact.sizeBytes<=0)throw new Error("Materialized media lacks valid immutable SHA/size evidence");
       const extension=safeExtension(artifact.localPath),finalPath=inside(this.root,join(directory,`media${extension}`)),tempPath=inside(this.root,`${finalPath}.partial`);
       await pipeline(createReadStream(artifact.localPath),createWriteStream(tempPath,{mode:0o600}));
