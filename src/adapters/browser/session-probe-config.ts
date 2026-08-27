@@ -39,8 +39,10 @@ function configFromUnknown(value:unknown,path:string,calibrated:boolean):Configu
   const challengeUrlIncludes=optionalStrings(item.challengeUrlIncludes,`${path}.challengeUrlIncludes`);
   const authSelector=optionalString(item.authSelector,`${path}.authSelector`);
   const challengeSelector=optionalString(item.challengeSelector,`${path}.challengeSelector`);
-  if(item.settleMs!==undefined&&(!Number.isInteger(item.settleMs)||Number(item.settleMs)<0||Number(item.settleMs)>30000))throw new SessionProbeConfigError(`${path}.settleMs must be an integer from 0 to 30000`);
+  const settleMs=item.settleMs===undefined?undefined:Number(item.settleMs);
+  if(settleMs!==undefined&&(!Number.isInteger(settleMs)||settleMs<0||settleMs>30000))throw new SessionProbeConfigError(`${path}.settleMs must be an integer from 0 to 30000`);
   if(item.navigate!==undefined&&typeof item.navigate!=="boolean")throw new SessionProbeConfigError(`${path}.navigate must be boolean`);
+  const navigate=item.navigate as boolean|undefined;
   if(calibrated){
     const values=[item.probeUrl,item.identitySelector,identityAttribute,authSelector,challengeSelector,...(authUrlIncludes??[]),...(challengeUrlIncludes??[])];
     if(values.some(hasPlaceholder))throw new SessionProbeConfigError(`${path} still contains calibration placeholder`);
@@ -53,8 +55,8 @@ function configFromUnknown(value:unknown,path:string,calibrated:boolean):Configu
     ...(challengeUrlIncludes?{challengeUrlIncludes}:{}),
     ...(authSelector?{authSelector}:{}),
     ...(challengeSelector?{challengeSelector}:{}),
-    ...(item.settleMs!==undefined?{settleMs:Number(item.settleMs)}:{}),
-    ...(item.navigate!==undefined?{navigate:item.navigate}:{}),
+    ...(settleMs!==undefined?{settleMs}:{}),
+    ...(navigate!==undefined?{navigate}:{}),
   };
 }
 
