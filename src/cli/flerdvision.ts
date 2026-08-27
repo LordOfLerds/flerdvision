@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { HeadlessAutonomousRuntime } from "../application/headless-autonomous-runtime.js";
 import { authorizeWorkspaceDrive } from "../application/headless-drive-auth.js";
 import { bootstrapHeadlessWorkspace, loadWorkspaceSpecFile } from "../application/headless-bootstrap.js";
 import { runHeadlessDemo } from "../application/headless-demo.js";
@@ -26,8 +27,15 @@ function releaseSha(argv: readonly string[]): string {
   if (run.status !== 0 || !run.stdout.trim()) throw new Error("Could not determine exact release SHA; use --release-sha or FLERDVISION_RELEASE_SHA");
   return run.stdout.trim();
 }
+function authorizedMode(argv: readonly string[]): "canary" | "production" {
+  const mode = value(argv, "--mode") ?? "canary";
+  if (mode !== "canary" && mode !== "production") throw new Error("--mode must be canary or production");
+  if (process.env.ALLOW_FINAL_PUBLISH !== "true") throw new Error("Autonomous final publishing requires independent environment gate ALLOW_FINAL_PUBLISH=true");
+  if (value(argv, "--confirm") !== "AUTONOMOUS_FINAL_PUBLISH") throw new Error("Autonomous final publishing requires --confirm AUTONOMOUS_FINAL_PUBLISH");
+  return mode;
+}
 function usage(): never {
-  console.error(`Flerdvision headless commands:\n\n  npm run flerdvision -- bootstrap --spec <flerdvision.json>\n  npm run flerdvision -- drive-auth --spec <flerdvision.json>\n  npm run flerdvision -- login --spec <flerdvision.json> --channel <channel-key>\n  npm run flerdvision -- demo --spec <flerdvision.json> [--channel <key>] [--private-publish] [--force-login] [--headless]\n\nThe default product path has no setup/calibration UI. A social login browser opens only when human login or 2FA is needed.`);
+  console.error(`Flerdvision headless commands:\n\n  npm run flerdvision -- bootstrap --spec <flerdvision.json>\n  npm run flerdvision -- drive-auth --spec <flerdvision.json>\n  npm run flerdvision -- login --spec <flerdvision.json> --channel <channel-key>\n  npm run flerdvision -- demo --spec <flerdvision.json> [--channel <key>] [--private-publish] [--force-login] [--headless]\n  npm run flerdvision -- run-once --spec <flerdvision.json> --channel <key> --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH\n  npm run flerdvision -- daemon --spec <flerdvision.json> --channel <key> --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH [--interval 60]\n\nThe default product path has no setup/calibration UI. A social login browser opens only when human login or 2FA is needed. Final publishing additionally requires ALLOW_FINAL_PUBLISH=true.`);
   process.exitCode = 2;
   throw new Error("invalid arguments");
 }
@@ -73,6 +81,37 @@ async function main(): Promise<void> {
     });
     console.log(JSON.stringify(report, null, 2));
     return;
+  }
+  if (command === "run-once" || command === "daemon") {
+    const channels = values(argv, "--channel");
+    if (channels.length === 0) throw new Error("Autonomous runtime requires at least one explicit --channel allowlist entry");
+    const mode = authorizedMode(argv);
+    await bootstrapHeadlessWorkspace({ specPath });
+    const runtime = new HeadlessAutonomousRuntime({
+      specPath,
+      releaseSha: releaseSha(argv),
+      mode,
+      channelKeys: channels,
+      allowFinalPublish: true,
+      headless: !flag(argv, "--show-browser"),
+      maxPerCycle: Number(value(argv, "--max-per-cycle") ?? "4")
+    });
+    try {
+      if (command === "run-once") {
+        console.log(JSON.stringify(await runtime.runOnce(), null, 2));
+        return;
+      }
+      const signal = { aborted: false };
+      const abort = () => { signal.aborted = true; };
+      process.on("SIGINT", abort);
+      process.on("SIGTERM", abort);
+      await runtime.runDaemon({
+        intervalSeconds: Number(value(argv, "--interval") ?? "60"),
+        signal,
+        onCycle: (report) => console.log(JSON.stringify(report))
+      });
+      return;
+    } finally { await runtime.close(); }
   }
   return usage();
 }
