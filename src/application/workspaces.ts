@@ -9,16 +9,18 @@ function privateDir(path: string): void {
   if ((mode & 0o077) !== 0) throw new Error(`Workspace runtime directory is not private: ${path} mode=${mode.toString(8)}`);
 }
 
-export function ensureWorkspaceCalibrationTemplates(configDir:string,templateRoot=resolve(process.env.FLERDVISION_TEMPLATE_ROOT??process.cwd(),process.env.FLERDVISION_TEMPLATE_ROOT?"":"config")):void{
+export function ensureWorkspaceCalibrationTemplates(configDir:string,templateRoot?:string):void{
+  const root=templateRoot?resolve(templateRoot):process.env.FLERDVISION_TEMPLATE_ROOT?resolve(process.env.FLERDVISION_TEMPLATE_ROOT):resolve(process.cwd(),"config");
   const templates=[
     ["platform-ui.example.json","platform-ui.json"],
     ["session-probes.example.json","session-probes.json"],
-    ["profile-verification.example.json","profile-verification.json"]
+    ["profile-verification.example.json","profile-verification.json"],
+    ["copy-payloads.example.json","copy-payloads.json"]
   ] as const;
   for(const [sourceName,targetName] of templates){
-    const source=resolve(templateRoot,sourceName),target=resolve(configDir,targetName);
+    const source=resolve(root,sourceName),target=resolve(configDir,targetName);
     if(existsSync(target))continue;
-    if(!existsSync(source))throw new Error(`Missing Flerdvision calibration template ${sourceName} under ${templateRoot}. Set FLERDVISION_TEMPLATE_ROOT to the repository config directory.`);
+    if(!existsSync(source))throw new Error(`Missing Flerdvision workspace template ${sourceName} under ${root}. Set FLERDVISION_TEMPLATE_ROOT to the repository config directory.`);
     copyFileSync(source,target);
   }
 }
