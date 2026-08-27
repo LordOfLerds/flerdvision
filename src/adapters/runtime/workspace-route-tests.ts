@@ -14,47 +14,20 @@ import { GoogleDriveRestReadClient } from "../ingress/google-drive.js";
 import { workspaceDriveAccessTokenProvider } from "../ingress/google-drive/workspace-drive-token.js";
 import { SafeObserverRouteTestRunner } from "./safe-route-test-runner.js";
 import { CalibratedWorkspaceRouteTestRunner } from "./calibrated-route-test-runner.js";
+import { SurfaceScopedRouteTestRunner } from "./surface-scoped-route-test-runner.js";
 
-export interface WorkspaceRouteTestCommandsOptions {
-  runtimeRoot:string;
-  workspaceId:string;
-  releaseSha:string;
-  env?:Record<string,string|undefined>;
-}
-
+export interface WorkspaceRouteTestCommandsOptions {runtimeRoot:string;workspaceId:string;releaseSha:string;env?:Record<string,string|undefined>;}
 export class WorkspaceRouteTestCommands implements RouteTestCommandPort {
-  private readonly control:SqliteControlPlaneStore;
-  private readonly runtime:SqliteDistributionRuntimeStateStore;
-  private readonly baselines:SqliteSourceActivationBaselineStore;
-  private readonly surfaces:SqlitePlatformSurfaceStore;
-  private readonly evidence:SqliteRouteTestEvidenceStore;
-  private readonly service:PersistingRouteTestCommandService;
-
+  private readonly control:SqliteControlPlaneStore;private readonly runtime:SqliteDistributionRuntimeStateStore;private readonly baselines:SqliteSourceActivationBaselineStore;private readonly surfaces:SqlitePlatformSurfaceStore;private readonly evidence:SqliteRouteTestEvidenceStore;private readonly service:PersistingRouteTestCommandService;
   constructor(options:WorkspaceRouteTestCommandsOptions){
     if(!options.releaseSha.trim())throw new Error("Workspace route tests require releaseSha");
-    const layout=workspaceRuntimeLayout(resolve(options.runtimeRoot),options.workspaceId);
-    const config=new JsonDistributionConfigurationStore(resolve(layout.configDir,"distribution.json"));
-    this.control=new SqliteControlPlaneStore(layout.databasePath);
-    this.runtime=new SqliteDistributionRuntimeStateStore(layout.databasePath);
-    this.baselines=new SqliteSourceActivationBaselineStore(layout.databasePath);
-    this.surfaces=new SqlitePlatformSurfaceStore(layout.databasePath);
-    this.evidence=new SqliteRouteTestEvidenceStore(layout.databasePath);
-    const env=options.env??process.env,token=workspaceDriveAccessTokenProvider({configDir:layout.configDir,env});
-    const driveClient=token?new GoogleDriveRestReadClient(token):undefined;
-    const observations=new SourceLaneObservationAdapter(driveClient?{googleDriveClient:driveClient}:{});
-    const safe=new SafeObserverRouteTestRunner(config,this.control,this.surfaces,observations,this.baselines);
-    const runner=new CalibratedWorkspaceRouteTestRunner(safe,config,this.control,this.runtime,this.surfaces,options.runtimeRoot,options.workspaceId,options.releaseSha,env,env.CHROMIUM_EXECUTABLE_PATH);
+    const layout=workspaceRuntimeLayout(resolve(options.runtimeRoot),options.workspaceId),config=new JsonDistributionConfigurationStore(resolve(layout.configDir,"distribution.json"));
+    this.control=new SqliteControlPlaneStore(layout.databasePath);this.runtime=new SqliteDistributionRuntimeStateStore(layout.databasePath);this.baselines=new SqliteSourceActivationBaselineStore(layout.databasePath);this.surfaces=new SqlitePlatformSurfaceStore(layout.databasePath);this.evidence=new SqliteRouteTestEvidenceStore(layout.databasePath);
+    const env=options.env??process.env,token=workspaceDriveAccessTokenProvider({configDir:layout.configDir,env}),driveClient=token?new GoogleDriveRestReadClient(token):undefined,observations=new SourceLaneObservationAdapter(driveClient?{googleDriveClient:driveClient}:{});
+    const safe=new SafeObserverRouteTestRunner(config,this.control,this.surfaces,observations,this.baselines),calibrated=new CalibratedWorkspaceRouteTestRunner(safe,config,this.control,this.runtime,this.surfaces,options.runtimeRoot,options.workspaceId,options.releaseSha,env,env.CHROMIUM_EXECUTABLE_PATH),runner=new SurfaceScopedRouteTestRunner(calibrated,config,this.surfaces);
     this.service=new PersistingRouteTestCommandService(this.evidence,runner,config,this.runtime,this.surfaces,options.releaseSha);
   }
-
   capabilities(routeId:string):readonly RouteTestCommandCapability[]{return this.service.capabilities(routeId);}
   run(routeId:string,testKey:ExecutableRouteTestKey,now:string):Promise<RouteTestCommandResult>{return this.service.run(routeId,testKey,now);}
-
-  close():void{
-    this.evidence.close();
-    this.surfaces.close();
-    this.baselines.close();
-    this.runtime.close();
-    this.control.close();
-  }
+  close():void{this.evidence.close();this.surfaces.close();this.baselines.close();this.runtime.close();this.control.close();}
 }
