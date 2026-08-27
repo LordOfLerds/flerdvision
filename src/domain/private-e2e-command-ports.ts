@@ -2,7 +2,7 @@ import type { E2EGateResult, PrivateE2ERun } from "./e2e.js";
 import type { PublicationIntent, PublishAttempt } from "./model.js";
 
 export interface PrivateE2EIntentCandidate {intent:PublicationIntent;routeId:string;surfaceContractId?:string;state:string;}
-export interface PrivateE2ERunView {run:PrivateE2ERun;gates:readonly E2EGateResult[];intent?:PublicationIntent;attempt?:PublishAttempt;routeId?:string;surfaceContractId?:string;}
+export interface PrivateE2ERunView {run:PrivateE2ERun;gates:readonly E2EGateResult[];intent?:PublicationIntent;intentState?:string;attempt?:PublishAttempt;routeId?:string;surfaceContractId?:string;}
 export interface PrivateE2ECommandPort {
   candidates():readonly PrivateE2EIntentCandidate[];
   runs():readonly PrivateE2ERunView[];
