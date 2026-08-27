@@ -1,7 +1,7 @@
 import type { StoredDistributionConfiguration, DistributionConfigurationStorePort } from "../domain/distribution-ports.js";
-import type { SourceActivationCommandPort, SourceActivationStatus } from "../domain/source-activation-ports.js";
+import type { SourceActivationBaselinePreview, SourceActivationCommandPort, SourceActivationStatus } from "../domain/source-activation-ports.js";
 import type { SourceActivationBaselineStorePort, SourceLaneObservationPort } from "../domain/source-lane-runtime.js";
-import { SourceActivationService, sourceActivationCursorFingerprint } from "./source-activation.js";
+import { SourceActivationService, sourceActivationCursorFingerprint, sourceActivationObservationSnapshotFingerprint } from "./source-activation.js";
 
 export function sourceActivationStatus(
   stored:StoredDistributionConfiguration,
@@ -24,17 +24,13 @@ export class SourceActivationCommandService implements SourceActivationCommandPo
   private readonly activation:SourceActivationService;
   constructor(
     private readonly config:DistributionConfigurationStorePort,
-    observations:SourceLaneObservationPort,
+    private readonly observations:SourceLaneObservationPort,
     private readonly baselines:SourceActivationBaselineStorePort
   ){
     this.activation=new SourceActivationService(observations,baselines);
   }
 
-  status(laneId:string):SourceActivationStatus{
-    return sourceActivationStatus(this.config.load(),this.baselines,laneId);
-  }
-
-  async captureBaseline(laneId:string,now:string):Promise<SourceActivationStatus>{
+  private context(laneId:string){
     const stored=this.config.load();
     const lane=stored.config.lanes.find((item)=>item.laneId===laneId);
     if(!lane)throw new Error(`Unknown lane: ${laneId}`);
@@ -43,7 +39,34 @@ export class SourceActivationCommandService implements SourceActivationCommandPo
     const cursor=stored.config.activationCursors.find((item)=>item.laneId===laneId);
     if(!cursor)throw new Error(`Lane ${laneId} has no activation cursor`);
     if(cursor.mode!=="NEW_ONLY")throw new Error(`Lane ${laneId} uses ${cursor.mode}; only NEW_ONLY has a capture baseline`);
-    await this.activation.ensureBaseline(source,lane,cursor,now);
+    return{stored,lane,source,cursor};
+  }
+
+  status(laneId:string):SourceActivationStatus{
+    return sourceActivationStatus(this.config.load(),this.baselines,laneId);
+  }
+
+  async previewBaseline(laneId:string,now:string):Promise<SourceActivationBaselinePreview>{
+    const {lane,source,cursor}=this.context(laneId);
+    const existing=this.baselines.getBaseline(laneId,sourceActivationCursorFingerprint(cursor));
+    if(existing)throw new Error(`Lane ${laneId} already has a captured NEW_ONLY baseline`);
+    const observed=await this.observations.observeLane(source,lane,new Date(now).toISOString());
+    const sampleFileNames=[...new Set(observed.map(item=>item.metadata.fileName??item.metadata.name??item.locator).filter(Boolean))]
+      .sort((a,b)=>a.localeCompare(b,"de-AT",{numeric:true,sensitivity:"base"}))
+      .slice(0,8);
+    return{
+      laneId,
+      cursorFingerprint:sourceActivationCursorFingerprint(cursor),
+      observedCount:new Set(observed.map(item=>item.externalObjectId)).size,
+      sampleFileNames,
+      snapshotFingerprint:sourceActivationObservationSnapshotFingerprint(observed),
+      previewedAt:new Date(now).toISOString()
+    };
+  }
+
+  async captureBaseline(laneId:string,now:string,expectedSnapshotFingerprint?:string):Promise<SourceActivationStatus>{
+    const {lane,source,cursor}=this.context(laneId);
+    await this.activation.ensureBaseline(source,lane,cursor,now,expectedSnapshotFingerprint);
     return this.status(laneId);
   }
 }
