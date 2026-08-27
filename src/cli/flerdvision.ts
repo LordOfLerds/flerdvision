@@ -5,6 +5,8 @@ import { bootstrapHeadlessWorkspace, loadWorkspaceSpecFile } from "../applicatio
 import { runHeadlessDemo } from "../application/headless-demo.js";
 import { ensureHeadlessLogin } from "../application/headless-login.js";
 import { inspectHeadlessWorkspace } from "../application/headless-status.js";
+import { accountIdForChannel } from "../application/workspace-spec-compiler.js";
+import { WorkspacePrivateE2ECommands } from "../adapters/runtime/workspace-private-e2e.js";
 
 function value(argv: readonly string[], name: string): string | undefined {
   const index = argv.indexOf(name);
@@ -46,7 +48,7 @@ function authorizedMode(argv: readonly string[]): "canary" | "production" {
   return mode;
 }
 function usage(): never {
-  console.error(`Flerdvision headless commands:\n\n  npm run flerdvision -- bootstrap [--spec <flerdvision.json>]\n  npm run flerdvision -- drive-auth [--spec <flerdvision.json>]\n  npm run flerdvision -- login --channel <channel-key>\n  npm run flerdvision -- doctor [--release-sha <sha>]\n  npm run flerdvision -- demo [--channel <key>] [--private-publish] [--force-login] [--headless]\n  npm run flerdvision -- run-once --channel <key> --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH\n  npm run flerdvision -- daemon --channel <key> --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH [--interval 60]\n\nSet FLERDVISION_SPEC once to avoid repeating --spec. The default product path has no setup/calibration UI. A social login browser opens only when human login or 2FA is needed. Final publishing additionally requires ALLOW_FINAL_PUBLISH=true.`);
+  console.error(`Flerdvision headless commands:\n\n  npm run flerdvision -- bootstrap [--spec <flerdvision.json>]\n  npm run flerdvision -- drive-auth [--spec <flerdvision.json>]\n  npm run flerdvision -- login --channel <channel-key>\n  npm run flerdvision -- doctor [--release-sha <sha>]\n  npm run flerdvision -- demo [--channel <key>] [--private-publish] [--force-login] [--headless]\n  npm run flerdvision -- cleanup --run-id <id> --confirm PRIVATE_E2E_TEST_POST_DELETED --note <evidence>\n  npm run flerdvision -- run-once --channel <key> --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH\n  npm run flerdvision -- daemon --channel <key> --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH [--interval 60]\n\nSet FLERDVISION_SPEC once to avoid repeating --spec. The default product path has no setup/calibration UI. A social login browser opens only when human login or 2FA is needed. Final publishing additionally requires ALLOW_FINAL_PUBLISH=true.`);
   process.exitCode = 2;
   throw new Error("invalid arguments");
 }
@@ -99,6 +101,27 @@ async function main(): Promise<void> {
       onProgress: (message) => console.error(message)
     });
     console.log(JSON.stringify(report, null, 2));
+    return;
+  }
+  if (command === "cleanup") {
+    const spec = loadWorkspaceSpecFile(specPath);
+    const sha = releaseSha(argv);
+    const commands = new WorkspacePrivateE2ECommands({
+      runtimeRoot: spec.workspace.runtimeRoot,
+      workspaceId: spec.workspace.id,
+      releaseSha: sha,
+      allowedAccountIds: new Set(spec.channels.map(accountIdForChannel)),
+      operatorId: "headless-cleanup"
+    });
+    try {
+      commands.confirmCleanup(
+        required(argv, "--run-id"),
+        required(argv, "--confirm"),
+        required(argv, "--note"),
+        new Date().toISOString()
+      );
+    } finally { await commands.close(); }
+    console.log(JSON.stringify({ cleanup: "PASS", doctor: inspectHeadlessWorkspace({ specPath, releaseSha: sha }) }, null, 2));
     return;
   }
   if (command === "run-once" || command === "daemon") {
