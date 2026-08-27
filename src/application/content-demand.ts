@@ -1,5 +1,5 @@
 import type { StoredDistributionConfiguration } from "../domain/distribution-ports.js";
-import type { ContentAsset } from "../domain/distribution.js";
+import type { ContentAsset, DailyPlan } from "../domain/distribution.js";
 
 export interface RouteContentDemand {
   routeId: string;
@@ -32,10 +32,14 @@ export interface ContentDemandProjection {
 export function projectContentDemand(
   stored: StoredDistributionConfiguration,
   assets: readonly ContentAsset[],
-  businessDate: string
+  businessDate: string,
+  plan?: DailyPlan
 ): ContentDemandProjection {
   const activeRoutes = stored.config.routes.filter((route) => route.enabled);
   const lanes: LaneContentDemand[] = [];
+  const plannedAssetIds = new Set(
+    plan?.businessDate === businessDate ? plan.deliveries.map((delivery) => delivery.assetId) : []
+  );
 
   for (const lane of stored.config.lanes.filter((item) => item.enabled)) {
     const routes = activeRoutes.filter((route) => route.laneId === lane.laneId).map((route): RouteContentDemand => {
@@ -53,7 +57,10 @@ export function projectContentDemand(
     // number of source positions required by a route, never the sum of all cross-post deliveries.
     const requiredAssetCount = Math.max(0, ...routes.filter((route) => route.requirement === "REQUIRED").map((route) => route.slotCount));
     const optionalAssetCount = Math.max(0, ...routes.filter((route) => route.requirement === "OPTIONAL").map((route) => route.slotCount));
-    const relevantAssets = assets.filter((asset) => asset.laneId === lane.laneId && asset.scheduledBusinessDate === businessDate);
+    const relevantAssets = assets.filter((asset) =>
+      asset.laneId === lane.laneId &&
+      (asset.scheduledBusinessDate === businessDate || plannedAssetIds.has(asset.assetId))
+    );
     const readyAssetCount = relevantAssets.filter((asset) => asset.state === "READY" || asset.state === "COMPLETE").length;
     const stabilizingAssetCount = relevantAssets.filter((asset) => asset.state === "OBSERVED" || asset.state === "STABILIZING").length;
     const blockedAssetCount = relevantAssets.filter((asset) => asset.state === "BLOCKED").length;
