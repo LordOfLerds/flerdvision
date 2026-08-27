@@ -1,5 +1,5 @@
 import type { DistributionConfigurationStorePort } from "../../domain/distribution-ports.js";
-import type { RouteTestExecutionAdapterPort, ExecutableRouteTestKey } from "../../domain/route-test-ports.js";
+import type { RouteTestExecutionAdapterPort, ExecutableRouteTestKey, RouteTestExecutionResult } from "../../domain/route-test-ports.js";
 import type { RouteTestCommandCapability } from "../../domain/route-test-command-ports.js";
 import type { SourceActivationBaselineStorePort, SourceLaneObservationPort } from "../../domain/source-lane-runtime.js";
 import type { PlatformSurfaceStorePort } from "../../domain/platform-surface-ports.js";
@@ -32,7 +32,7 @@ export class SafeObserverRouteTestRunner implements RouteTestExecutionAdapterPor
     });
   }
 
-  async run(routeId:string,testKey:ExecutableRouteTestKey):Promise<{passed:boolean;summary:string;artifactRefs:readonly string[]}>{
+  async run(routeId:string,testKey:ExecutableRouteTestKey):Promise<RouteTestExecutionResult>{
     if(!SAFE_KEYS.includes(testKey))throw new Error(`Route test ${testKey} is unavailable in safe observer runner`);
     const stored=this.config.load();
     const route=stored.config.routes.find(item=>item.routeId===routeId);
@@ -71,9 +71,10 @@ export class SafeObserverRouteTestRunner implements RouteTestExecutionAdapterPor
 
     const surface=this.surfaces.latestContract(route.accountId,route.postingProfileId);
     if(!surface)return{passed:false,summary:"No surface contract exists for this account + posting profile.",artifactRefs:[]};
-    if(surface.contract.status!=="CALIBRATED")return{passed:false,summary:`Surface contract ${surface.contract.contractId} is ${surface.contract.status}, not CALIBRATED.`,artifactRefs:[]};
-    const replays=this.surfaces.listReplays(surface.contract.contractId),latest=replays.at(-1);
-    if(latest&&!latest.passed)return{passed:false,summary:`Latest surface replay ${latest.replayId} failed; contract is drifted until recalibrated.`,artifactRefs:[...latest.artifactRefs]};
-    return{passed:true,summary:`Surface contract ${surface.contract.contractId} is CALIBRATED for ${route.postingProfileId}.`,artifactRefs:latest?[...latest.artifactRefs]:[]};
+    const surfaceContractId=surface.contract.contractId;
+    if(surface.contract.status!=="CALIBRATED")return{passed:false,summary:`Surface contract ${surfaceContractId} is ${surface.contract.status}, not CALIBRATED.`,artifactRefs:[],surfaceContractId};
+    const replays=this.surfaces.listReplays(surfaceContractId),latest=replays.at(-1);
+    if(latest&&!latest.passed)return{passed:false,summary:`Latest surface replay ${latest.replayId} failed; contract is drifted until recalibrated.`,artifactRefs:[...latest.artifactRefs],surfaceContractId};
+    return{passed:true,summary:`Surface contract ${surfaceContractId} is CALIBRATED for ${route.postingProfileId}.`,artifactRefs:latest?[...latest.artifactRefs]:[],surfaceContractId};
   }
 }
