@@ -33,7 +33,8 @@ export class PersistedDistributionPlannerAdapter implements RuntimePlannerPort {
     const catalog: PlanningCatalog = {
       postingProfiles: Object.fromEntries(stored.config.postingProfiles.map((item)=>[item.postingProfileId,item])),
       copyProfiles: Object.fromEntries(stored.config.copyProfiles.map((item)=>[item.copyProfileId,item])),
-      schedulePolicies: stored.schedulePolicies
+      schedulePolicies: stored.schedulePolicies,
+      operatingCalendars: Object.fromEntries((stored.operatingCalendars ?? []).map((item)=>[item.calendarId,item]))
     };
     const carryIn = dedupeBacklog(
       this.runtime.listCurrentDailyPlans()
