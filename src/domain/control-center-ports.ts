@@ -3,6 +3,7 @@ import type { AuditEvent } from "./control-plane.js";
 import type { ContentAsset, DailyPlan, DeliveryAggregate } from "./distribution.js";
 import type { Incident } from "./operations.js";
 import type { SourceActivationStatus } from "./source-activation-ports.js";
+import type { SourcePollingRuntimeState } from "./source-poll-state-ports.js";
 import type { RuntimeCycleReport } from "../application/runtime-supervisor.js";
 import type { ChannelReadiness, RouteTestReadiness, SurfaceReadiness } from "../application/control-center-read-model.js";
 
@@ -16,6 +17,7 @@ export interface ControlCenterRuntimeSnapshot {
   assets: readonly ContentAsset[];
   deliveryAggregates?: readonly DeliveryAggregate[];
   sourceActivation?: readonly SourceActivationStatus[];
+  sourcePolling?:SourcePollingRuntimeState;
   incidents?: readonly Incident[];
   auditEvents?: readonly AuditEvent[];
   runtimeCycles?: readonly RuntimeCycleReport[];
