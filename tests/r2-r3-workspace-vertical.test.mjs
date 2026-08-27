@@ -34,23 +34,38 @@ test("workspace source flows forward to SCHEDULED intent and traces back to loca
   const initial=store.load();
   store.save({...initial,config:sourceConfig(sourceRoot),updatedAt:"2026-08-27T05:00:00.000Z"},initial.revision);
 
-  const runtime=new WorkspaceDistributionRuntime({runtimeRoot,workspaceId:"vertical",env:{...process.env,FFPROBE_EXECUTABLE_PATH:ffprobe}});
+  const runtime=new WorkspaceDistributionRuntime({runtimeRoot,workspaceId:"vertical",releaseSha:"test-release",env:{...process.env,FFPROBE_EXECUTABLE_PATH:ffprobe}});
   try{
     const first=await runtime.source.scan("2026-08-27T06:00:00.000Z");
     assert.equal(first.stabilizing,1);
     assert.equal(runtime.state.listAssets()[0].asset.state,"STABILIZING");
 
-    const second=await runtime.source.scan("2026-08-27T06:01:00.000Z");
+    const second=await runtime.source.scan("2026-08-27T06:06:00.000Z");
     assert.equal(second.ready,1);
     const asset=runtime.state.listAssets()[0].asset;
     assert.equal(asset.state,"READY");
     assert.equal(asset.creatorId,"creator-1");
     assert.equal(asset.scheduledBusinessDate,"2026-08-27");
 
-    const plan=await runtime.planner.ensureDailyPlan("2026-08-27","2026-08-27T06:02:00.000Z");
+    // A route only becomes execution-qualified once it has been test-qualified: source, session
+    // and identity proven, three prepare-only replays, verification, and a CALIBRATED surface
+    // contract on the same release. That is the chain the real E2E walks by hand; the vertical
+    // under test here is source -> plan -> intent, so the qualification is seeded rather than
+    // performed.
+    runtime.surfaces.recordContract({
+      contractId:"contract-ig",accountId:"ig-test",platform:"instagram",format:"reel",postingProfileId:"ig-normal",
+      environment:{browserFamily:"chromium",browserMajor:140,language:"de-AT",timeZone:"Europe/Vienna",viewportWidth:1280,viewportHeight:900,deviceScaleFactor:1,fingerprint:"env"},
+      steps:[],status:"CALIBRATED",createdAt:"2026-08-27T05:30:00.000Z",calibratedAt:"2026-08-27T05:30:00.000Z"
+    },"2026-08-27T05:30:00.000Z");
+    runtime.state.putRouteTestReadiness({
+      routeId:"route-ig",sourcePassed:true,sessionPassed:true,identityPassed:true,prepareOnlyPasses:3,
+      secretLivePassed:false,verificationPassed:true,cleanupPassed:false,releaseSha:"test-release",surfaceContractId:"contract-ig"
+    },"2026-08-27T06:06:30.000Z");
+
+    const plan=await runtime.planner.ensureDailyPlan("2026-08-27","2026-08-27T06:07:00.000Z");
     assert.equal(plan.deliveries.length,1);
     assert.equal(plan.deliveries[0].assetId,asset.assetId);
-    const materialized=await runtime.intents.ensureIntents(plan,"2026-08-27T06:03:00.000Z");
+    const materialized=await runtime.intents.ensureIntents(plan,"2026-08-27T06:08:00.000Z");
     assert.equal(materialized.created,1);
     assert.equal(materialized.blocked,0);
 

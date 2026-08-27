@@ -52,7 +52,7 @@ test("release promotion enforces Luca Mac -> Fabian Mac -> VPS staging -> produc
     const reg = registry(root); const q = new ReleaseQualificationService(reg); const sha = "abc123";
     assert.throws(() => q.start({ releaseSha: sha, stage: "FABIAN_MAC", workspaceId: "fabian", hostFingerprint: "fabian-mac", now: "2026-08-26T20:00:00Z", operatorId: "tester" }), /predecessor stage LUCA_MAC/);
     const luca = q.start({ runId: "run:luca", releaseSha: sha, stage: "LUCA_MAC", workspaceId: "luca", hostFingerprint: "luca-mac", now: "2026-08-26T20:01:00Z", operatorId: "tester" });
-    for (const gate of requiredQualificationGates("LUCA_MAC")) q.recordGate({ runId: luca.runId, gate, passed: true, now: "2026-08-26T20:02:00Z", operatorId: "tester", summary: "pass" });
+    for (const gate of requiredQualificationGates("LUCA_MAC")) q.recordGate({ runId: luca.runId, gate, passed: true, now: "2026-08-26T20:02:00Z", operatorId: "tester", summary: "pass", artifactRefs: [`db://qualification/${gate}`] });
     assert.equal(q.finalize(luca.runId).status, "PASSED");
     assert.doesNotThrow(() => q.start({ runId: "run:fabian", releaseSha: sha, stage: "FABIAN_MAC", workspaceId: "fabian", hostFingerprint: "fabian-mac", now: "2026-08-26T20:03:00Z", operatorId: "tester" }));
     assert.throws(() => q.start({ releaseSha: sha, stage: "VPS_STAGING", workspaceId: "staging", hostFingerprint: "vps", now: "2026-08-26T20:04:00Z", operatorId: "tester" }), /predecessor stage FABIAN_MAC/);

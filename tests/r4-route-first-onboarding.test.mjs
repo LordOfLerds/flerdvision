@@ -25,7 +25,7 @@ test("source lane and social channel stay independent until PublishingProgram cr
       assert.equal(config.load().config.routes.length,0,"source onboarding cannot create a target route implicitly");
 
       const registration=new SetupChannelRegistrationService(control).registerFromDiscovery({
-        result:{platform:"instagram",discoveredAt:"2026-08-27T08:01:00.000Z",channels:[{channelKey:"ig-main",handle:"@demo_account",label:"Demo"}]},
+        result:{platform:"instagram",state:"HEALTHY",discoveredAt:"2026-08-27T08:01:00.000Z",channels:[{channelKey:"ig-main",handle:"@demo_account",displayName:"Demo"}]},
         channelKey:"ig-main",checkId:"check-route-first",now:"2026-08-27T08:01:00.000Z",actor
       });
       assert.equal(control.listSocialAccounts().length,1);

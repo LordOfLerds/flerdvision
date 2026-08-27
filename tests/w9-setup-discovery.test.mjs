@@ -131,7 +131,7 @@ test("picking the other channel of the same login produces a different account",
 
 /* ---------------- source bindings ---------------- */
 
-test("an account watches exactly one folder, a folder may feed several accounts", () => {
+test("the retired folder/account binding is fail-closed, not merely unused", () => {
   const paths = tempRuntime();
   const store = new SqliteControlPlaneStore(paths.db);
   try {
@@ -140,84 +140,56 @@ test("an account watches exactly one folder, a folder may feed several accounts"
       result: { ...discovery(), platform: "instagram", channels: [{ channelKey: "flerdvision", handle: "@flerdvision", displayName: "Flerdvision" }] },
       channelKey: "flerdvision", checkId: "c1", now: "2026-08-26T18:00:05Z", actor: ACTOR
     });
-    const tt = service.registerFromDiscovery({
-      result: { ...discovery(), platform: "tiktok", channels: [{ channelKey: "flerdvision_at", handle: "@flerdvision.at", displayName: "Flerdvision" }] },
-      channelKey: "flerdvision_at", checkId: "c2", now: "2026-08-26T18:00:06Z", actor: ACTOR
-    });
 
-    const base = { folderId: "1AbCdEf", folderPath: "Meine Ablage / Flerdvision / Reels", interpretSubstructure: false, now: "2026-08-26T18:01:00Z", actor: ACTOR };
-    service.bindSource({ ...base, accountId: ig.accountId, bindingId: "bind:ig" });
-    service.bindSource({ ...base, accountId: tt.accountId, bindingId: "bind:tt" });
+    // Routing moved to SourceLane + DistributionRoute in the Product Control Center. The old
+    // entry point must refuse rather than quietly write state nothing reads any more -- a
+    // half-migrated workspace with orphan bindings is worse than a loud refusal.
+    assert.throws(() => service.bindSource({
+      accountId: ig.accountId, bindingId: "bind:ig", folderId: "1AbCdEf",
+      folderPath: "Meine Ablage / Reels", interpretSubstructure: false,
+      now: "2026-08-26T18:01:00Z", actor: ACTOR
+    }), /LEGACY_SOURCE_BINDING_DISABLED/);
 
-    // Cross-posting: one folder, two channels.
-    assert.equal(store.listChannelSourceBindingsForFolder("1AbCdEf").length, 2);
-
-    // A second folder for an already-bound account is refused, so an arriving file is never ambiguous.
-    assert.throws(
-      () => service.bindSource({ ...base, accountId: ig.accountId, bindingId: "bind:ig:2", folderId: "9ZzYyXx" }),
-      ChannelSourceBindingConflictError
-    );
-    assert.equal(store.getChannelSourceBindingForAccount(ig.accountId).binding.folderId, "1AbCdEf");
+    assert.deepEqual(store.listChannelSourceBindings(), [], "a refused bind must leave no record");
+    // The channel itself survives: only the folder wiring moved.
+    assert.equal(store.getSocialAccount(ig.accountId).account.expectedHandle, "flerdvision");
   } finally {
     store.close();
     rmSync(paths.dir, { recursive: true, force: true });
   }
 });
 
-test("the substructure switch is per binding, not per workspace", () => {
+test("the store still enforces one folder per account for any legacy row it holds", () => {
   const paths = tempRuntime();
   const store = new SqliteControlPlaneStore(paths.db);
   try {
     const service = new SetupChannelRegistrationService(store);
-    const a = service.registerFromDiscovery({
+    const ig = service.registerFromDiscovery({
       result: { ...discovery(), platform: "instagram", channels: [{ channelKey: "one", handle: "@one", displayName: "One" }] },
       channelKey: "one", checkId: "c1", now: "2026-08-26T18:00:05Z", actor: ACTOR
     });
-    const b = service.registerFromDiscovery({
+    const tt = service.registerFromDiscovery({
       result: { ...discovery(), platform: "tiktok", channels: [{ channelKey: "two", handle: "@two", displayName: "Two" }] },
       channelKey: "two", checkId: "c2", now: "2026-08-26T18:00:06Z", actor: ACTOR
     });
-    service.bindSource({ accountId: a.accountId, bindingId: "b1", folderId: "F1", folderPath: "A", interpretSubstructure: false, now: "2026-08-26T18:01:00Z", actor: ACTOR });
-    service.bindSource({ accountId: b.accountId, bindingId: "b2", folderId: "F2", folderPath: "B", interpretSubstructure: true, now: "2026-08-26T18:01:01Z", actor: ACTOR });
+    const base = { source: "google_drive", folderId: "1AbCdEf", folderPath: "Ablage / Reels", interpretSubstructure: false, enabled: true };
 
-    assert.equal(store.getChannelSourceBinding("b1").binding.interpretSubstructure, false);
-    assert.equal(store.getChannelSourceBinding("b2").binding.interpretSubstructure, true);
-  } finally {
-    store.close();
-    rmSync(paths.dir, { recursive: true, force: true });
-  }
-});
+    // Migration still reads these rows, so the invariants that make them interpretable must hold:
+    // one folder may feed several accounts (cross-posting), one account never two folders.
+    store.bindChannelSource({ ...base, bindingId: "b:ig", accountId: ig.accountId }, "2026-08-26T18:01:00Z", ACTOR);
+    store.bindChannelSource({ ...base, bindingId: "b:tt", accountId: tt.accountId }, "2026-08-26T18:01:01Z", ACTOR);
+    assert.equal(store.listChannelSourceBindingsForFolder("1AbCdEf").length, 2);
 
-test("a folder id that looks like a path or a shell fragment is refused", () => {
-  const paths = tempRuntime();
-  const store = new SqliteControlPlaneStore(paths.db);
-  try {
-    const service = new SetupChannelRegistrationService(store);
-    const acct = service.registerFromDiscovery({
-      result: { ...discovery(), platform: "instagram", channels: [{ channelKey: "one", handle: "@one", displayName: "One" }] },
-      channelKey: "one", checkId: "c1", now: "2026-08-26T18:00:05Z", actor: ACTOR
-    });
-    for (const unsafe of ["../../etc/passwd", "a b", "id;rm -rf /", "id`whoami`", ""]) {
-      assert.throws(() => service.bindSource({
-        accountId: acct.accountId, bindingId: "bx", folderId: unsafe, folderPath: "X",
-        interpretSubstructure: false, now: "2026-08-26T18:01:00Z", actor: ACTOR
-      }), /Unsafe source folder id|cannot be empty/);
-    }
-  } finally {
-    store.close();
-    rmSync(paths.dir, { recursive: true, force: true });
-  }
-});
-
-test("binding an unknown account is refused", () => {
-  const paths = tempRuntime();
-  const store = new SqliteControlPlaneStore(paths.db);
-  try {
     assert.throws(
-      () => new SetupChannelRegistrationService(store).bindSource({
-        accountId: "instagram_ghost", bindingId: "b", folderId: "F", folderPath: "X",
-        interpretSubstructure: false, now: "2026-08-26T18:01:00Z", actor: ACTOR
-      }),
+      () => store.bindChannelSource({ ...base, bindingId: "b:ig:2", accountId: ig.accountId, folderId: "9ZzYyXx" }, "2026-08-26T18:01:02Z", ACTOR),
+      ChannelSourceBindingConflictError
+    );
+    for (const unsafe of ["../../etc/passwd", "a b", "id;rm -rf /", ""]) {
+      assert.throws(() => store.bindChannelSource({ ...base, bindingId: "b:x", accountId: tt.accountId, folderId: unsafe }, "2026-08-26T18:01:03Z", ACTOR),
+        /Unsafe source folder id|cannot be empty/);
+    }
+    assert.throws(
+      () => store.bindChannelSource({ ...base, bindingId: "b:ghost", accountId: "instagram_ghost" }, "2026-08-26T18:01:04Z", ACTOR),
       ChannelSourceBindingConflictError
     );
   } finally {

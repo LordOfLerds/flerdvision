@@ -12,7 +12,7 @@ function fixture(){
   const changeStore={
     create(change){if(changes.has(change.changeId))return changes.get(change.changeId);changes.set(change.changeId,structuredClone(change));return structuredClone(change);},
     get(id){return changes.has(id)?structuredClone(changes.get(id)):null;},
-    list(status){return [...changes.values()].filter(c=>!status||c.status===status).map(structuredClone);},
+    list(status){return [...changes.values()].filter(c=>!status||c.status===status).map(change=>structuredClone(change));},
     transition(id,to,at,reason){const current=changes.get(id);if(!current)throw new Error("missing change");const next={...current,status:to,...(to==="APPLIED"?{appliedAt:at}:{}),...(reason?{reason}:{})};changes.set(id,next);return structuredClone(next);}
   };
   const store={

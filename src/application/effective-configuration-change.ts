@@ -35,11 +35,26 @@ function ordered(changes:readonly EffectiveConfigurationChange[]):EffectiveConfi
 export class EffectiveConfigurationChangeService {
   constructor(private readonly changes:EffectiveConfigurationChangeStorePort,private readonly config:DistributionConfigurationStorePort,private readonly accounts:()=>readonly SocialAccount[]){}
 
+  /**
+   * Scheduling deliberately does not enforce cross-references.
+   *
+   * A change set applied on the same day is one atomic write, so a calendar may legitimately
+   * reference a schedule policy that an earlier member of that set creates -- at scheduling time
+   * that policy does not exist yet. Validation therefore belongs to apply, where the whole set is
+   * built up in memory first and a failing member sends the entire set to NEEDS_REVIEW without a
+   * single write. Refusing here instead would make multi-member change sets impossible to author.
+   */
   private preview(draft:EffectiveChangeDraft):{baseRevision:number;summary:string}{
-    if(draft.kind==="PROGRAM"){const p=new PublishingProgramManagementService(this.config,this.accounts).preview(draft.payload);return{baseRevision:p.currentRevision,summary:`Publishing program ${p.laneId}: ${p.affectedRouteIds.length} route(s), ${p.requiredAssetCountPerBusinessDate} source asset(s) for preview date.`};}
-    const service=new RhythmCalendarManagementService(this.config);
-    if(draft.kind==="RHYTHM"){const p=service.previewSchedulePolicy(draft.payload.id,draft.payload.policy);return{baseRevision:p.currentRevision,summary:p.operatorSummary};}
-    const p=service.previewOperatingCalendar(draft.payload);return{baseRevision:p.currentRevision,summary:p.operatorSummary};
+    const baseRevision=this.config.load().revision;
+    try{
+      if(draft.kind==="PROGRAM"){const p=new PublishingProgramManagementService(this.config,this.accounts).preview(draft.payload);return{baseRevision:p.currentRevision,summary:`Publishing program ${p.laneId}: ${p.affectedRouteIds.length} route(s), ${p.requiredAssetCountPerBusinessDate} source asset(s) for preview date.`};}
+      const service=new RhythmCalendarManagementService(this.config);
+      if(draft.kind==="RHYTHM"){const p=service.previewSchedulePolicy(draft.payload.id,draft.payload.policy);return{baseRevision:p.currentRevision,summary:p.operatorSummary};}
+      const p=service.previewOperatingCalendar(draft.payload);return{baseRevision:p.currentRevision,summary:p.operatorSummary};
+    }catch(error){
+      const detail=error instanceof Error?error.message:String(error);
+      return{baseRevision,summary:`Not previewable against revision ${baseRevision} on its own (${detail}); validated when the change set is applied.`};
+    }
   }
 
   schedule(draft:EffectiveChangeDraft,effectiveBusinessDate:string,now:string,createdBy:string):EffectiveConfigurationChange{
