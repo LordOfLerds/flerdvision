@@ -37,7 +37,8 @@ export class ConfiguredSourceLaneInterpreterFactory implements SourceLaneInterpr
     }
     if (lane.interpretation.kind === "creator_week_day") {
       const aliases: Record<string, string> = { ...(this.config.creatorAliases ?? {}) };
-      if (lane.interpretation.creatorAlias && explicitCreatorId) aliases[lane.interpretation.creatorAlias] = explicitCreatorId;
+      const scopedAlias=lane.interpretation.creatorAlias??(explicitCreatorId?lane.laneId:undefined);
+      if (scopedAlias && explicitCreatorId) aliases[scopedAlias] = explicitCreatorId;
       return new CurrentCreatorWeekDayPathInterpreter({
         creatorAliases: aliases,
         ...(this.config.weekStartBySegment ? { weekStartBySegment: this.config.weekStartBySegment } : {}),
