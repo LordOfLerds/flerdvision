@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DistributionConfigurationStorePort, StoredDistributionConfiguration } from "../../domain/distribution-ports.js";
+import { DEFAULT_DISTRIBUTION_RUNTIME_POLICY } from "../../domain/distribution-operations.js";
 import { DEFAULT_SCHEDULING_POLICY } from "../../domain/scheduling.js";
 import { assertConfigurationReferentialIntegrity } from "../../application/distribution-config.js";
 
@@ -13,8 +14,13 @@ const EMPTY: Omit<StoredDistributionConfiguration, "revision" | "updatedAt"> = {
     contentOrder: "FILENAME_NUMERIC_PREFIX",
     lateArrival: "NEXT_AVAILABLE_SLOT",
     overflow: "BACKLOG_NEXT_DAY"
-  }
+  },
+  runtimePolicy: DEFAULT_DISTRIBUTION_RUNTIME_POLICY
 };
+
+function normalizeRuntimePolicy(value: StoredDistributionConfiguration): StoredDistributionConfiguration {
+  return value.runtimePolicy ? value : { ...value, runtimePolicy: DEFAULT_DISTRIBUTION_RUNTIME_POLICY };
+}
 
 export class JsonDistributionConfigurationStore implements DistributionConfigurationStorePort {
   private readonly path: string;
@@ -33,7 +39,7 @@ export class JsonDistributionConfigurationStore implements DistributionConfigura
   }
 
   load(): StoredDistributionConfiguration {
-    const parsed = JSON.parse(readFileSync(this.path, "utf8")) as StoredDistributionConfiguration;
+    const parsed = normalizeRuntimePolicy(JSON.parse(readFileSync(this.path, "utf8")) as StoredDistributionConfiguration);
     if (!Number.isInteger(parsed.revision) || parsed.revision < 0) throw new Error("Distribution configuration has invalid revision");
     assertConfigurationReferentialIntegrity(parsed.config);
     return parsed;
@@ -47,6 +53,7 @@ export class JsonDistributionConfigurationStore implements DistributionConfigura
     assertConfigurationReferentialIntegrity(next.config);
     const stored: StoredDistributionConfiguration = {
       ...next,
+      runtimePolicy: next.runtimePolicy ?? DEFAULT_DISTRIBUTION_RUNTIME_POLICY,
       revision: current.revision + 1,
       updatedAt: new Date(next.updatedAt).toISOString()
     };
