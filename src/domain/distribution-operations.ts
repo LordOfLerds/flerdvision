@@ -18,9 +18,15 @@ export interface OperatorReadinessPolicy {
   quietOnNormalSuccess: boolean;
 }
 
+export interface VerifiedMediaCachePolicy {
+  /** Keep immutable verified bytes this long after DeliveryAggregate/source disposition completes. */
+  retentionHoursAfterComplete: number;
+}
+
 export interface DistributionRuntimePolicy {
   sourcePolling: SourcePollingPolicy;
   readiness: OperatorReadinessPolicy;
+  mediaCache: VerifiedMediaCachePolicy;
 }
 
 export const DEFAULT_DISTRIBUTION_RUNTIME_POLICY: DistributionRuntimePolicy = {
@@ -39,6 +45,9 @@ export const DEFAULT_DISTRIBUTION_RUNTIME_POLICY: DistributionRuntimePolicy = {
     preSlotEscalationMinutes: 15,
     completionSummaryLocalTime: "18:00",
     quietOnNormalSuccess: true
+  },
+  mediaCache: {
+    retentionHoursAfterComplete: 24
   }
 };
 
@@ -100,7 +109,7 @@ export function decideSourcePoll(input: {
     return {
       due: policy.pollImmediatelyOnStartup,
       trigger: "STARTUP",
-      nextPollAt: policy.pollImmediatelyOnStartup ? plusMinutes(input.now, intervalMinutes) : plusMinutes(input.now, intervalMinutes),
+      nextPollAt: plusMinutes(input.now, intervalMinutes),
       intervalMinutes
     };
   }
