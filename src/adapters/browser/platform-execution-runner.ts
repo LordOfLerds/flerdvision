@@ -11,12 +11,13 @@ export interface SafePlatformExecutionInput {
   caption?:string;
   title?:string;
 }
+interface SafeExecutionJournalEntry {stepKey:string;operation:string;outcome:"PASS";detail:string;}
 export interface SafePlatformExecutionResult {
   reachedFinalActionBoundary:true;
   finalActionInvoked:false;
   environmentFingerprint:string;
   artifactRefs:readonly string[];
-  journal:readonly {stepKey:string;operation:string;outcome:"PASS";detail:string}[];
+  journal:readonly SafeExecutionJournalEntry[];
 }
 
 function bootstrapUrl(platform:PlatformExecutionPlan["intent"]["platform"]):string{
@@ -97,7 +98,7 @@ export class SafePlatformExecutionRunner {
           const norm=v=>String(v||'').trim().toLocaleLowerCase('en-US').replace(/[_-]+/g,' ').replace(/\\s+/g,' '),wanted=${JSON.stringify(wanted)};
           const candidates=Array.from(document.querySelectorAll('[role="option"],option,[data-value]'));
           const option=candidates.find(el=>norm(el.getAttribute('data-value'))===wanted||norm(el.getAttribute('value'))===wanted||norm(el.textContent)===wanted);
-          if(!option)return false;(option).click();return true;
+          if(!option)return false;option.click();return true;
         })()`);
         if(!selected)throw new UiActionExecutionError(`Cannot safely locate enum option ${expected} for ${action.stepKey}`);
       }
@@ -109,7 +110,7 @@ export class SafePlatformExecutionRunner {
 
   async execute(plan:PlatformExecutionPlan,identity:BrowserIdentity,input:SafePlatformExecutionInput):Promise<SafePlatformExecutionResult>{
     if(identity.accountId!==plan.intent.accountId||identity.platform!==plan.intent.platform)throw new UiActionExecutionError("Execution identity does not match plan account/platform");
-    const finalLocators=this.finalLocators(plan),artifactRefs:string[]=[],journal:Array<{stepKey:string;operation:string;outcome:"PASS";detail:string}>=[];
+    const finalLocators=this.finalLocators(plan),artifactRefs:string[]=[],journal:SafeExecutionJournalEntry[]=[];
     await this.session.navigate(bootstrapUrl(plan.intent.platform));
     artifactRefs.push(...await this.artifacts.captureBoundary(this.session,plan.intent,identity,"calibration-replay-bootstrap",this.now()));
     for(const action of plan.actions){
