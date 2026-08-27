@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, resolve as resolvePath, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { AccountIdentityGuard, BrowserSessionHealthService } from "./browser-identity-service.js";
 import { buildCalibrationReplayPlan } from "./platform-execution-plan.js";
@@ -8,6 +8,7 @@ import { workspaceRuntimeLayout } from "./workspaces.js";
 import type { DistributionPostingContext } from "../domain/distribution-publish-ports.js";
 import type { BrowserIdentity } from "../domain/browser-identity.js";
 import type { PublicationIntent, PublishAttempt } from "../domain/model.js";
+import type { StoredSurfaceContractVersion } from "../domain/platform-surface-ports.js";
 import type { PrepareArtifactSinkPort } from "../domain/platform-ui-ports.js";
 import type { RouteTestEvidenceKey, RouteTestEvidenceRecord } from "../domain/route-test-ports.js";
 import { ChromiumCdpRuntimeAdapter } from "../adapters/browser/chromium-cdp.js";
@@ -202,7 +203,7 @@ export class AutonomousRouteQualifier {
       const ownerId = `headless-surface-discovery:${routeId}`;
       const lock = this.locks.acquire(ctx.identity, ownerId, at);
       let session: Awaited<ReturnType<ChromiumCdpRuntimeAdapter["launch"]>> | undefined;
-      let recordedContract;
+      let recordedContract: StoredSurfaceContractVersion | undefined;
       try {
         session = await this.runtime.launch(ctx.identity, { headless: this.options.headless ?? false, initialUrl: "about:blank" });
         const health = await new BrowserSessionHealthService(this.control, new ConfiguredDomSessionProbe(probeEntry.config)).check(ctx.identity.identityId, session, at, { type: "operator", id: ownerId });
