@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import { JsonWorkspaceRegistry } from "../dist/adapters/workspace/json-registry.js";
 import { WorkspaceService, workspaceRuntimeLayout } from "../dist/application/workspaces.js";
 import { ReleaseQualificationService } from "../dist/application/release-qualification.js";
+import { requiredQualificationGates } from "../dist/domain/workspace.js";
 import { SqliteControlPlaneStore } from "../dist/adapters/storage/sqlite.js";
 import { SelfServiceHttpServer } from "../dist/adapters/setup/self-service-http.js";
 
@@ -51,11 +52,18 @@ test("release promotion enforces Luca Mac -> Fabian Mac -> VPS staging -> produc
     const reg = registry(root); const q = new ReleaseQualificationService(reg); const sha = "abc123";
     assert.throws(() => q.start({ releaseSha: sha, stage: "FABIAN_MAC", workspaceId: "fabian", hostFingerprint: "fabian-mac", now: "2026-08-26T20:00:00Z", operatorId: "tester" }), /predecessor stage LUCA_MAC/);
     const luca = q.start({ runId: "run:luca", releaseSha: sha, stage: "LUCA_MAC", workspaceId: "luca", hostFingerprint: "luca-mac", now: "2026-08-26T20:01:00Z", operatorId: "tester" });
-    for (const gate of ["INSTALLER","WORKSPACE_ISOLATION","CORE_TESTS","HOST_PREFLIGHT","SELF_SERVICE_UI","DEMO_DRIVE","BROWSER_IDENTITY","INSTAGRAM_PREPARE","TIKTOK_PREPARE"]) q.recordGate({ runId: luca.runId, gate, passed: true, now: "2026-08-26T20:02:00Z", operatorId: "tester", summary: "pass" });
+    for (const gate of requiredQualificationGates("LUCA_MAC")) q.recordGate({ runId: luca.runId, gate, passed: true, now: "2026-08-26T20:02:00Z", operatorId: "tester", summary: "pass" });
     assert.equal(q.finalize(luca.runId).status, "PASSED");
     assert.doesNotThrow(() => q.start({ runId: "run:fabian", releaseSha: sha, stage: "FABIAN_MAC", workspaceId: "fabian", hostFingerprint: "fabian-mac", now: "2026-08-26T20:03:00Z", operatorId: "tester" }));
     assert.throws(() => q.start({ releaseSha: sha, stage: "VPS_STAGING", workspaceId: "staging", hostFingerprint: "vps", now: "2026-08-26T20:04:00Z", operatorId: "tester" }), /predecessor stage FABIAN_MAC/);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("Luca/Fabian/VPS qualification requires current product and operations gates",()=>{
+  const luca=requiredQualificationGates("LUCA_MAC"),fabian=requiredQualificationGates("FABIAN_MAC"),vps=requiredQualificationGates("VPS_STAGING");
+  for(const gate of ["PRODUCT_CONTROL_CENTER","SOURCE_WORKFLOW","PROGRAM_ROUTING","CONTENT_READINESS","ROUTE_QUALIFICATION","VERIFICATION_CLEANUP","SECRET_E2E","NOTIFICATION_FLOW"])assert.ok(luca.includes(gate),`LUCA_MAC must require ${gate}`);
+  assert.ok(fabian.includes("INDEPENDENT_USER_ACCEPTANCE"));
+  for(const gate of ["SERVICE_LIFECYCLE","FAILURE_CAMPAIGN","RESTART_PERSISTENCE","SOAK"])assert.ok(vps.includes(gate),`VPS_STAGING must require ${gate}`);
 });
 
 test("qualification cannot pass with a missing or failed required gate", () => {
@@ -83,15 +91,11 @@ test("self-service UI creates an isolated workspace and refuses every typed-cred
 
     const workspaceHtml = await (await fetch(base + "/workspaces/brother", { headers: { authorization: auth } })).text();
     assert.match(workspaceHtml, /Quelle/);
-    // With no source configured at all, step 1 must name both routes -- including the one that
-    // needs no credential, so nobody concludes an OAuth client is mandatory.
     assert.match(workspaceHtml, /source-root/);
     assert.match(workspaceHtml, /GOOGLE_OAUTH_CLIENT_ID/);
     assert.match(workspaceHtml, /Test Lab/);
     assert.match(workspaceHtml, /Workspace-Isolation/);
 
-    // The routes that used to accept a folder id and a handle as free text are gone, not merely
-    // hidden: setup reads those from Drive and from the live session instead.
     assert.equal((await fetch(base + "/workspaces/brother/drive", form({ rootFolderId: "drive-demo-root" }))).status, 404);
     assert.equal((await fetch(base + "/workspaces/brother/accounts", form({ platform: "instagram", accountId: "ig_primary", expectedHandle: "brother_test" }))).status, 404);
 
