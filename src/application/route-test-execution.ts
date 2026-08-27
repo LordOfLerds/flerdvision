@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { E2EGateResult } from "../domain/e2e.js";
 import type { RouteTestExecutionAdapterPort, RouteTestEvidenceKey, RouteTestEvidenceRecord, RouteTestEvidenceStorePort, ExecutableRouteTestKey } from "../domain/route-test-ports.js";
-import type { RouteTestReadiness } from "./control-center-read-model.js";
+import type { RouteTestReadiness } from "../domain/route-test-readiness.js";
 
 export class RouteTestExecutionError extends Error {}
 
@@ -12,26 +12,43 @@ function latest(records: readonly RouteTestEvidenceRecord[], key: RouteTestEvide
   return records.filter((r)=>r.testKey===key).sort((a,b)=>a.checkedAt.localeCompare(b.checkedAt)).at(-1);
 }
 function passed(records: readonly RouteTestEvidenceRecord[], key: RouteTestEvidenceKey): boolean { return latest(records,key)?.status === "PASS"; }
+const SURFACE_SENSITIVE = new Set<RouteTestEvidenceKey>(["SURFACE","PREPARE_ONLY","SECRET_LIVE","VERIFICATION","CLEANUP"]);
+
+export interface RouteReadinessScope {
+  releaseSha?: string;
+  /** Records tied to surface semantics must be no older than the currently active contract version. */
+  surfaceRecordedAt?: string;
+  surfaceContractId?: string;
+}
+
+function scoped(records:readonly RouteTestEvidenceRecord[],scope:RouteReadinessScope):RouteTestEvidenceRecord[]{
+  return records.filter(record=>{
+    if(scope.releaseSha&&record.releaseSha!==scope.releaseSha)return false;
+    if(scope.surfaceRecordedAt&&SURFACE_SENSITIVE.has(record.testKey)&&record.checkedAt<scope.surfaceRecordedAt)return false;
+    return true;
+  });
+}
 
 export class RouteTestExecutionService {
   constructor(private readonly store: RouteTestEvidenceStorePort, private readonly runner: RouteTestExecutionAdapterPort) {}
 
   async run(routeId: string, testKey: ExecutableRouteTestKey, releaseSha: string, now: string): Promise<RouteTestEvidenceRecord> {
     if (!routeId.trim() || !releaseSha.trim()) throw new RouteTestExecutionError("Route and release SHA are required");
-    const existing = this.store.list(routeId);
-    if (testKey === "IDENTITY" && !passed(existing,"SESSION")) throw new RouteTestExecutionError("Identity test requires a passing session test");
-    if (testKey === "SURFACE" && !passed(existing,"IDENTITY")) throw new RouteTestExecutionError("Surface test requires a passing identity test");
-    if (testKey === "PREPARE_ONLY" && !(passed(existing,"SOURCE") && passed(existing,"SESSION") && passed(existing,"IDENTITY") && passed(existing,"SURFACE"))) throw new RouteTestExecutionError("Prepare-only requires source, session, identity and surface PASS");
-    if (testKey === "VERIFICATION" && !passed(existing,"SURFACE")) throw new RouteTestExecutionError("Verification contract test requires a calibrated/passing surface");
-    if (testKey === "CLEANUP" && !passed(existing,"SECRET_LIVE")) throw new RouteTestExecutionError("Cleanup may run only after canonical secret-live E2E evidence exists");
+    // Prerequisites never inherit a PASS from another release.
+    const existing = this.store.list(routeId).filter((record)=>record.releaseSha===releaseSha);
+    if (testKey === "IDENTITY" && !passed(existing,"SESSION")) throw new RouteTestExecutionError("Identity test requires a passing session test on this release");
+    if (testKey === "SURFACE" && !passed(existing,"IDENTITY")) throw new RouteTestExecutionError("Surface test requires a passing identity test on this release");
+    if (testKey === "PREPARE_ONLY" && !(passed(existing,"SOURCE") && passed(existing,"SESSION") && passed(existing,"IDENTITY") && passed(existing,"SURFACE"))) throw new RouteTestExecutionError("Prepare-only requires source, session, identity and surface PASS on this release");
+    if (testKey === "VERIFICATION" && !passed(existing,"SURFACE")) throw new RouteTestExecutionError("Verification contract test requires a calibrated/passing surface on this release");
+    if (testKey === "CLEANUP" && !passed(existing,"SECRET_LIVE")) throw new RouteTestExecutionError("Cleanup may run only after canonical secret-live E2E evidence exists on this release");
     const result = await this.runner.run(routeId,testKey);
     const checkedAt = new Date(now).toISOString();
     return this.store.record({ evidenceId:id(routeId,testKey,checkedAt,result.summary), routeId, testKey, status:result.passed?"PASS":"FAIL", checkedAt, releaseSha, summary:result.summary, artifactRefs:[...result.artifactRefs] });
   }
 
-  readiness(routeId: string): RouteTestReadiness {
-    const records=this.store.list(routeId);
-    return {
+  readiness(routeId: string, scope:RouteReadinessScope={}): RouteTestReadiness {
+    const records=scoped(this.store.list(routeId),scope);
+    const readiness:RouteTestReadiness={
       routeId,
       sourcePassed: passed(records,"SOURCE"),
       sessionPassed: passed(records,"SESSION"),
@@ -39,8 +56,11 @@ export class RouteTestExecutionService {
       prepareOnlyPasses: records.filter((r)=>r.testKey==="PREPARE_ONLY"&&r.status==="PASS").length,
       secretLivePassed: passed(records,"SECRET_LIVE"),
       verificationPassed: passed(records,"VERIFICATION"),
-      cleanupPassed: passed(records,"CLEANUP")
+      cleanupPassed: passed(records,"CLEANUP"),
+      ...(scope.releaseSha?{releaseSha:scope.releaseSha}:{}),
+      ...(scope.surfaceContractId?{surfaceContractId:scope.surfaceContractId}:{})
     };
+    return readiness;
   }
 
   assertSecretLiveUsesPrivateE2E(): never {
