@@ -5,6 +5,7 @@ import type { Incident } from "./operations.js";
 import type { SourceActivationStatus } from "./source-activation-ports.js";
 import type { SourcePollingRuntimeState } from "./source-poll-state-ports.js";
 import type { RuntimeCycleReport } from "../application/runtime-supervisor.js";
+import type { LegacySourceBindingAudit } from "../application/legacy-source-binding-audit.js";
 import type { ChannelReadiness, RouteTestReadiness, SurfaceReadiness } from "../application/control-center-read-model.js";
 
 /** Runtime facts are operational state/evidence, not management configuration. */
@@ -18,6 +19,7 @@ export interface ControlCenterRuntimeSnapshot {
   deliveryAggregates?: readonly DeliveryAggregate[];
   sourceActivation?: readonly SourceActivationStatus[];
   sourcePolling?:SourcePollingRuntimeState;
+  legacySourceBindings?:LegacySourceBindingAudit;
   incidents?: readonly Incident[];
   auditEvents?: readonly AuditEvent[];
   runtimeCycles?: readonly RuntimeCycleReport[];
