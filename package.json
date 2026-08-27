@@ -8,6 +8,7 @@
     "clean": "rm -rf dist",
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && node --test tests/*.test.mjs",
+    "test:repair": "npm run build && node --test tests/r*.test.mjs tests/completeness-gate.test.mjs",
     "check": "npm run test",
     "admin": "npm run build && node dist/cli/admin.js",
     "test:w1": "npm run build && node --test tests/w1-*.test.mjs",
@@ -28,6 +29,9 @@
     "qualification": "npm run build && node dist/cli/qualification.js",
     "test:w8a": "npm run build && node --test tests/w8a-*.test.mjs",
     "setup-ui": "npm run build && node dist/cli/setup-ui.js"
+  },
+  "devDependencies": {
+    "typescript": "5.8.3"
   },
   "engines": {
     "node": ">=22"
