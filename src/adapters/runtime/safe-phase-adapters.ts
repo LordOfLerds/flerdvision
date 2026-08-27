@@ -83,7 +83,7 @@ export class W6RuntimeOperationsAdapter implements RuntimeOperationsPort {
       const plan=this.options.distributionRuntime.latestDailyPlan(businessDate)?.plan;
       if(plan){
         const assets=this.options.distributionRuntime.listAssets().map((record)=>record.asset);
-        const demand=projectContentDemand(stored,assets,businessDate);
+        const demand=projectContentDemand(stored,assets,businessDate,plan);
         for(const timed of planReadinessAttention({now:timestamp,businessDate,stored,demand,plan,policy:readinessPolicy})){
           const message=notificationForAttention(timed.attention,timestamp,{notify:{INFO:false,WARNING:true,ACTION_REQUIRED:true,CRITICAL:true},...(this.options.uiBaseUrl?{uiBaseUrl:this.options.uiBaseUrl}:{})});
           if(message)this.store.enqueueNotification(message,this.channelKeys,{type:"system",id:"runtime-readiness"});
