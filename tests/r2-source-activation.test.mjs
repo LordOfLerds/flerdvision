@@ -24,12 +24,14 @@ test("NEW_ONLY requires a captured baseline and excludes files that existed at a
   assert.deepEqual(activationDecision(cursor,baseline,observation("new-3")),{eligible:true,reason:"NEW_AFTER_BASELINE"});
 });
 
-test("SINCE fails closed when provider time is unavailable",()=>{
+test("SINCE fails closed when provider time is unavailable and prefers createdTime over later edits",()=>{
   const cursor={laneId:"lane-a",mode:"SINCE",activatedAt:"2026-08-27T08:00:00.000Z",since:"2026-08-27T08:00:00.000Z"};
   const missing={...observation("x"),metadata:{}};
   assert.deepEqual(activationDecision(cursor,null,missing),{eligible:false,reason:"MISSING_TIMESTAMP"});
   assert.equal(activationDecision(cursor,null,observation("old","2026-08-27T07:59:59.000Z")).eligible,false);
   assert.equal(activationDecision(cursor,null,observation("new","2026-08-27T08:00:00.000Z")).eligible,true);
+  const oldCreatedButEditedLater={...observation("edited","2026-08-27T09:00:00.000Z"),metadata:{createdTime:"2026-08-26T09:00:00.000Z",modifiedTime:"2026-08-27T09:00:00.000Z"}};
+  assert.equal(activationDecision(cursor,null,oldCreatedButEditedLater).eligible,false);
 });
 
 test("SELECTED and IMPORT_BACKLOG are explicit and deterministic",()=>{
