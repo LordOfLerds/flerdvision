@@ -149,8 +149,8 @@ export async function discoverSourceTopology(input: {
     }
     const folderRef = input.providerKind === "google_drive"
       ? folderId
-      : folderId === "root" ? "" : (await input.resolver?.resolveSelectedFolder(folderId))?.folderRef;
-    if (folderRef === undefined) throw new SourceStructureDiscoveryError(`Could not resolve technical source folder ${folderId}`);
+      : folderId === "root" ? "." : (await input.resolver?.resolveSelectedFolder(folderId))?.folderRef;
+    if (!folderRef) throw new SourceStructureDiscoveryError(`Could not resolve technical source folder ${folderId}`);
     const folderPath = listing.path.map((crumb) => crumb.name).join(" / ");
     const totalVideos = preview.videoCount + childVideos;
     nodes.push({
