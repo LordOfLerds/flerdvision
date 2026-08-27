@@ -36,15 +36,19 @@ async function main():Promise<void>{
   const effectiveChanges=new WorkspaceEffectiveConfigurationCommands({runtimeRoot:args.runtimeRoot,workspaceId:args.workspaceId});
   const channelOperator=new WorkspaceChannelOperatorCommands({runtimeRoot:args.runtimeRoot,workspaceId:args.workspaceId});
   const incidentOperator=new WorkspaceIncidentOperatorCommands(args.runtimeRoot,args.workspaceId,args.username);
-  const surfaceCalibration=new WorkspaceSurfaceCalibrationCommands({runtimeRoot:args.runtimeRoot,workspaceId:args.workspaceId,chromiumExecutablePath:process.env.CHROMIUM_EXECUTABLE_PATH});
+  const chromiumExecutablePath=process.env.CHROMIUM_EXECUTABLE_PATH;
+  const surfaceCalibration=new WorkspaceSurfaceCalibrationCommands({runtimeRoot:args.runtimeRoot,workspaceId:args.workspaceId,...(chromiumExecutablePath?{chromiumExecutablePath}:{})});
   const routeTests=args.releaseSha?new WorkspaceRouteTestCommands({runtimeRoot:args.runtimeRoot,workspaceId:args.workspaceId,releaseSha:args.releaseSha}):undefined;
   const server=new ProductControlCenterHttpServer(config,runtime,{password:args.password,username:args.username,host:args.host,port:args.port,sourceActivation,sourceRuntime,effectiveChanges,channelOperator,incidentOperator,...(routeTests?{routeTests}:{})});
   const calibrationServer=new SurfaceCalibrationHttpServer(config,surfaceCalibration,{password:args.password,username:args.username,host:args.host,port:args.calibrationPort,controlCenterBaseUrl:`http://${args.host}:${args.port}`});
-  const bound=await server.start();let calibrationBound:{host:string;port:number};
-  try{calibrationBound=await calibrationServer.start();}catch(error){await server.stop();await surfaceCalibration.close();throw error;}
+  let resourcesClosed=false;
+  const closeResources=async()=>{if(resourcesClosed)return;resourcesClosed=true;routeTests?.close();await surfaceCalibration.close();incidentOperator.close();await channelOperator.close();effectiveChanges.close();sourceRuntime.close();sourceActivation.close();runtime.close();};
+  let bound:{host:string;port:number}|undefined,calibrationBound:{host:string;port:number}|undefined;
+  try{bound=await server.start();calibrationBound=await calibrationServer.start();}
+  catch(error){await Promise.allSettled([server.stop(),calibrationServer.stop()]);await closeResources();throw error;}
   console.log(`Flerdvision Control Center: http://${bound.host}:${bound.port}/today`);console.log(`Surface Calibration: http://${calibrationBound.host}:${calibrationBound.port}/`);console.log(`Workspace: ${args.workspaceId}`);console.log(`Route test commands: ${routeTests?`enabled for release ${args.releaseSha}`:"read-only; set FLERDVISION_RELEASE_SHA to enable safe route tests"}`);
   let stopping=false;
-  const stop=()=>{if(stopping)return;stopping=true;void Promise.all([server.stop(),calibrationServer.stop()]).finally(async()=>{routeTests?.close();await surfaceCalibration.close();incidentOperator.close();await channelOperator.close();effectiveChanges.close();sourceRuntime.close();sourceActivation.close();runtime.close();});};
+  const stop=()=>{if(stopping)return;stopping=true;void (async()=>{await Promise.allSettled([server.stop(),calibrationServer.stop()]);await closeResources();})();};
   process.on("SIGINT",stop);process.on("SIGTERM",stop);
 }
 
