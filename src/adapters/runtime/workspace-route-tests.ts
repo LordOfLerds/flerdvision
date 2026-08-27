@@ -13,6 +13,7 @@ import { SourceLaneObservationAdapter } from "../ingress/source-lane-observer.js
 import { GoogleDriveRestReadClient } from "../ingress/google-drive.js";
 import { workspaceDriveAccessTokenProvider } from "../ingress/google-drive/workspace-drive-token.js";
 import { SafeObserverRouteTestRunner } from "./safe-route-test-runner.js";
+import { CalibratedWorkspaceRouteTestRunner } from "./calibrated-route-test-runner.js";
 
 export interface WorkspaceRouteTestCommandsOptions {
   runtimeRoot:string;
@@ -41,7 +42,8 @@ export class WorkspaceRouteTestCommands implements RouteTestCommandPort {
     const token=workspaceDriveAccessTokenProvider({configDir:layout.configDir,env:options.env??process.env});
     const driveClient=token?new GoogleDriveRestReadClient(token):undefined;
     const observations=new SourceLaneObservationAdapter(driveClient?{googleDriveClient:driveClient}:{});
-    const runner=new SafeObserverRouteTestRunner(config,this.control,this.surfaces,observations,this.baselines);
+    const safe=new SafeObserverRouteTestRunner(config,this.control,this.surfaces,observations,this.baselines);
+    const runner=new CalibratedWorkspaceRouteTestRunner(safe,config,this.control,this.runtime,options.runtimeRoot,options.workspaceId,options.releaseSha,options.env?.CHROMIUM_EXECUTABLE_PATH);
     this.service=new PersistingRouteTestCommandService(this.evidence,runner,config,this.runtime,this.surfaces,options.releaseSha);
   }
 
