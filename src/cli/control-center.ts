@@ -1,6 +1,6 @@
 import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import { workspaceRuntimeLayout } from "../application/workspaces.js";
+import { ensureWorkspaceCalibrationTemplates, workspaceRuntimeLayout } from "../application/workspaces.js";
 import { ProductControlCenterHttpServer } from "../adapters/control/product-control-center-http.js";
 import { SqliteControlCenterRuntimeAdapter } from "../adapters/control/sqlite-control-center-runtime.js";
 import { JsonDistributionConfigurationStore } from "../adapters/distribution/json-config-store.js";
@@ -24,6 +24,7 @@ async function main():Promise<void>{
   const args=parse(process.argv.slice(2));
   if(process.env.ALLOW_FINAL_PUBLISH==="true")throw new Error("Control Center refuses to start while ALLOW_FINAL_PUBLISH=true during the R0 live freeze");
   const layout=workspaceRuntimeLayout(args.runtimeRoot,args.workspaceId);if(!existsSync(layout.workspaceRoot)||!statSync(layout.workspaceRoot).isDirectory())throw new Error(`Workspace runtime does not exist: ${layout.workspaceRoot}. Complete setup first.`);
+  ensureWorkspaceCalibrationTemplates(layout.configDir);
   const config=new JsonDistributionConfigurationStore(resolve(layout.configDir,"distribution.json"));
   const runtime=new SqliteControlCenterRuntimeAdapter(layout.databasePath,config,args.workspaceId);
   const sourceActivation=new WorkspaceSourceActivationCommands({runtimeRoot:args.runtimeRoot,workspaceId:args.workspaceId});
