@@ -72,6 +72,9 @@ export function normalizeSocialHandle(handle: string): string {
     if (host === "instagram.com") candidate = parts[0] ?? "";
     else if (host === "tiktok.com" || host === "youtube.com") candidate = (parts[0] ?? "").replace(/^@/, "");
     else throw new Error(`Unsupported social handle URL host: ${host}`);
+  } else if (value.startsWith("/")) {
+    const parts = value.split("/").filter(Boolean);
+    candidate = (parts[0] ?? "").replace(/^@/, "");
   }
 
   const normalized = candidate.replace(/^@/, "").replace(/[/?#].*$/, "").trim().toLocaleLowerCase("en-US");
