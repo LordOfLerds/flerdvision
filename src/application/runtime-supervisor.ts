@@ -38,7 +38,11 @@ function cycleId(ownerId:string,now:string):string{return `runtime-cycle:${owner
 function errorText(error:unknown):string{return error instanceof Error?error.message:String(error);}
 
 export class RuntimeSupervisor {
-  constructor(private readonly ports:RuntimeSupervisorPorts,private readonly ownerId:string){}
+  constructor(
+    private readonly ports:RuntimeSupervisorPorts,
+    private readonly ownerId:string,
+    private readonly clock:()=>string=()=>new Date().toISOString()
+  ){}
 
   async runCycle(now:string,businessDate:string):Promise<RuntimeCycleReport>{
     const startedAt=new Date(now).toISOString();
@@ -46,9 +50,13 @@ export class RuntimeSupervisor {
     const phases:RuntimePhaseResult[]=[];
     let sourceSafe=true;
     let plan:Awaited<ReturnType<RuntimePlannerPort["ensureDailyPlan"]>>|undefined;
+    const heartbeat=():void=>{lease.heartbeat?.(this.clock());};
     const run=async<T>(phase:RuntimePhase,fn:()=>Promise<T>,summary:(value:T)=>string):Promise<T|undefined>=>{
-      try{const value=await fn();phases.push({phase,status:"PASS",summary:summary(value)});return value;}
-      catch(error){phases.push({phase,status:"FAIL",summary:errorText(error)});return undefined;}
+      let value:T|undefined;
+      try{value=await fn();phases.push({phase,status:"PASS",summary:summary(value)});}
+      catch(error){phases.push({phase,status:"FAIL",summary:errorText(error)});}
+      heartbeat(); // heartbeat failure aborts the entire cycle; continuing after lease loss is unsafe.
+      return value;
     };
     try{
       const source=await run("SOURCE_SCAN",()=>this.ports.source.scan(startedAt),(r)=>`${r.observed} observed · ${r.ready} ready · ${r.stabilizing} stabilizing · ${r.blocked} blocked`);
@@ -56,19 +64,19 @@ export class RuntimeSupervisor {
       if(sourceSafe){
         plan=await run("PLAN",()=>this.ports.planner.ensureDailyPlan(businessDate,startedAt),(p)=>`${p.deliveries.length} deliveries · ${p.gaps.length} gaps · ${p.backlog.length} backlog`);
         if(plan)await run("INTENTS",()=>this.ports.intents.ensureIntents(plan!,startedAt),(r)=>`${r.created} created · ${r.existing} existing · ${r.blocked} blocked`);
-        else phases.push({phase:"INTENTS",status:"SKIPPED",summary:"DailyPlan unavailable"});
+        else { phases.push({phase:"INTENTS",status:"SKIPPED",summary:"DailyPlan unavailable"}); heartbeat(); }
       }else{
-        phases.push({phase:"PLAN",status:"SKIPPED",summary:"Source scan failed; no new planning from untrusted source state"});
-        phases.push({phase:"INTENTS",status:"SKIPPED",summary:"Planning skipped"});
+        phases.push({phase:"PLAN",status:"SKIPPED",summary:"Source scan failed; no new planning from untrusted source state"}); heartbeat();
+        phases.push({phase:"INTENTS",status:"SKIPPED",summary:"Planning skipped"}); heartbeat();
       }
-      await run("DUE_EXECUTION",()=>this.ports.due.runDue(startedAt),(r)=>`${r.claimed} claimed · ${r.verified} verified · ${r.uncertain} uncertain · ${r.blocked} blocked`);
+      await run("DUE_EXECUTION",()=>this.ports.due.runDue(startedAt),(r)=>`${r.claimed} claimed · ${r.prepared} prepared · ${r.verified} verified · ${r.uncertain} uncertain · ${r.blocked} blocked`);
       await run("RECONCILIATION",()=>this.ports.reconciliation.reconcile(startedAt),(r)=>`${r.inspected} inspected · ${r.verified} verified · ${r.safeToRetry} safe-to-retry · ${r.stillUncertain} uncertain`);
-      await run("DISPOSITION",()=>this.ports.disposition.applyEligible(startedAt),(r)=>`${r.completed} completed · ${r.externalMutations} external mutations · ${r.manualReview} manual review`);
+      await run("DISPOSITION",()=>this.ports.disposition.applyEligible(startedAt),(r)=>`${r.inspected} inspected · ${r.completed} completed · ${r.externalMutations} external mutations · ${r.manualReview} manual review`);
       await run("OPERATIONS",()=>this.ports.operations.projectAndNotify(startedAt),(r)=>`${r.incidentsCreated} incidents · ${r.notificationsEnqueued} notifications`);
-      const finishedAt=new Date().toISOString();
+      const finishedAt=new Date(this.clock()).toISOString();
       const report:RuntimeCycleReport={cycleId:cycleId(this.ownerId,startedAt),ownerId:this.ownerId,startedAt,finishedAt,businessDate,phases,healthy:phases.every((p)=>p.status!=="FAIL")};
       this.ports.reports.record(report);
       return report;
-    }finally{lease.release();}
+    }finally{lease.release(this.clock());}
   }
 }
