@@ -21,7 +21,7 @@ export interface RouteTestEvidenceStorePort {
 }
 
 export interface RouteTestExecutionAdapterPort {
-  run(routeId: string, testKey: ExecutableRouteTestKey): Promise<{ passed: boolean; summary: string; artifactRefs: readonly string[] }>;
+  run(routeId: string, testKey: ExecutableRouteTestKey, checkedAt?: string): Promise<{ passed: boolean; summary: string; artifactRefs: readonly string[] }>;
 }
 
 export interface RouteE2EGateBridgePort {
