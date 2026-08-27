@@ -11,6 +11,7 @@ import { PersistedRouteExecutionQualificationGate } from "../../application/rout
 import { VerifiedMediaCacheMaintenance } from "../../application/verified-media-cache-maintenance.js";
 import { EffectiveConfigurationChangeService } from "../../application/effective-configuration-change.js";
 import { EffectiveConfigurationPlannerDecorator } from "../../application/effective-config-planner-decorator.js";
+import { NotificationDispatcher } from "../../application/notifications.js";
 import { DEFAULT_DISTRIBUTION_RUNTIME_POLICY } from "../../domain/distribution-operations.js";
 import { MaterializingMediaReadinessProbe } from "../distribution/materializing-readiness-probe.js";
 import { FfprobeMediaInspector } from "../media/ffprobe-inspector.js";
@@ -30,6 +31,7 @@ import { SourceLaneObservationAdapter } from "../ingress/source-lane-observer.js
 import { ConfiguredSourceLaneInterpreterFactory } from "../ingress/source-lane-interpreters.js";
 import { GoogleDriveRestReadClient } from "../ingress/google-drive.js";
 import { workspaceDriveAccessTokenProvider } from "../ingress/google-drive/workspace-drive-token.js";
+import { WebhookNotificationAdapter } from "../notify/webhook.js";
 import { WorkspaceMediaMaterializer } from "../publish/workspace-media-materializer.js";
 import { VerifiedMediaCacheMaterializer } from "../publish/verified-media-cache.js";
 import { PersistedDistributionPlannerAdapter, RuntimeDistributionSourceScanAdapter } from "../../application/runtime-source-planner-adapters.js";
@@ -86,8 +88,7 @@ export class WorkspaceDistributionRuntime {
     this.pollState=new SqliteSourcePollingStateStore(this.layout.databasePath);
     this.reports=new SqliteRuntimeCycleReportStore(this.layout.databasePath,options.workspaceId);
 
-    const driveToken=workspaceDriveAccessTokenProvider({configDir:this.layout.configDir,env});
-    const driveClient=driveToken?new GoogleDriveRestReadClient(driveToken):undefined;
+    const driveToken=workspaceDriveAccessTokenProvider({configDir:this.layout.configDir,env}),driveClient=driveToken?new GoogleDriveRestReadClient(driveToken):undefined;
     this.observations=new SourceLaneObservationAdapter(driveClient?{googleDriveClient:driveClient}:{});
     this.activation=new SourceActivationCommandService(this.config,this.observations,this.baselines);
 
@@ -95,53 +96,27 @@ export class WorkspaceDistributionRuntime {
     this.media=new VerifiedMediaCacheMaterializer(providerMedia,join(this.layout.mediaCacheDir,"verified"));
     this.mediaMaintenance=new VerifiedMediaCacheMaintenance(this.media);
     const inspector=new FfprobeMediaInspector(env.FFPROBE_EXECUTABLE_PATH??"ffprobe");
-    const scan=new DistributionSourceScanCoordinator(
-      this.config,this.observations,new ConfiguredSourceLaneInterpreterFactory(),this.control,new NoopSourceDispositionAdapter(),this.baselines,this.state,
-      new MaterializingMediaReadinessProbe(this.media,inspector),{notifyBlocksExternally:false}
-    );
+    const scan=new DistributionSourceScanCoordinator(this.config,this.observations,new ConfiguredSourceLaneInterpreterFactory(),this.control,new NoopSourceDispositionAdapter(),this.baselines,this.state,new MaterializingMediaReadinessProbe(this.media,inspector),{notifyBlocksExternally:false});
     this.source=new PollingRuntimeSourceScanAdapter(new RuntimeDistributionSourceScanAdapter(scan),this.config,this.pollState);
-    const commitmentAdapter=new PersistedPlanningCommitmentAdapter(this.state,this.provenance,this.control);
-    const persistedPlanner=new PersistedDistributionPlannerAdapter(this.config,this.state,commitmentAdapter);
-    const provenanceService=new DistributionPlanProvenanceService(this.config,this.provenance);
-    const provenancedPlanner=new ProvenancedRuntimePlannerAdapter(persistedPlanner,provenanceService);
-    const effectiveService=new EffectiveConfigurationChangeService(this.effectiveChanges,this.config,()=>this.control.listSocialAccounts().map(record=>record.account));
+    const commitmentAdapter=new PersistedPlanningCommitmentAdapter(this.state,this.provenance,this.control),persistedPlanner=new PersistedDistributionPlannerAdapter(this.config,this.state,commitmentAdapter),provenanceService=new DistributionPlanProvenanceService(this.config,this.provenance),provenancedPlanner=new ProvenancedRuntimePlannerAdapter(persistedPlanner,provenanceService),effectiveService=new EffectiveConfigurationChangeService(this.effectiveChanges,this.config,()=>this.control.listSocialAccounts().map(record=>record.account));
     this.planner=new EffectiveConfigurationPlannerDecorator(effectiveService,provenancedPlanner);
 
-    const releaseSha=options.releaseSha??env.FLERDVISION_RELEASE_SHA??"UNSET_RELEASE_SHA";
-    const qualification=new PersistedRouteExecutionQualificationGate(this.config,this.state,this.surfaces,releaseSha);
-    const materializer=new DistributionIntentMaterializer(this.control,this.config,this.provenance,qualification);
+    const releaseSha=options.releaseSha??env.FLERDVISION_RELEASE_SHA??"UNSET_RELEASE_SHA",qualification=new PersistedRouteExecutionQualificationGate(this.config,this.state,this.surfaces,releaseSha),materializer=new DistributionIntentMaterializer(this.control,this.config,this.provenance,qualification);
     this.intents=new RuntimeDistributionIntentMaterializerAdapter(materializer);
 
     this.lease=new ControlPlaneRuntimeCycleLeaseAdapter(this.control,options.workspaceId);
     this.due=new FrozenRuntimeDueExecutionAdapter(this.control);
     this.reconciliation=new RecoveryOnlyRuntimeReconciliationAdapter(this.control);
-    const aggregates=new DistributionDeliveryAggregateProjector(this.state,this.provenance,this.control,this.control);
-    const dispositionAdapters=buildWorkspaceDispositionAdapterRegistry(this.config.load(),this.control,driveToken);
-    const dispositionExecutor=new ConfiguredDistributionDispositionExecutor(this.control,dispositionAdapters);
+    const aggregates=new DistributionDeliveryAggregateProjector(this.state,this.provenance,this.control,this.control),dispositionAdapters=buildWorkspaceDispositionAdapterRegistry(this.config.load(),this.control,driveToken),dispositionExecutor=new ConfiguredDistributionDispositionExecutor(this.control,dispositionAdapters);
     this.disposition=new RuntimeDistributionDispositionAdapter(this.config,this.state,aggregates,dispositionExecutor);
-    this.operations=new W6RuntimeOperationsAdapter(
-      this.control,options.notificationChannelKeys??[],options.timeZone??"Europe/Vienna",
-      {distributionConfig:this.config,distributionRuntime:this.state,...(options.uiBaseUrl?{uiBaseUrl:options.uiBaseUrl}:{})}
-    );
+
+    const webhookUrl=env.FLERDVISION_NOTIFICATION_WEBHOOK_URL,webhookChannelKey=env.FLERDVISION_NOTIFICATION_WEBHOOK_CHANNEL_KEY??"current-bot";
+    const webhook=webhookUrl?new WebhookNotificationAdapter({channelKey:webhookChannelKey,url:webhookUrl,...(env.FLERDVISION_NOTIFICATION_WEBHOOK_TOKEN?{bearerToken:env.FLERDVISION_NOTIFICATION_WEBHOOK_TOKEN}:{})}):undefined;
+    const notificationChannelKeys=options.notificationChannelKeys??(webhook?[webhook.channelKey]:[]),notificationDispatcher=webhook?new NotificationDispatcher(this.control,[webhook]):undefined;
+    this.operations=new W6RuntimeOperationsAdapter(this.control,notificationChannelKeys,options.timeZone??"Europe/Vienna",{distributionConfig:this.config,distributionRuntime:this.state,...(options.uiBaseUrl?{uiBaseUrl:options.uiBaseUrl}:{}),...(notificationDispatcher?{notificationDispatcher}:{})});
   }
 
-  supervisor(ownerId:string,clock:()=>string=()=>new Date().toISOString()):RuntimeSupervisor{
-    return new RuntimeSupervisor({lease:this.lease,source:this.source,planner:this.planner,intents:this.intents,due:this.due,reconciliation:this.reconciliation,disposition:this.disposition,operations:this.operations,reports:this.reports},ownerId,clock);
-  }
-
-  async maintainMediaCache(now:string){
-    const retention=this.config.load().runtimePolicy?.mediaCache.retentionHoursAfterComplete??DEFAULT_DISTRIBUTION_RUNTIME_POLICY.mediaCache.retentionHoursAfterComplete;
-    return await this.mediaMaintenance.evictEligible(this.state.listAssets().map(record=>record.asset),now,retention);
-  }
-
-  close():void{
-    this.reports.close();
-    this.pollState.close();
-    this.effectiveChanges.close();
-    this.surfaces.close();
-    this.provenance.close();
-    this.baselines.close();
-    this.state.close();
-    this.control.close();
-  }
+  supervisor(ownerId:string,clock:()=>string=()=>new Date().toISOString()):RuntimeSupervisor{return new RuntimeSupervisor({lease:this.lease,source:this.source,planner:this.planner,intents:this.intents,due:this.due,reconciliation:this.reconciliation,disposition:this.disposition,operations:this.operations,reports:this.reports},ownerId,clock);}
+  async maintainMediaCache(now:string){const retention=this.config.load().runtimePolicy?.mediaCache.retentionHoursAfterComplete??DEFAULT_DISTRIBUTION_RUNTIME_POLICY.mediaCache.retentionHoursAfterComplete;return await this.mediaMaintenance.evictEligible(this.state.listAssets().map(record=>record.asset),now,retention);}
+  close():void{this.reports.close();this.pollState.close();this.effectiveChanges.close();this.surfaces.close();this.provenance.close();this.baselines.close();this.state.close();this.control.close();}
 }
