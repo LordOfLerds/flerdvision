@@ -65,6 +65,8 @@ export class JsonDistributionConfigurationStore implements DistributionConfigura
     }
     const stored: StoredDistributionConfiguration = normalize({
       ...next,
+      operatingCalendars: next.operatingCalendars ?? current.operatingCalendars ?? [],
+      runtimePolicy: next.runtimePolicy ?? current.runtimePolicy ?? DEFAULT_DISTRIBUTION_RUNTIME_POLICY,
       revision: current.revision + 1,
       updatedAt: new Date(next.updatedAt).toISOString()
     });
