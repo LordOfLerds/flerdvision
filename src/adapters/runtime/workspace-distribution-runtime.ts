@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import type { WorkspaceRuntimeLayout } from "../../domain/workspace.js";
 import { workspaceRuntimeLayout } from "../../application/workspaces.js";
 import { SourceActivationCommandService } from "../../application/source-activation-command.js";
 import { DistributionSourceScanCoordinator } from "../../application/distribution-source-scan.js";
@@ -29,7 +30,7 @@ export interface WorkspaceDistributionRuntimeOptions {
  * may select another workspace's credential/config/database implicitly.
  */
 export class WorkspaceDistributionRuntime {
-  readonly layout;
+  readonly layout:WorkspaceRuntimeLayout;
   readonly config:JsonDistributionConfigurationStore;
   readonly control:SqliteControlPlaneStore;
   readonly state:SqliteDistributionRuntimeStateStore;
