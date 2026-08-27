@@ -192,7 +192,7 @@ function parseFormat(value: unknown, platformValue: Platform, path: string): Wor
   if (explicitTimes.length > 0 && explicitFrequency !== undefined && explicitFrequency !== explicitTimes.length) {
     throw new WorkspaceSpecError(`${path}.frequencyPerDay must equal the number of explicit times`);
   }
-  const perDay = explicitFrequency ?? explicitTimes.length || 1;
+  const perDay = explicitFrequency ?? (explicitTimes.length || 1);
   const times = canonicalTimes(explicitTimes.length > 0 ? explicitTimes : defaultTimes(perDay), `${path}.times`);
   const requirement = item.requirement === undefined ? "REQUIRED" : item.requirement;
   if (requirement !== "REQUIRED" && requirement !== "OPTIONAL") throw new WorkspaceSpecError(`${path}.requirement must be REQUIRED or OPTIONAL`);
