@@ -4,15 +4,13 @@ import { workspaceRuntimeLayout } from "../application/workspaces.js";
 import { ProductControlCenterHttpServer } from "../adapters/control/product-control-center-http.js";
 import { SqliteControlCenterRuntimeAdapter } from "../adapters/control/sqlite-control-center-runtime.js";
 import { JsonDistributionConfigurationStore } from "../adapters/distribution/json-config-store.js";
+import { WorkspaceChannelOperatorCommands } from "../adapters/runtime/workspace-channel-operator.js";
 import { WorkspaceEffectiveConfigurationCommands } from "../adapters/runtime/workspace-effective-config-commands.js";
 import { WorkspaceRouteTestCommands } from "../adapters/runtime/workspace-route-tests.js";
 import { WorkspaceSourceActivationCommands } from "../adapters/runtime/workspace-source-activation.js";
 import { WorkspaceSourceRuntimeCommands } from "../adapters/runtime/workspace-source-runtime-commands.js";
 
-interface Args {
-  runtimeRoot:string;workspaceId:string;password:string;username:string;host:string;port:number;releaseSha?:string;
-}
-
+interface Args {runtimeRoot:string;workspaceId:string;password:string;username:string;host:string;port:number;releaseSha?:string;}
 function value(argv:readonly string[],name:string):string|undefined{const index=argv.indexOf(name);return index>=0?argv[index+1]:undefined;}
 function required(name:string,value:string|undefined):string{const normalized=value?.trim();if(!normalized)throw new Error(`${name} is required`);return normalized;}
 function parse(argv:readonly string[]):Args{
@@ -30,11 +28,12 @@ async function main():Promise<void>{
   const sourceActivation=new WorkspaceSourceActivationCommands({runtimeRoot:args.runtimeRoot,workspaceId:args.workspaceId});
   const sourceRuntime=new WorkspaceSourceRuntimeCommands({runtimeRoot:args.runtimeRoot,workspaceId:args.workspaceId});
   const effectiveChanges=new WorkspaceEffectiveConfigurationCommands({runtimeRoot:args.runtimeRoot,workspaceId:args.workspaceId});
+  const channelOperator=new WorkspaceChannelOperatorCommands({runtimeRoot:args.runtimeRoot,workspaceId:args.workspaceId});
   const routeTests=args.releaseSha?new WorkspaceRouteTestCommands({runtimeRoot:args.runtimeRoot,workspaceId:args.workspaceId,releaseSha:args.releaseSha}):undefined;
-  const server=new ProductControlCenterHttpServer(config,runtime,{password:args.password,username:args.username,host:args.host,port:args.port,sourceActivation,sourceRuntime,effectiveChanges,...(routeTests?{routeTests}:{})});
+  const server=new ProductControlCenterHttpServer(config,runtime,{password:args.password,username:args.username,host:args.host,port:args.port,sourceActivation,sourceRuntime,effectiveChanges,channelOperator,...(routeTests?{routeTests}:{})});
   const bound=await server.start();
   console.log(`Flerdvision Control Center: http://${bound.host}:${bound.port}/today`);console.log(`Workspace: ${args.workspaceId}`);console.log(`Route test commands: ${routeTests?`enabled for release ${args.releaseSha}`:"read-only; set FLERDVISION_RELEASE_SHA to enable safe route tests"}`);
-  const stop=()=>{void server.stop().finally(()=>{routeTests?.close();effectiveChanges.close();sourceRuntime.close();sourceActivation.close();runtime.close();});};process.on("SIGINT",stop);process.on("SIGTERM",stop);
+  const stop=()=>{void server.stop().finally(async()=>{routeTests?.close();await channelOperator.close();effectiveChanges.close();sourceRuntime.close();sourceActivation.close();runtime.close();});};process.on("SIGINT",stop);process.on("SIGTERM",stop);
 }
 
 main().catch((error)=>{console.error(error instanceof Error?error.message:String(error));process.exitCode=1;});
