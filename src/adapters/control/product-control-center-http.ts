@@ -92,7 +92,7 @@ export class ProductControlCenterHttpServer {
   private async handle(req:IncomingMessage,res:ServerResponse):Promise<void>{
     if(!this.authorized(req)){this.deny(res);return;}const method=req.method??"GET",url=new URL(req.url??"/","http://127.0.0.1"),path=url.pathname;
     try{
-      if(method==="GET"){if(path==="/"){this.redirect(res,"/today");return;}const allowed=new Set(["/today","/programs","/content","/sources","/channels","/profiles","/rhythms","/test-lab","/incidents","/activity"]);if(!allowed.has(path)){res.statusCode=404;res.end("Not found");return;}const html=await this.page(path);res.statusCode=200;res.setHeader("Content-Type","text/html; charset=utf-8");res.end(html);return;}
+      if(method==="GET"){if(path==="/"){this.redirect(res,"/today");return;}const allowed=new Set(["/today","/workflows","/programs","/content","/sources","/channels","/profiles","/rhythms","/test-lab","/incidents","/activity"]);if(!allowed.has(path)){res.statusCode=404;res.end("Not found");return;}const html=await this.page(path);res.statusCode=200;res.setHeader("Content-Type","text/html; charset=utf-8");res.end(html);return;}
       if(method!=="POST"){res.statusCode=404;res.end("Not found");return;}const params=await form(req);if(params.get("csrf")!==this.csrf){res.statusCode=403;res.end("Invalid CSRF token");return;}
       if(path.startsWith("/preview/")){const html=await this.preview(path,params);res.statusCode=200;res.setHeader("Content-Type","text/html; charset=utf-8");res.end(html);return;}
       if(path==="/apply"){const destination=await this.apply(this.verify(required(params,"payload"),required(params,"signature")));this.redirect(res,destination);return;}
