@@ -9,7 +9,18 @@ export interface SourceActivationStatus {
   reason?:string;
 }
 
+export interface SourceActivationBaselinePreview {
+  laneId:string;
+  cursorFingerprint:string;
+  observedCount:number;
+  sampleFileNames:readonly string[];
+  snapshotFingerprint:string;
+  previewedAt:string;
+}
+
 export interface SourceActivationCommandPort {
   status(laneId:string):SourceActivationStatus;
-  captureBaseline(laneId:string,now:string):Promise<SourceActivationStatus>;
+  previewBaseline(laneId:string,now:string):Promise<SourceActivationBaselinePreview>;
+  /** expectedSnapshotFingerprint makes Preview -> Confirm fail closed if the folder changed in-between. */
+  captureBaseline(laneId:string,now:string,expectedSnapshotFingerprint?:string):Promise<SourceActivationStatus>;
 }
