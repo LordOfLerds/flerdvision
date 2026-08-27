@@ -6,6 +6,7 @@ import { DistributionSourceScanCoordinator } from "../../application/distributio
 import { DistributionDeliveryAggregateProjector } from "../../application/distribution-delivery-aggregate.js";
 import { RuntimeDistributionDispositionAdapter } from "../../application/runtime-distribution-disposition.js";
 import { RuntimeSupervisor } from "../../application/runtime-supervisor.js";
+import { PollingRuntimeSourceScanAdapter } from "../../application/runtime-polling-source.js";
 import { MaterializingMediaReadinessProbe } from "../distribution/materializing-readiness-probe.js";
 import { FfprobeMediaInspector } from "../media/ffprobe-inspector.js";
 import { JsonDistributionConfigurationStore } from "../distribution/json-config-store.js";
@@ -51,7 +52,7 @@ export class WorkspaceDistributionRuntime {
   readonly reports:SqliteRuntimeCycleReportStore;
   readonly observations:SourceLaneObservationAdapter;
   readonly activation:SourceActivationCommandService;
-  readonly source:RuntimeDistributionSourceScanAdapter;
+  readonly source:PollingRuntimeSourceScanAdapter;
   readonly planner:ProvenancedRuntimePlannerAdapter;
   readonly intents:RuntimeDistributionIntentMaterializerAdapter;
   readonly lease:ControlPlaneRuntimeCycleLeaseAdapter;
@@ -88,7 +89,7 @@ export class WorkspaceDistributionRuntime {
       new MaterializingMediaReadinessProbe(media,inspector),
       {notifyBlocksExternally:false}
     );
-    this.source=new RuntimeDistributionSourceScanAdapter(scan);
+    this.source=new PollingRuntimeSourceScanAdapter(new RuntimeDistributionSourceScanAdapter(scan),this.config);
     const commitmentAdapter=new PersistedPlanningCommitmentAdapter(this.state,this.provenance,this.control);
     const persistedPlanner=new PersistedDistributionPlannerAdapter(this.config,this.state,commitmentAdapter);
     const provenanceService=new DistributionPlanProvenanceService(this.config,this.provenance);
