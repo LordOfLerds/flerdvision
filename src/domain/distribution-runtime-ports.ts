@@ -1,5 +1,5 @@
-import type { RouteTestReadiness } from "../application/control-center-read-model.js";
 import type { ContentAsset, DailyPlan } from "./distribution.js";
+import type { RouteTestReadiness } from "./route-test-readiness.js";
 
 export interface StoredDailyPlanRevision {
   plan: DailyPlan;
