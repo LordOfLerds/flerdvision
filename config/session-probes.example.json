@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "probes": [
+    {
+      "probeId": "instagram-default",
+      "platform": "instagram",
+      "calibrationStatus": "UNVERIFIED",
+      "config": {
+        "probeUrl": "https://www.instagram.com/",
+        "identitySelector": "__CALIBRATE__",
+        "authUrlIncludes": ["/accounts/login"],
+        "challengeUrlIncludes": ["/challenge/"],
+        "settleMs": 1000
+      }
+    },
+    {
+      "probeId": "tiktok-default",
+      "platform": "tiktok",
+      "calibrationStatus": "UNVERIFIED",
+      "config": {
+        "probeUrl": "https://www.tiktok.com/",
+        "identitySelector": "__CALIBRATE__",
+        "authUrlIncludes": ["/login"],
+        "challengeUrlIncludes": ["/verify"],
+        "settleMs": 1000
+      }
+    },
+    {
+      "probeId": "youtube-default",
+      "platform": "youtube",
+      "calibrationStatus": "UNVERIFIED",
+      "config": {
+        "probeUrl": "https://www.youtube.com/",
+        "identitySelector": "__CALIBRATE__",
+        "authUrlIncludes": ["accounts.google.com"],
+        "settleMs": 1000
+      }
+    }
+  ]
+}
