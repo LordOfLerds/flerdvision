@@ -33,7 +33,7 @@ export class PersistedDistributionPlannerAdapter implements RuntimePlannerPort {
       schedulePolicies: stored.schedulePolicies
     };
     const carryIn = dedupeBacklog(
-      this.runtime.listDailyPlans()
+      this.runtime.listCurrentDailyPlans()
         .flatMap((record)=>record.plan.backlog)
         .filter((item)=>item.carryToBusinessDate===businessDate)
     );
