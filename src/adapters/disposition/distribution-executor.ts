@@ -25,7 +25,7 @@ export class ConfiguredDistributionDispositionExecutor implements DistributionDi
   async execute(input: DistributionDispositionExecution): Promise<DistributionDispositionExecutionResult> {
     if(input.mutation==="RECORD_ONLY"){
       await new SourceAcknowledgementService(this.store,new NoopSourceDispositionAdapter())
-        .complete(input.sourceObservationId,input.publicationIds,new Date().toISOString());
+        .complete(input.sourceObservationId,input.publicationIds,input.occurredAt);
       return{applied:true,externalMutation:false,manualReview:false,summary:"Completion recorded; source left unchanged."};
     }
     const adapter=this.adapters[input.connection.connectionId]?.[input.mutation];
@@ -38,7 +38,7 @@ export class ConfiguredDistributionDispositionExecutor implements DistributionDi
       };
     }
     await new SourceAcknowledgementService(this.store,adapter)
-      .complete(input.sourceObservationId,input.publicationIds,new Date().toISOString());
+      .complete(input.sourceObservationId,input.publicationIds,input.occurredAt);
     return{applied:true,externalMutation:true,manualReview:false,summary:`${input.mutation} applied through explicit source adapter.`};
   }
 }
