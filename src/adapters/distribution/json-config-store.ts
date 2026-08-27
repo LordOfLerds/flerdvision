@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DistributionConfigurationStorePort, StoredDistributionConfiguration } from "../../domain/distribution-ports.js";
-import { DEFAULT_DISTRIBUTION_RUNTIME_POLICY } from "../../domain/distribution-operations.js";
+import { DEFAULT_DISTRIBUTION_RUNTIME_POLICY, type DistributionRuntimePolicy } from "../../domain/distribution-operations.js";
 import { assertOperatingCalendarCatalog, assertRouteCalendarReference } from "../../domain/operating-calendar.js";
 import { DEFAULT_SCHEDULING_POLICY } from "../../domain/scheduling.js";
 import { assertConfigurationReferentialIntegrity } from "../../application/distribution-config.js";
@@ -20,11 +20,20 @@ const EMPTY: Omit<StoredDistributionConfiguration, "revision" | "updatedAt"> = {
   runtimePolicy: DEFAULT_DISTRIBUTION_RUNTIME_POLICY
 };
 
+function normalizedRuntimePolicy(value:StoredDistributionConfiguration["runtimePolicy"]):DistributionRuntimePolicy{
+  const legacy=(value??{}) as Partial<DistributionRuntimePolicy>;
+  return{
+    sourcePolling:{...DEFAULT_DISTRIBUTION_RUNTIME_POLICY.sourcePolling,...(legacy.sourcePolling??{})},
+    readiness:{...DEFAULT_DISTRIBUTION_RUNTIME_POLICY.readiness,...(legacy.readiness??{})},
+    mediaCache:{...DEFAULT_DISTRIBUTION_RUNTIME_POLICY.mediaCache,...(legacy.mediaCache??{})}
+  };
+}
+
 function normalize(value: StoredDistributionConfiguration): StoredDistributionConfiguration {
   return {
     ...value,
     operatingCalendars: value.operatingCalendars ?? [],
-    runtimePolicy: value.runtimePolicy ?? DEFAULT_DISTRIBUTION_RUNTIME_POLICY
+    runtimePolicy: normalizedRuntimePolicy(value.runtimePolicy)
   };
 }
 
@@ -33,6 +42,10 @@ function assertStoredIntegrity(value: StoredDistributionConfiguration): void {
   const calendars = value.operatingCalendars ?? [];
   assertOperatingCalendarCatalog(calendars, value.schedulePolicies);
   for (const route of value.config.routes) assertRouteCalendarReference(route, calendars);
+  const policy=value.runtimePolicy??DEFAULT_DISTRIBUTION_RUNTIME_POLICY;
+  if(!Number.isInteger(policy.sourcePolling.activeIntervalMinutes)||policy.sourcePolling.activeIntervalMinutes<1)throw new Error("Source active polling interval must be >= 1 minute");
+  if(!Number.isInteger(policy.sourcePolling.idleIntervalMinutes)||policy.sourcePolling.idleIntervalMinutes<1)throw new Error("Source idle polling interval must be >= 1 minute");
+  if(!Number.isFinite(policy.mediaCache.retentionHoursAfterComplete)||policy.mediaCache.retentionHoursAfterComplete<0)throw new Error("Verified media cache retention must be >= 0 hours");
 }
 
 export class JsonDistributionConfigurationStore implements DistributionConfigurationStorePort {
