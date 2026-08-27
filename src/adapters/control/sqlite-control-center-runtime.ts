@@ -37,7 +37,7 @@ export class SqliteControlCenterRuntimeAdapter implements ControlCenterRuntimePo
     const stored=this.config.load();
     const accounts=this.control.listSocialAccounts().map((record)=>record.account);
     const identities=this.control.listBrowserIdentities();
-    const channelReadiness:ChannelReadiness[]=accounts.map((account)=>{
+    const accountHealth:ChannelReadiness[]=accounts.map((account)=>{
       const identity=identities.find((record)=>record.identity.accountId===account.accountId)?.identity;
       const health=identity?this.control.latestSessionHealth(identity.identityId):null;
       return{
@@ -72,6 +72,19 @@ export class SqliteControlCenterRuntimeAdapter implements ControlCenterRuntimePo
         environmentFingerprint:version.contract.environment.fingerprint
       });
     }
+
+    // Compatibility until every UI projection consumes profile-specific surfaceReadiness directly:
+    // aggregate conservatively per account. One missing/drifted profile can never make another route
+    // appear ready. It may temporarily hold more routes in NEEDS_TEST, which is the safe direction.
+    const channelReadiness:ChannelReadiness[]=accountHealth.map((channel)=>{
+      const states=surfaceReadiness.filter((item)=>item.accountId===channel.accountId).map((item)=>item.surfaceContract);
+      const surfaceContract:NonNullable<ChannelReadiness["surfaceContract"]>=states.includes("DRIFTED")
+        ? "DRIFTED"
+        : states.length>0&&states.every((state)=>state==="CALIBRATED")
+          ? "CALIBRATED"
+          : "UNVERIFIED";
+      return{...channel,surfaceContract};
+    });
 
     return{
       plan:this.distribution.latestDailyPlan(businessDate)?.plan??missingPlan(businessDate),
