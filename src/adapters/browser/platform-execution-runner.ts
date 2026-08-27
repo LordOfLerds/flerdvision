@@ -112,6 +112,8 @@ export class SafePlatformExecutionRunner {
     if(identity.accountId!==plan.intent.accountId||identity.platform!==plan.intent.platform)throw new UiActionExecutionError("Execution identity does not match plan account/platform");
     const finalLocators=this.finalLocators(plan),artifactRefs:string[]=[],journal:SafeExecutionJournalEntry[]=[];
     await this.session.navigate(bootstrapUrl(plan.intent.platform));
+    const environment=await this.recorder.environment(this.session);
+    if(environment.fingerprint!==plan.environmentFingerprint)throw new UiActionExecutionError(`Surface environment drift before execution: expected ${plan.environmentFingerprint}, observed ${environment.fingerprint}`);
     artifactRefs.push(...await this.artifacts.captureBoundary(this.session,plan.intent,identity,"surface-execution-bootstrap",this.now()));
     for(const action of plan.actions){
       let detail:string;
@@ -120,7 +122,6 @@ export class SafePlatformExecutionRunner {
         journal.push({stepKey:action.stepKey,operation:action.operation,outcome:"PASS",detail});
         artifactRefs.push(...await this.artifacts.captureBoundary(this.session,plan.intent,identity,"surface-execution-final-boundary",this.now()));
         artifactRefs.push(await this.artifacts.writeJournal(plan.intent,journal,this.now()));
-        const environment=await this.recorder.environment(this.session);
         return{reachedFinalActionBoundary:true,finalActionInvoked:false,environmentFingerprint:environment.fingerprint,artifactRefs,journal};
       }
       if(action.operation==="CLICK")detail=await this.driver.click(action.locators,10_000,finalLocators);
