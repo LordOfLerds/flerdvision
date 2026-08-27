@@ -110,7 +110,6 @@ export class DistributionSourceScanCoordinator {
         if(!sourceRecord){blocked+=1;notes.push(`${observation.externalObjectId}:source_record_missing`);continue;}
         const originalFingerprint=sourceRecord.observation.mediaFingerprint;
         if(originalFingerprint!==observation.mediaFingerprint){
-          conflicts+=1;
           const existing=[...this.runtime.listAssets()].find((record)=>record.asset.sourceObservationId===observation.observationId)?.asset;
           if(existing&&existing.state!=="BLOCKED"&&existing.state!=="COMPLETE"){
             this.runtime.putAsset({...existing,state:"BLOCKED",metadata:{...existing.metadata,blockReason:"source_media_mutated"}},startedAt);
@@ -125,6 +124,7 @@ export class DistributionSourceScanCoordinator {
         const assetId=`asset:${sha(`${lane.laneId}|${content.contentId}`)}`;
         const existing=this.runtime.getAsset(assetId)?.asset;
         if(existing?.state==="COMPLETE"||existing?.state==="BLOCKED")continue;
+        if(existing?.state==="READY"){ready+=1;continue;}
 
         const stableFingerprint=sourceRecord.seenCount>=2;
         const stableSize=Boolean(existing&&existing.metadata.sourceSize===sizeOf(observation));
