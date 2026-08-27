@@ -22,7 +22,10 @@ export interface StoredRouteTestReadinessRevision {
 export interface DistributionRuntimeStateStorePort {
   putDailyPlan(plan: DailyPlan, recordedAt: string): { created: boolean; record: StoredDailyPlanRevision };
   latestDailyPlan(businessDate: string): StoredDailyPlanRevision | null;
+  /** Append-only audit history; never use this to decide current carry-over/disposition. */
   listDailyPlans(businessDate?: string): readonly StoredDailyPlanRevision[];
+  /** Exactly the currently selected plan head for each business date. */
+  listCurrentDailyPlans(): readonly StoredDailyPlanRevision[];
 
   putAsset(asset: ContentAsset, recordedAt: string): { created: boolean; record: StoredContentAssetRevision };
   getAsset(assetId: string): StoredContentAssetRevision | null;
