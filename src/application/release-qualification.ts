@@ -10,6 +10,26 @@ import {
 
 function id(prefix: string): string { return `${prefix}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2,10)}`; }
 
+export type QualificationGateDisplayStatus = "PASS" | "FAIL" | "NOT_RUN";
+export interface QualificationChecklistItem {
+  gate:QualificationGateKind;
+  status:QualificationGateDisplayStatus;
+  checkedAt?:string;
+  summary?:string;
+  artifactRefs:readonly string[];
+}
+export interface QualificationChecklist {
+  run:ReleaseQualificationRun;
+  complete:boolean;
+  canFinalize:boolean;
+  blockers:readonly string[];
+  gates:readonly QualificationChecklistItem[];
+}
+
+function evidenceRefs(refs:readonly string[]|undefined):readonly string[]{
+  return [...new Set((refs??[]).map(ref=>ref.trim()).filter(Boolean))];
+}
+
 export class ReleaseQualificationService {
   constructor(private readonly store: ReleaseQualificationStorePort) {}
 
@@ -29,19 +49,29 @@ export class ReleaseQualificationService {
     const run = this.store.getRun(input.runId); if (!run) throw new Error(`Unknown qualification run: ${input.runId}`);
     if (run.status !== "ACTIVE") throw new Error(`Qualification run ${input.runId} is ${run.status}`);
     if (!requiredQualificationGates(run.stage).includes(input.gate)) throw new Error(`Gate ${input.gate} is not required for ${run.stage}`);
+    const refs=evidenceRefs(input.artifactRefs);
+    if(input.passed&&refs.length===0)throw new Error(`Passing gate ${input.gate} requires at least one durable artifactRef`);
     return this.store.appendGate({ gateResultId: input.gateResultId ?? id("gate"), runId: input.runId, gate: input.gate, passed: input.passed,
-      checkedAt: new Date(input.now).toISOString(), checkedBy: input.operatorId, summary: input.summary, artifactRefs: input.artifactRefs ?? [] });
+      checkedAt: new Date(input.now).toISOString(), checkedBy: input.operatorId, summary: input.summary, artifactRefs: refs });
+  }
+
+  checklist(runId:string):QualificationChecklist{
+    const run=this.store.getRun(runId);if(!run)throw new Error(`Unknown qualification run: ${runId}`);
+    const required=requiredQualificationGates(run.stage),latest=new Map<QualificationGateKind,QualificationGateResult>();
+    for(const result of this.store.listGates(runId))latest.set(result.gate,result);
+    const gates:QualificationChecklistItem[]=required.map(gate=>{
+      const result=latest.get(gate);
+      if(!result)return{gate,status:"NOT_RUN",artifactRefs:[]};
+      return{gate,status:result.passed?"PASS":"FAIL",checkedAt:result.checkedAt,summary:result.summary,artifactRefs:result.artifactRefs};
+    });
+    const blockers=gates.filter(item=>item.status!=="PASS").map(item=>`${item.gate}:${item.status}`);
+    return{run,complete:gates.every(item=>item.status!=="NOT_RUN"),canFinalize:blockers.length===0,gates,blockers};
   }
 
   finalize(runId: string): ReleaseQualificationRun {
-    const run = this.store.getRun(runId); if (!run) throw new Error(`Unknown qualification run: ${runId}`);
-    const gates = this.store.listGates(runId);
-    const required = requiredQualificationGates(run.stage);
-    const latestByGate = new Map<QualificationGateKind, QualificationGateResult>();
-    for (const gate of gates) latestByGate.set(gate.gate, gate);
-    const missing = required.filter((gate) => !latestByGate.has(gate));
+    const checklist=this.checklist(runId),run=checklist.run;
+    const missing=checklist.gates.filter(item=>item.status==="NOT_RUN").map(item=>item.gate);
     if (missing.length) throw new Error(`Qualification run ${runId} missing gates: ${missing.join(", ")}`);
-    const failed = required.filter((gate) => latestByGate.get(gate)?.passed !== true);
-    return this.store.updateRunStatus(runId, failed.length ? "FAILED" : "PASSED");
+    return this.store.updateRunStatus(runId, checklist.canFinalize ? "PASSED" : "FAILED");
   }
 }
