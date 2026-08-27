@@ -7,6 +7,7 @@ import { projectControlCenter } from "../../application/control-center-read-mode
 import { buildRouteTestMatrix } from "../../application/route-test-matrix.js";
 import { incidentView } from "../../application/control-center-operator-surfaces.js";
 import { projectActivity } from "../../application/control-center-activity.js";
+import { projectWorkflowCenter } from "../../application/workflow-center.js";
 
 export function escapeProductHtml(value:string):string{return value.replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;");}
 const esc=escapeProductHtml;
@@ -21,7 +22,7 @@ export interface ProductControlPageContext {
 }
 
 function shell(title:string,current:string,body:string):string{
-  const nav=[["/today","Today"],["/programs","Programs"],["/content","Content"],["/sources","Sources"],["/channels","Channels"],["/profiles","Profiles"],["/rhythms","Rhythms"],["/test-lab","Test Lab"],["/incidents","Incidents"],["/activity","Activity"]]
+  const nav=[["/today","Today"],["/workflows","Workflows"],["/programs","Programs"],["/content","Content"],["/sources","Sources"],["/channels","Channels"],["/profiles","Profiles"],["/rhythms","Rhythms"],["/test-lab","Test Lab"],["/incidents","Incidents"],["/activity","Activity"]]
     .map(([href,label])=>`<a class="${current===href?"active":""}" href="${href}">${label}</a>`).join("");
   return `<!doctype html><html lang=de><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>
 body{margin:0;font-family:system-ui,-apple-system,sans-serif;color:#18221f;background:#f5f7f6}.layout{display:grid;grid-template-columns:210px 1fr;min-height:100vh}nav{background:#fff;border-right:1px solid #dfe5e2;padding:22px 14px}nav h1{font-size:18px;margin:0 8px 20px}nav a{display:block;padding:9px 10px;border-radius:7px;text-decoration:none;color:#34433f;margin:2px 0}nav a.active{background:#e4f2ef;color:#075e58;font-weight:650}main{padding:28px;max-width:1380px}.card{background:#fff;border:1px solid #dfe5e2;border-radius:11px;padding:16px 18px;margin:13px 0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}.kpi{font-size:28px;font-weight:750}.muted{color:#697671}.ok{color:#21704a}.warn{color:#8a6516}.bad{color:#aa392f}.pill{display:inline-block;padding:2px 7px;border-radius:999px;background:#edf1ef;font-size:12px}.program{border-left:4px solid #0e6b64}.program.warn{border-left-color:#b57919}.program.bad{border-left-color:#aa392f}table{width:100%;border-collapse:collapse}th,td{padding:8px;border-bottom:1px solid #e7ecea;text-align:left;vertical-align:top}input,select,textarea,button{font:inherit;padding:7px 8px;margin:3px 2px;border:1px solid #bec8c5;border-radius:6px}button{cursor:pointer;background:#fff}button.primary{background:#0e6b64;color:#fff;border-color:#0e6b64}button:disabled{cursor:not-allowed;opacity:.45}.target-row{display:grid;grid-template-columns:1.2fr 1.2fr 1fr 1fr 1fr .7fr auto;gap:6px;align-items:center;margin:7px 0}code{background:#edf1ef;padding:2px 4px;border-radius:4px}.critical{border-left:4px solid #aa392f}.attention{border-left:4px solid #b57919}.bar{height:8px;background:#e6ece9;border-radius:999px;overflow:hidden}.bar>span{display:block;height:100%;background:#0e6b64}.test-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px}.test-case{border:1px solid #e1e7e4;border-radius:8px;padding:10px}.test-case h4{margin:0 0 5px}
@@ -39,6 +40,17 @@ function today(ctx:ProductControlPageContext):string{
   const slots=model.today.slots.map(slot=>`<tr><td><strong>${esc(new Intl.DateTimeFormat("de-AT",{hour:"2-digit",minute:"2-digit",timeZone:"Europe/Vienna"}).format(new Date(slot.scheduledFor)))}</strong></td><td>${slot.deliveries.map(d=>`${esc(d.platform)} · <code>${esc(d.accountId)}</code> · <code>${esc(d.assetId)}</code>`).join("<br>")}</td></tr>`).join("");
   const attention=model.attention.filter(item=>item.severity!=="INFO").map(item=>`<div class="card ${item.severity==="CRITICAL"?"critical":"attention"}"><strong>${esc(item.title)}</strong><p>${esc(item.impact)}</p><a href="${esc(item.deepLink)}">Öffnen</a></div>`).join("");
   return shell("Today","/today",`<h1>Today · ${esc(ctx.businessDate)}</h1><div class=grid><div class=card><div class=kpi>${model.today.totalDeliveries}</div><div class=muted>Deliveries</div></div><div class=card><div class="kpi ${missing?"bad":"ok"}">${missing}</div><div class=muted>fehlende REQUIRED Videos</div></div><div class=card><div class=kpi>${model.today.backlog}</div><div class=muted>Backlog</div></div><div class=card><div class="kpi ${model.today.gaps?"warn":"ok"}">${model.today.gaps}</div><div class=muted>Plan-Gaps</div></div></div><div class=card><h2>Slots</h2><table><tr><th>Zeit</th><th>Geplant</th></tr>${slots||"<tr><td colspan=2>Noch kein DailyPlan.</td></tr>"}</table></div><h2>Needs attention</h2>${attention||'<div class="card ok">Keine aktiven Planprobleme.</div>'}`);
+}
+
+function workflows(ctx:ProductControlPageContext):string{
+  const model=projectWorkflowCenter({stored:ctx.stored,runtime:ctx.runtime,businessDate:ctx.businessDate});
+  const cards=model.cards.map(item=>{
+    const cls=item.status==="BLOCKED"?"bad":item.status==="NEEDS_ACTION"?"warn":"";
+    const statusClass=item.status==="READY"?"ok":item.status==="BLOCKED"?"bad":"warn";
+    const metrics=Object.entries(item.metrics).map(([key,value])=>`<span class=pill>${esc(key)}: ${esc(String(value))}</span>`).join(" ");
+    return`<div class="card program ${cls}"><div style="display:flex;justify-content:space-between;gap:16px;align-items:start"><div><h2 style="margin-top:0">${esc(item.label)}</h2><p class=muted>${esc(item.purpose)}</p></div><strong class="${statusClass}">${esc(item.status)}</strong></div><p>${esc(item.detail)}</p><p>${metrics}</p><a href="${esc(item.deepLink)}">Workflow öffnen</a></div>`;
+  }).join("");
+  return shell("Workflows","/workflows",`<h1>Operational Workflows · ${esc(model.businessDate)}</h1><p class=muted>Eine Sicht über Source → Plan → Route Qualification → Delivery/Reconciliation. SAFE_FROZEN bedeutet: funktional vorbereitet, Final Publish bleibt absichtlich außerhalb des normalen Produktpfads.</p><div class=grid><div class=card><div class="kpi ok">${model.summary.ready}</div><div class=muted>READY</div></div><div class=card><div class="kpi warn">${model.summary.needsAction}</div><div class=muted>NEEDS ACTION</div></div><div class=card><div class="kpi bad">${model.summary.blocked}</div><div class=muted>BLOCKED</div></div><div class=card><div class="kpi warn">${model.summary.safeFrozen}</div><div class=muted>SAFE FROZEN</div></div></div>${cards}`);
 }
 
 function programs(ctx:ProductControlPageContext):string{
@@ -118,6 +130,7 @@ function activity(ctx:ProductControlPageContext):string{
 
 export function renderProductControlPage(ctx:ProductControlPageContext):string{
   if(ctx.path==="/today")return today(ctx);
+  if(ctx.path==="/workflows")return workflows(ctx);
   if(ctx.path==="/programs")return programs(ctx);
   if(ctx.path==="/content")return content(ctx);
   if(ctx.path==="/sources")return sources(ctx);
