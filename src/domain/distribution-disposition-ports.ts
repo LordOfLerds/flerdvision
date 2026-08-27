@@ -7,6 +7,7 @@ export interface DistributionDispositionExecution {
   connection: SourceConnection;
   sourceObservationId: string;
   publicationIds: readonly string[];
+  occurredAt: string;
   destinationRef?: string;
   policy: SourceDispositionPolicy;
 }
