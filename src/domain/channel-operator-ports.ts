@@ -1,3 +1,5 @@
+import type { SessionHealthCheck } from "./browser-identity.js";
+
 export interface ChannelOperatorCapability {
   action:"OPEN_LOGIN_BROWSER"|"CLOSE_LOGIN_BROWSER"|"VERIFY_SESSION";
   available:boolean;
@@ -17,4 +19,5 @@ export interface ChannelOperatorCommandPort {
   active(accountId:string):ActiveChannelOperatorSession|null;
   openLoginBrowser(accountId:string,now:string):Promise<ActiveChannelOperatorSession>;
   closeLoginBrowser(accountId:string):Promise<boolean>;
+  verifySession(accountId:string,now:string):Promise<SessionHealthCheck>;
 }
