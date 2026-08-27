@@ -174,6 +174,7 @@ export interface PlannedDelivery {
   postingProfileId: string;
   copyProfileId: string;
   copyVersionId: string;
+  schedulePolicyId: string;
   requirement: DeliveryRequirement;
   businessDate: string;
   slotKey: string;
@@ -185,6 +186,8 @@ export interface PlannedDelivery {
 export type PlanGapKind =
   | "MISSING_CONTENT"
   | "ACCOUNT_SLOT_CONFLICT"
+  | "ACCOUNT_DAILY_CAP_CONFLICT"
+  | "ACCOUNT_MINIMUM_SPACING_CONFLICT"
   | "ROUTE_CONFIGURATION_INVALID"
   | "LATE_ARRIVAL_REQUIRES_REVIEW";
 
@@ -204,7 +207,9 @@ export interface BacklogItem {
   businessDate: string;
   routeId: string;
   assetId: string;
-  reason: "NO_SLOT" | "NEXT_DAY" | "MANUAL_REVIEW";
+  reason: "NO_SLOT" | "NEXT_DAY" | "MANUAL_REVIEW" | "ACCOUNT_CAP" | "ACCOUNT_SPACING";
+  carriedFromBusinessDate?: string;
+  carryToBusinessDate?: string;
 }
 
 export interface DailyPlan {
