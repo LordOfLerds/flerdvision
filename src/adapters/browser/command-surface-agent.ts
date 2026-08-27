@@ -5,6 +5,34 @@ import type { SurfaceAgentPort, SurfaceAgentProposal, SurfaceAgentRequest } from
 export class SurfaceAgentProtocolError extends Error {}
 
 const IRREVERSIBLE_CLICK_LABEL = /^(?:share|teilen|publish|veröffentlichen|post|posten|save|speichern|schedule|planen|submit|senden|done|fertig)$/i;
+const DEFAULT_AGENT_ENV = [
+  "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "LANG", "LC_ALL", "TERM",
+  "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "CLAUDE_CONFIG_DIR"
+] as const;
+const DENIED_AGENT_ENV = /(?:COOKIE|SESSION|PASSWORD|PASSWD|SECRET|TOKEN|API_KEY|AUTHORIZATION|CREDENTIAL|REFRESH|WEBHOOK|PRIVATE_KEY)/i;
+
+/**
+ * Build the minimal environment visible to Claude. Runtime credentials are denied even when an
+ * operator accidentally asks to forward them. Account-based Claude Code auth is read through its
+ * config directory, not by exposing Flerdvision's Drive, browser, webhook or publish secrets.
+ */
+export function surfaceAgentChildEnvironment(env: Record<string, string | undefined>): Record<string, string> {
+  const requested = (env.FLERDVISION_SURFACE_AGENT_FORWARD_ENV ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const names = new Set<string>([...DEFAULT_AGENT_ENV, ...requested]);
+  const child: Record<string, string> = {};
+  for (const name of names) {
+    if (DENIED_AGENT_ENV.test(name)) {
+      if (requested.includes(name)) throw new SurfaceAgentProtocolError(`Refusing to forward sensitive surface-agent environment variable: ${name}`);
+      continue;
+    }
+    const value = env[name];
+    if (typeof value === "string") child[name] = value;
+  }
+  return child;
+}
 
 function locator(value: unknown, path: string): UiLocator {
   if (!value || typeof value !== "object") throw new SurfaceAgentProtocolError(`${path} must be an object`);
@@ -52,6 +80,7 @@ export interface CommandSurfaceAgentOptions {
   args?: readonly string[];
   timeoutMs?: number;
   cwd?: string;
+  env?: Record<string, string | undefined>;
 }
 
 /**
@@ -64,15 +93,13 @@ export class CommandSurfaceAgent implements SurfaceAgentPort {
   }
 
   async propose(request: SurfaceAgentRequest): Promise<SurfaceAgentProposal | null> {
-    const childEnv: Record<string, string> = {};
-    for (const [key, value] of Object.entries(process.env)) if (typeof value === "string") childEnv[key] = value;
     const run = spawnSync(this.options.command, this.options.args ?? [], {
       ...(this.options.cwd ? { cwd: this.options.cwd } : {}),
       input: JSON.stringify(request),
       encoding: "utf8",
       timeout: this.options.timeoutMs ?? 120_000,
       maxBuffer: 2 * 1024 * 1024,
-      env: childEnv
+      env: surfaceAgentChildEnvironment(this.options.env ?? process.env)
     });
     if (run.error) throw new SurfaceAgentProtocolError(`Surface agent failed to start: ${run.error.message}`);
     if (run.status !== 0) throw new SurfaceAgentProtocolError(`Surface agent exited ${String(run.status)}: ${run.stderr.slice(0, 1000)}`);
@@ -97,5 +124,5 @@ export function commandSurfaceAgentFromEnv(env: Record<string, string | undefine
   }
   const timeoutMs = Number(env.FLERDVISION_SURFACE_AGENT_TIMEOUT_MS ?? "120000");
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 600_000) throw new SurfaceAgentProtocolError("FLERDVISION_SURFACE_AGENT_TIMEOUT_MS must be an integer from 1000 to 600000");
-  return new CommandSurfaceAgent({ command, args, timeoutMs });
+  return new CommandSurfaceAgent({ command, args, timeoutMs, env });
 }
