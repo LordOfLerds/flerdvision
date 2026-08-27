@@ -5,6 +5,7 @@ import { ProductControlCenterHttpServer } from "../adapters/control/product-cont
 import { SqliteControlCenterRuntimeAdapter } from "../adapters/control/sqlite-control-center-runtime.js";
 import { JsonDistributionConfigurationStore } from "../adapters/distribution/json-config-store.js";
 import { WorkspaceRouteTestCommands } from "../adapters/runtime/workspace-route-tests.js";
+import { WorkspaceSourceActivationCommands } from "../adapters/runtime/workspace-source-activation.js";
 
 interface Args {
   runtimeRoot:string;
@@ -41,19 +42,21 @@ async function main():Promise<void>{
 
   const config=new JsonDistributionConfigurationStore(resolve(layout.configDir,"distribution.json"));
   const runtime=new SqliteControlCenterRuntimeAdapter(layout.databasePath,config,args.workspaceId);
+  const sourceActivation=new WorkspaceSourceActivationCommands({runtimeRoot:args.runtimeRoot,workspaceId:args.workspaceId});
   const routeTests=args.releaseSha?new WorkspaceRouteTestCommands({runtimeRoot:args.runtimeRoot,workspaceId:args.workspaceId,releaseSha:args.releaseSha}):undefined;
   const server=new ProductControlCenterHttpServer(config,runtime,{
     password:args.password,
     username:args.username,
     host:args.host,
     port:args.port,
+    sourceActivation,
     ...(routeTests?{routeTests}:{})
   });
   const bound=await server.start();
   console.log(`Flerdvision Control Center: http://${bound.host}:${bound.port}/today`);
   console.log(`Workspace: ${args.workspaceId}`);
   console.log(`Route test commands: ${routeTests?`enabled for release ${args.releaseSha}`:"read-only; set FLERDVISION_RELEASE_SHA to enable safe route tests"}`);
-  const stop=()=>{void server.stop().finally(()=>{routeTests?.close();runtime.close();});};
+  const stop=()=>{void server.stop().finally(()=>{routeTests?.close();sourceActivation.close();runtime.close();});};
   process.on("SIGINT",stop);
   process.on("SIGTERM",stop);
 }
