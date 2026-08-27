@@ -14,6 +14,7 @@ export class RuntimeDistributionDispositionAdapter implements RuntimeDisposition
   ) {}
 
   async applyEligible(now: string): Promise<{ inspected:number; completed:number; externalMutations:number; manualReview:number }> {
+    const occurredAt=new Date(now).toISOString();
     const stored = this.config.load();
     let inspected=0,completed=0,externalMutations=0,manualReview=0;
     for (const projected of this.aggregates.project()) {
@@ -33,12 +34,13 @@ export class RuntimeDistributionDispositionAdapter implements RuntimeDisposition
         connection,
         sourceObservationId:assetRecord.asset.sourceObservationId,
         publicationIds:projected.publicationIds,
+        occurredAt,
         policy:connection.disposition,
         ...(decision.action==="MOVE"?{destinationRef:decision.destinationRef}:{})
       });
       if(result.manualReview||!result.applied){manualReview+=1;continue;}
       if(result.externalMutation)externalMutations+=1;
-      this.runtime.putAsset({...assetRecord.asset,state:"COMPLETE",metadata:{...assetRecord.asset.metadata,completedAt:new Date(now).toISOString(),sourceDisposition:decision.action}},now);
+      this.runtime.putAsset({...assetRecord.asset,state:"COMPLETE",metadata:{...assetRecord.asset.metadata,completedAt:occurredAt,sourceDisposition:decision.action}},occurredAt);
       completed+=1;
     }
     return{inspected,completed,externalMutations,manualReview};
