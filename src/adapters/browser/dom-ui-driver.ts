@@ -19,7 +19,7 @@ function locatorExpression(locators: readonly UiLocator[], token: string, visibl
       if (!el) return false;
       const style = getComputedStyle(el);
       const rect = el.getBoundingClientRect();
-      return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0' && rect.width >= 0 && rect.height >= 0;
+      return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0' && rect.width > 0 && rect.height > 0;
     };
     const accessibleName = (el) => normalize(
       el.getAttribute('aria-label') || el.getAttribute('title') || el.value || el.textContent || ''
@@ -34,11 +34,13 @@ function locatorExpression(locators: readonly UiLocator[], token: string, visibl
       if (tag === 'button') return 'button';
       if (tag === 'a' && el.hasAttribute('href')) return 'link';
       if (tag === 'textarea') return 'textbox';
+      if (tag === 'select') return 'combobox';
       if (tag === 'input') {
         const type = (el.getAttribute('type') || 'text').toLocaleLowerCase('en-US');
         if (['button','submit','reset'].includes(type)) return 'button';
         if (['text','email','search','url','tel','password'].includes(type)) return 'textbox';
         if (type === 'checkbox') return 'checkbox';
+        if (type === 'radio') return 'radio';
       }
       return '';
     };
@@ -59,7 +61,7 @@ function locatorExpression(locators: readonly UiLocator[], token: string, visibl
         }
         return controls;
       }
-      const all = Array.from(document.querySelectorAll('button,a,input,textarea,label,[role],[contenteditable="true"],div,span'));
+      const all = Array.from(document.querySelectorAll('button,a,input,textarea,select,label,[role],[contenteditable="true"],div,span'));
       if (locator.kind === 'role') {
         const expectedRole = String(locator.role || '').toLocaleLowerCase('en-US');
         return all.filter((el) => {
