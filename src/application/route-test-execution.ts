@@ -34,15 +34,16 @@ export class RouteTestExecutionService {
 
   async run(routeId: string, testKey: ExecutableRouteTestKey, releaseSha: string, now: string): Promise<RouteTestEvidenceRecord> {
     if (!routeId.trim() || !releaseSha.trim()) throw new RouteTestExecutionError("Route and release SHA are required");
+    const checkedAt=new Date(now).toISOString();
     // Prerequisites never inherit a PASS from another release.
     const existing = this.store.list(routeId).filter((record)=>record.releaseSha===releaseSha);
     if (testKey === "IDENTITY" && !passed(existing,"SESSION")) throw new RouteTestExecutionError("Identity test requires a passing session test on this release");
     if (testKey === "SURFACE" && !passed(existing,"IDENTITY")) throw new RouteTestExecutionError("Surface test requires a passing identity test on this release");
-    if (testKey === "PREPARE_ONLY" && !(passed(existing,"SOURCE") && passed(existing,"SESSION") && passed(existing,"IDENTITY") && passed(existing,"SURFACE"))) throw new RouteTestExecutionError("Prepare-only requires source, session, identity and surface PASS on this release");
+    // Calibration replays create the evidence that later allows SURFACE to pass; SURFACE cannot be their prerequisite.
+    if (testKey === "PREPARE_ONLY" && !(passed(existing,"SOURCE") && passed(existing,"SESSION") && passed(existing,"IDENTITY"))) throw new RouteTestExecutionError("Prepare-only requires source, session and identity PASS on this release");
     if (testKey === "VERIFICATION" && !passed(existing,"SURFACE")) throw new RouteTestExecutionError("Verification contract test requires a calibrated/passing surface on this release");
     if (testKey === "CLEANUP" && !passed(existing,"SECRET_LIVE")) throw new RouteTestExecutionError("Cleanup may run only after canonical secret-live E2E evidence exists on this release");
-    const result = await this.runner.run(routeId,testKey);
-    const checkedAt = new Date(now).toISOString();
+    const result = await this.runner.run(routeId,testKey,checkedAt);
     return this.store.record({ evidenceId:id(routeId,testKey,checkedAt,result.summary), routeId, testKey, status:result.passed?"PASS":"FAIL", checkedAt, releaseSha, summary:result.summary, artifactRefs:[...result.artifactRefs] });
   }
 
