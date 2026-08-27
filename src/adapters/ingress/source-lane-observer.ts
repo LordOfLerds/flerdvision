@@ -36,6 +36,10 @@ function accepts(name: string): boolean {
   const lower = name.toLocaleLowerCase("en-US");
   return VIDEO_EXTENSIONS.some((extension) => lower.endsWith(extension));
 }
+function creatorRootLabel(lane:SourceLane):string|undefined{
+  if(lane.interpretation.kind!=="creator_week_day")return undefined;
+  return lane.interpretation.creatorAlias??(lane.creatorId?lane.laneId:undefined);
+}
 
 export interface SourceLaneObservationAdapterOptions {
   googleDriveClient?: GoogleDriveReadClient;
@@ -49,7 +53,7 @@ export class SourceLaneObservationAdapter implements SourceLaneObservationPort {
     const sourceId = `lane:${lane.laneId}`;
     if (source.kind === "google_drive") {
       if (!this.options.googleDriveClient) throw new Error(`Google Drive client is not configured for lane ${lane.laneId}`);
-      const rootLabel = lane.interpretation.kind === "creator_week_day" ? lane.interpretation.creatorAlias : undefined;
+      const rootLabel = creatorRootLabel(lane);
       const adapter = new GoogleDriveFolderIngressAdapter(this.options.googleDriveClient, {
         sourceId,
         rootFolderId: lane.folderRef,
@@ -99,7 +103,8 @@ export class SourceLaneObservationAdapter implements SourceLaneObservationPort {
         });
       }
     };
-    walk(root, [], 0);
+    const rootLabel=creatorRootLabel(lane);
+    walk(root, rootLabel?[rootLabel]:[], 0);
     return out.sort((a, b) => (a.metadata.relativePath ?? "").localeCompare(b.metadata.relativePath ?? ""));
   }
 }
