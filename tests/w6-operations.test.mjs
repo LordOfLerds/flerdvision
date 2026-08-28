@@ -56,7 +56,7 @@ test("migration 6 creates operations tables and append-only human/notification r
         assert.equal(raw.prepare("SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name=?").get(table).c, 1);
       }
     } finally { raw.close(); }
-  } finally { store.close(); rmSync(runtime.dir, { recursive: true, force: true }); }
+  } finally { store.close(); rmSync(runtime.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });
 
 test("incident projection deduplicates repeated session failures and reopens after recurrence", () => {
@@ -242,7 +242,7 @@ test("human_actions and notification_messages are immutable at database level", 
   try {
     assert.throws(() => raw.exec("UPDATE human_actions SET operator_id = 'tampered'"), /append-only/);
     assert.throws(() => raw.exec("DELETE FROM notification_messages"), /append-only/);
-  } finally { raw.close(); rmSync(runtime.dir, { recursive: true, force: true }); }
+  } finally { raw.close(); rmSync(runtime.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });
 
 test("blocked missed-window reason still projects an incident after MissedWindowGuard already changed state", async () => {

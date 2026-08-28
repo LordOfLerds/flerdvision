@@ -58,6 +58,6 @@ test("same spec compiles to one shared lane and stable activation semantics", ()
     assert.equal(control.listBrowserIdentities().length, 2);
   } finally {
     control.close();
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });

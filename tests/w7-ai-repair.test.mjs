@@ -49,7 +49,7 @@ test("migration 7 creates immutable AI-repair audit tables", () => {
     for (const table of ["incident_evidence_bundles", "ai_diagnoses", "repair_proposals", "repair_gate_results", "repair_branches"]) {
       assert.equal(raw.prepare("SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name=?").get(table).c, 1);
     }
-  } finally { raw.close(); rmSync(dir, { recursive: true, force: true }); }
+  } finally { raw.close(); rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });
 
 test("incident evidence bundle redacts secrets and excludes binary screenshots from AI input", () => {
@@ -71,7 +71,7 @@ test("incident evidence bundle redacts secrets and excludes binary screenshots f
     assert.ok(bundle.redactionFindings.length >= 3);
     assert.equal(bundle.artifacts.find((x) => x.mediaType === "image/png").disposition, "OMITTED_BINARY");
     assert.equal(bundle.artifacts.find((x) => x.mediaType === "text/plain").disposition, "INCLUDED_TEXT");
-  } finally { store.close(); rmSync(dir, { recursive: true, force: true }); }
+  } finally { store.close(); rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });
 
 test("artifact reader refuses paths outside configured evidence root", () => {
@@ -83,7 +83,7 @@ test("artifact reader refuses paths outside configured evidence root", () => {
     const result = new SafeLocalArtifactTextReader(dir).inspect(outside);
     assert.equal(result.disposition, "OMITTED_UNSAFE");
     assert.equal(JSON.stringify(result).includes("DO_NOT_READ"), false);
-  } finally { rmSync(dir, { recursive: true, force: true }); rmSync(outsideDir, { recursive: true, force: true }); }
+  } finally { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); rmSync(outsideDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });
 
 test("redactor removes sensitive HTML field values and home paths", () => {
@@ -121,7 +121,7 @@ test("command AI adapter receives sanitized payload but not inherited social sec
     const adapter = new CommandAiDiagnosisAdapter({ command: process.execPath, args: [script] });
     const result = await adapter.diagnose({ bundleId: "b", incidentId: "i", capturedAt: "2026-08-26T18:00:00Z", releaseSha: "x", adapterVersion: "x", redactionPolicyVersion: "v", incidentKind: "UI_UNKNOWN", incidentSummary: "x", sanitizedContext: {}, artifacts: [], redactionFindings: [] });
     assert.deepEqual(result.securityNotes, ["social_secret=ABSENT"]);
-  } finally { if (previous === undefined) delete process.env.SOCIAL_PASSWORD; else process.env.SOCIAL_PASSWORD = previous; rmSync(dir, { recursive: true, force: true }); }
+  } finally { if (previous === undefined) delete process.env.SOCIAL_PASSWORD; else process.env.SOCIAL_PASSWORD = previous; rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });
 
 test("untrusted AI schema output is rejected before repair policy or patching", async () => {
@@ -135,7 +135,7 @@ test("untrusted AI schema output is rejected before repair policy or patching", 
     const service = new AiRepairService(store, store, new IncidentEvidenceBundleBuilder(store, new SafeLocalArtifactTextReader(evidenceRoot)), badDiagnosis, proposal, workspace);
     await assert.rejects(() => service.diagnoseIncident(incident.incidentId, { now: "2026-08-26T18:05:00Z", releaseSha: "x", adapterVersion: "x" }, actor), /invalid classification/);
     assert.equal(store.listAiDiagnoses(incident.incidentId).length, 0);
-  } finally { store.close(); rmSync(evidenceRoot, { recursive: true, force: true }); }
+  } finally { store.close(); rmSync(evidenceRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });
 
 test("AI command adapter rejects arbitrary environment injection", async () => {
@@ -169,7 +169,7 @@ test("git repair workspace creates isolated branch, applies only the patch, and 
     assert.deepEqual(workspace.changedFiles(branch), ["config/platform-ui.test.json", "tests/w7-generated.test.mjs"]);
     assert.equal(readFileSync(join(repo.dir, "config/platform-ui.test.json"), "utf8"), '{"button":"Old"}\n', "main worktree must remain untouched");
     assert.equal(readFileSync(join(branch.worktreePath, "config/platform-ui.test.json"), "utf8"), '{"button":"New"}\n');
-  } finally { rmSync(worktreeRoot, { recursive: true, force: true }); rmSync(repo.dir, { recursive: true, force: true }); }
+  } finally { rmSync(worktreeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); rmSync(repo.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });
 
 test("AI repair service can diagnose, policy-gate, branch and run regression/full tests without production promotion", async () => {
@@ -197,7 +197,7 @@ test("AI repair service can diagnose, policy-gate, branch and run regression/ful
     assert.equal(store.listRepairProposals(incident.incidentId).length, 1);
     assert.equal(store.listRepairGateResults(report.proposal.proposalId).length, 5);
     assert.ok(store.getRepairBranch(report.proposal.proposalId));
-  } finally { store.close(); rmSync(worktreeRoot, { recursive: true, force: true }); rmSync(evidenceRoot, { recursive: true, force: true }); rmSync(repo.dir, { recursive: true, force: true }); }
+  } finally { store.close(); rmSync(worktreeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); rmSync(evidenceRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); rmSync(repo.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });
 
 test("PUBLISH_UNCERTAIN never calls the AI proposal port", async () => {
@@ -214,7 +214,7 @@ test("PUBLISH_UNCERTAIN never calls the AI proposal port", async () => {
     assert.equal(report.verdict.decision, "PROHIBITED");
     assert.equal(proposalCalls, 0);
     assert.equal(report.productionPromotionAllowed, false);
-  } finally { store.close(); rmSync(evidenceRoot, { recursive: true, force: true }); }
+  } finally { store.close(); rmSync(evidenceRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });
 
 test("repair audit records are immutable at database level", () => {
@@ -230,7 +230,7 @@ test("repair audit records are immutable at database level", () => {
   try {
     assert.throws(() => raw.exec("UPDATE incident_evidence_bundles SET release_sha='tamper'"), /append-only/);
     assert.throws(() => raw.exec("DELETE FROM incident_evidence_bundles"), /append-only/);
-  } finally { raw.close(); rmSync(dir, { recursive: true, force: true }); }
+  } finally { raw.close(); rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });
 
 test("patch-scope failure is audit-visible after a passing repair policy and never creates a branch", async () => {
@@ -248,7 +248,7 @@ test("patch-scope failure is audit-visible after a passing repair policy and nev
     assert.deepEqual(report.gates.map((x) => [x.gate, x.status]), [["POLICY", "PASS"], ["PATCH_SCOPE", "FAIL"]]);
     assert.equal(branches, 0);
     assert.equal(report.readyForHumanReview, false);
-  } finally { store.close(); rmSync(evidenceRoot, { recursive: true, force: true }); }
+  } finally { store.close(); rmSync(evidenceRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });
 
 test("all W7 repair audit entities are append-only at database level", () => {
@@ -271,5 +271,5 @@ test("all W7 repair audit entities are append-only at database level", () => {
     for (const table of ["incident_evidence_bundles", "ai_diagnoses", "repair_proposals", "repair_gate_results", "repair_branches"]) {
       assert.throws(() => raw.exec(`DELETE FROM ${table}`), /append-only/, table);
     }
-  } finally { raw.close(); rmSync(dir, { recursive: true, force: true }); }
+  } finally { raw.close(); rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });

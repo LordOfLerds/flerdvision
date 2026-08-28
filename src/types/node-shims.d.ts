@@ -22,6 +22,8 @@ declare const process: {
   argv: string[];
   env: Record<string, string | undefined>;
   platform: string;
+  pid: number;
+  kill(pid: number, signal: number): void;
   versions: { node: string };
   cwd(): string;
   exitCode?: number;

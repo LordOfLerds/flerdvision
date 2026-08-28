@@ -40,7 +40,7 @@ function outputAgent(payload) {
   writeFileSync(script, `process.stdout.write(${JSON.stringify(JSON.stringify(payload))});\n`);
   return {
     agent: new CommandSurfaceAgent({ command: process.execPath, args: [script], env: { PATH: process.env.PATH, HOME: process.env.HOME } }),
-    close: () => rmSync(dir, { recursive: true, force: true })
+    close: () => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 })
   };
 }
 

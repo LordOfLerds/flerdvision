@@ -50,7 +50,7 @@ test("SQLite intent creation is idempotent and survives reopen", () => {
     assert.equal(store.listEvents("publication_intent", "intent-1").length, 2);
     store.close();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });
 
@@ -79,7 +79,7 @@ test("event log is append-only at the SQLite layer", () => {
     assert.throws(() => raw.exec("DELETE FROM event_log WHERE sequence = 1"), /append-only/);
     raw.close();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });
 
@@ -98,6 +98,6 @@ test("worker leases prevent two workers owning the same publication intent", () 
     a.close();
     b.close();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });

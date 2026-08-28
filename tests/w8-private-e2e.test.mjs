@@ -94,7 +94,7 @@ test("migration 8 stores append-only E2E gates and one-shot permits", () => {
   try {
     assert.throws(() => raw.exec("UPDATE e2e_gate_results SET summary='rewrite'"), /append-only/);
     assert.throws(() => raw.exec("DELETE FROM e2e_gate_results"), /append-only/);
-  } finally { raw.close(); rmSync(paths.dir, { recursive: true, force: true }); }
+  } finally { raw.close(); rmSync(paths.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });
 
 test("zero-viewer privacy attestation fails closed", () => {
@@ -104,7 +104,7 @@ test("zero-viewer privacy attestation fails closed", () => {
     service.start({ runId: "e2e:privacy", accountId: account().accountId, platform: "instagram", releaseSha: "sha-w8", now: "2026-08-26T16:10:00Z", operatorId: "operator" }, actor);
     assert.throws(() => service.attestPrivacy("e2e:privacy", { accountPrivate: true, approvedFollowers: 1, contactsSyncOff: true, crossPostingOff: true, testMediaOnly: true }, "2026-08-26T16:10:01Z", "operator", actor), PrivateE2EPolicyError);
     assert.equal(store.listE2EGateResults("e2e:privacy").at(-1).status, "FAIL");
-  } finally { store.close(); rmSync(paths.dir, { recursive: true, force: true }); }
+  } finally { store.close(); rmSync(paths.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });
 
 test("E2E permit requires all gates, is short-lived and one-shot", () => {
@@ -118,7 +118,7 @@ test("E2E permit requires all gates, is short-lived and one-shot", () => {
     const issued = permits.issue({ runId: "e2e:permit", intent: intent(), context, now: "2026-08-26T16:13:00Z", operatorId: "operator", ttlSeconds: 60 }, actor);
     permits.consume({ permitId: issued.permit.permitId, token: issued.token, runId: "e2e:permit", intent: intent(), context, now: "2026-08-26T16:13:10Z", workerId: "worker" }, actor);
     assert.throws(() => permits.consume({ permitId: issued.permit.permitId, token: issued.token, runId: "e2e:permit", intent: intent(), context, now: "2026-08-26T16:13:11Z", workerId: "worker" }, actor), E2EPermitConflictError);
-  } finally { store.close(); rmSync(paths.dir, { recursive: true, force: true }); }
+  } finally { store.close(); rmSync(paths.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });
 
 test("retained prepared session crosses durable boundary and invokes final click exactly once", { timeout: 45_000 }, async () => {
@@ -154,7 +154,7 @@ test("retained prepared session crosses durable boundary and invokes final click
     assert.equal(store.getPublishAttempt(attempt.attemptId).result, "final_action_invoked");
     assert.equal(store.listVerificationEvidence("intent:w8", attempt.attemptId).filter((e) => e.kind === "ui_receipt").length, 1);
     await assert.rejects(() => controller.execute({ runId: "e2e:live", permitId: issued.permit.permitId, permitToken: issued.token, intentId: "intent:w8", attemptId: attempt.attemptId, context, workerId: "worker", now: "2026-08-26T16:21:50Z", actor }));
-  } finally { await registry.closeAll(); store.close(); rmSync(paths.dir, { recursive: true, force: true }); }
+  } finally { await registry.closeAll(); store.close(); rmSync(paths.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });
 
 test("host preflight requires private dirs and final publish disabled by default", async () => {
@@ -163,7 +163,7 @@ test("host preflight requires private dirs and final publish disabled by default
   try {
     const result = await new NodeHostPreflightAdapter({ chromiumExecutablePath: resolveChromiumExecutablePath(), runtimeDir: paths.runtime, profilesDir: paths.profiles, evidenceDir: paths.evidence }).check("2026-08-26T16:30:00Z");
     assert.equal(result.ready, true);
-  } finally { if (priorTZ === undefined) delete process.env.TZ; else process.env.TZ = priorTZ; if (priorFinal === undefined) delete process.env.ALLOW_FINAL_PUBLISH; else process.env.ALLOW_FINAL_PUBLISH = priorFinal; rmSync(paths.dir, { recursive: true, force: true }); }
+  } finally { if (priorTZ === undefined) delete process.env.TZ; else process.env.TZ = priorTZ; if (priorFinal === undefined) delete process.env.ALLOW_FINAL_PUBLISH; else process.env.ALLOW_FINAL_PUBLISH = priorFinal; rmSync(paths.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });
 
 test("AI provider preflight separates subscription CLI from service API credentials", () => {

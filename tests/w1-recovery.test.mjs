@@ -101,6 +101,6 @@ test("server restart plus duplicate intake still yields one durable intent", () 
     assert.equal(store.listIntents().length, 1);
     store.close();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });

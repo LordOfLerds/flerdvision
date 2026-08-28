@@ -71,7 +71,7 @@ test("Drive disposition adapter is optional and writes only appProperties when e
     assert.equal(calls[0].properties["flerdvision.publication_ids"], "pub:a,pub:b");
   } finally {
     store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });
 

@@ -72,7 +72,7 @@ test("current creator/week/day schema materializes immutable content without cou
     assert.equal(store.getSourceObservation("obs:current:1")?.state, "ACCEPTED");
   } finally {
     store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });
 
@@ -116,7 +116,7 @@ test("a completely different metadata-driven source plugs into the same ingress 
     assert.equal(content.item.immutableMediaRef, "future://asset/77");
   } finally {
     store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });
 
@@ -136,7 +136,7 @@ test("duplicate observation increments seenCount but does not duplicate content"
     assert.equal(store.getSourceObservation("obs:current:1")?.seenCount, 2);
   } finally {
     store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });
 
@@ -165,7 +165,7 @@ test("same external source object changing media fingerprint fails closed", asyn
     assert.equal(store.getSourceDisposition("obs:current:1")?.state, "BLOCKED");
   } finally {
     store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });
 
@@ -190,7 +190,7 @@ test("source acknowledgement is durable and idempotent across repeated completio
     assert.deepEqual(store.getSourceDisposition("obs:current:1")?.publicationIds, ["pub:1", "pub:2"]);
   } finally {
     store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });
 
@@ -204,7 +204,7 @@ test("existing W1 database upgrades in place to migration 2", () => {
     assert.ok(store.summary("2026-08-26T18:00:00Z"));
   } finally {
     store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });
 
@@ -247,6 +247,6 @@ test("blocked source acknowledgement is retried after sink failure without reint
     assert.equal(store.listContentItems().length, 0);
   } finally {
     store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });

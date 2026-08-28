@@ -91,7 +91,7 @@ test("social account and browser identity registration is durable and idempotent
     assert.equal(store.listBrowserIdentities().length, 1);
   } finally {
     store.close();
-    rmSync(runtime.dir, { recursive: true, force: true });
+    rmSync(runtime.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });
 
@@ -119,7 +119,7 @@ test("conflicting account identity, profile reuse and platform mismatch fail clo
     );
   } finally {
     store.close();
-    rmSync(runtime.dir, { recursive: true, force: true });
+    rmSync(runtime.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });
 
@@ -136,7 +136,7 @@ test("profile resolver blocks traversal and profile lock blocks concurrent brows
     const second = lockAdapter.acquire(identity(), "worker-b", "2026-08-26T16:00:02Z");
     second.release();
   } finally {
-    rmSync(runtime.dir, { recursive: true, force: true });
+    rmSync(runtime.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });
 
@@ -157,7 +157,7 @@ test("durable profile lease prevents concurrent identity use even with separate 
     second.release();
   } finally {
     store.close();
-    rmSync(runtime.dir, { recursive: true, force: true });
+    rmSync(runtime.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });
 
@@ -207,7 +207,7 @@ test("health checks are append-only and guard rejects auth-required, mismatch an
     assert.throws(() => raw.exec("DELETE FROM session_health_checks"), /append-only/);
   } finally {
     raw.close();
-    rmSync(runtime.dir, { recursive: true, force: true });
+    rmSync(runtime.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });
 
@@ -255,7 +255,7 @@ test("real Chromium persistent cookie survives a full browser restart", { skip: 
     store.close();
     // Chromium profile helpers can finish disk writes just after Browser.close.
     await new Promise((resolve) => setTimeout(resolve, 300));
-    rmSync(runtimePaths.dir, { recursive: true, force: true });
+    rmSync(runtimePaths.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });
 
@@ -315,6 +315,6 @@ test("real Chromium DOM probe classifies exact identity and auth marker without 
   } finally {
     store.close();
     await new Promise((resolve) => setTimeout(resolve, 300));
-    rmSync(runtimePaths.dir, { recursive: true, force: true });
+    rmSync(runtimePaths.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });

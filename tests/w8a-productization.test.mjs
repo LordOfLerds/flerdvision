@@ -27,7 +27,7 @@ test("workspace runtime is physically isolated and private", () => {
       assert.equal(statSync(path).mode & 0o077, 0, `${path} must be private`);
     }
     assert.throws(() => workspaceRuntimeLayout(root, "../escape"), /Unsafe workspace id/);
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  } finally { rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });
 
 test("same account ids can exist independently in Luca and Fabian workspace databases", () => {
@@ -43,7 +43,7 @@ test("same account ids can exist independently in Luca and Fabian workspace data
       assert.equal(sa.getSocialAccount("instagram_primary").account.expectedHandle, "luca_test");
       assert.equal(sb.getSocialAccount("instagram_primary").account.expectedHandle, "fabian_test");
     } finally { sa.close(); sb.close(); }
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  } finally { rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });
 
 test("release promotion enforces Luca Mac -> Fabian Mac -> VPS staging -> production-ready order", () => {
@@ -56,7 +56,7 @@ test("release promotion enforces Luca Mac -> Fabian Mac -> VPS staging -> produc
     assert.equal(q.finalize(luca.runId).status, "PASSED");
     assert.doesNotThrow(() => q.start({ runId: "run:fabian", releaseSha: sha, stage: "FABIAN_MAC", workspaceId: "fabian", hostFingerprint: "fabian-mac", now: "2026-08-26T20:03:00Z", operatorId: "tester" }));
     assert.throws(() => q.start({ releaseSha: sha, stage: "VPS_STAGING", workspaceId: "staging", hostFingerprint: "vps", now: "2026-08-26T20:04:00Z", operatorId: "tester" }), /predecessor stage FABIAN_MAC/);
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  } finally { rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });
 
 test("Luca/Fabian/VPS qualification requires current product and operations gates",()=>{
@@ -73,7 +73,7 @@ test("qualification cannot pass with a missing or failed required gate", () => {
     const run = q.start({ runId: "run:x", releaseSha: "sha", stage: "LUCA_MAC", workspaceId: "luca", hostFingerprint: "mac", now: "2026-08-26T20:00:00Z", operatorId: "tester" });
     q.recordGate({ runId: run.runId, gate: "INSTALLER", passed: false, now: "2026-08-26T20:01:00Z", operatorId: "tester", summary: "installer failed" });
     assert.throws(() => q.finalize(run.runId), /missing gates/);
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  } finally { rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });
 
 test("self-service UI creates an isolated workspace and refuses every typed-credential path", { timeout: 15000 }, async () => {
@@ -105,7 +105,7 @@ test("self-service UI creates an isolated workspace and refuses every typed-cred
       assert.deepEqual(store.listSocialAccounts(), [], "no account can exist without a discovered session");
       assert.deepEqual(store.listChannelSourceBindings(), []);
     } finally { store.close(); }
-  } finally { await server.stop(); rmSync(root, { recursive: true, force: true }); }
+  } finally { await server.stop(); rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });
 
 test("self-service Test Lab only runs allowlisted safe test ids and records result", { timeout: 15000 }, async () => {

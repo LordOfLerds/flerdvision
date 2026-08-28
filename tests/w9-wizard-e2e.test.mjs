@@ -90,7 +90,7 @@ async function harness(overrides = {}) {
     headers: { Authorization: AUTH, "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ csrf: server.csrf ?? "", ...fields }).toString()
   });
-  return { dir, server, base, get, post, http, close: async () => { await server.stop(); rmSync(dir, { recursive: true, force: true }); } };
+  return { dir, server, base, get, post, http, close: async () => { await server.stop(); rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); } };
 }
 
 test("legacy wizard still proves Drive + browser + discovery but source/account binding is retired", { skip: REAL_CHROMIUM === undefined, timeout: 90_000 }, async () => {
@@ -224,7 +224,7 @@ test("a mounted folder works as a source without any credential", async () => {
     const mid = await browser.listFolder(top.entries[0].id); assert.deepEqual(mid.entries.map((e) => e.name), ["Reels"]); assert.deepEqual(mid.path.map((c) => c.name), ["Mein Mount", "Flerdvision"]);
     const leaf = await browser.listFolder(mid.entries[0].id); assert.deepEqual(leaf.entries.map((e) => e.name), ["caption.txt", "reel_0819.mov", "reel_0824.mp4"]);
     const preview = await browser.previewFolder(mid.entries[0].id); assert.equal(preview.videoCount, 2); assert.equal(preview.otherCount, 1);
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  } finally { rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });
 
 test("a local source cannot be walked out of its configured root", async () => {
@@ -236,5 +236,5 @@ test("a local source cannot be walked out of its configured root", async () => {
       const token = Buffer.from(escape, "utf8").toString("base64url");
       await assert.rejects(() => browser.listFolder(token), /Unsafe folder id|escaped the configured source root|not readable|Not a folder/);
     }
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  } finally { rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });

@@ -1,4 +1,4 @@
-import { closeSync, mkdirSync, openSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import type { BrowserIdentity } from "../../domain/browser-identity.js";
 import type { BrowserProfileLock, BrowserProfileLockPort } from "../../domain/browser-identity-ports.js";
@@ -29,6 +29,48 @@ export class BrowserProfileDirectoryResolver {
   }
 }
 
+interface ProfileLockFile {
+  identityId: string;
+  ownerId: string;
+  acquiredAt: string;
+  /** Owning process. Absent in locks written before staleness detection existed. */
+  pid?: number;
+}
+
+/** A process that no longer exists cannot still be using the profile. */
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readLockFile(path: string): ProfileLockFile | null {
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as ProfileLockFile;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether an existing lock is provably abandoned.
+ *
+ * Only a dead owner counts. A live owner keeps the lock no matter how old it is, because a
+ * legitimate operator login can sit at a browser for the better part of an hour -- an age-based
+ * rule would steal the profile out from under it. Locks with no recorded pid, or whose file
+ * cannot be parsed, are also reclaimable: they predate this check or were written torn, and in
+ * both cases no live process can be proven to hold them.
+ */
+function lockIsStale(path: string): boolean {
+  const existing = readLockFile(path);
+  if (!existing) return true;
+  if (typeof existing.pid !== "number") return true;
+  return !processAlive(existing.pid);
+}
+
 export class FileBrowserProfileLockAdapter implements BrowserProfileLockPort {
   constructor(private readonly resolver: BrowserProfileDirectoryResolver) {}
 
@@ -39,12 +81,27 @@ export class FileBrowserProfileLockAdapter implements BrowserProfileLockPort {
     try {
       fd = openSync(lockPath, "wx", 0o600);
     } catch (error) {
-      throw new BrowserProfileLockedError(
-        `Browser profile ${identity.identityId} is already locked. Refusing concurrent profile use.`,
-        { cause: error }
-      );
+      // A crashed or killed run never reaches release(), and heartbeat is a no-op, so without
+      // this the profile stays locked forever and the only recovery is deleting state by hand.
+      if (!lockIsStale(lockPath)) {
+        const holder = readLockFile(lockPath);
+        throw new BrowserProfileLockedError(
+          `Browser profile ${identity.identityId} is already locked by ${holder?.ownerId ?? "another run"}` +
+          `${holder?.pid ? ` (pid ${holder.pid}, since ${holder.acquiredAt})` : ""}. Refusing concurrent profile use.`,
+          { cause: error }
+        );
+      }
+      rmSync(lockPath, { force: true });
+      try {
+        fd = openSync(lockPath, "wx", 0o600);
+      } catch (retryError) {
+        throw new BrowserProfileLockedError(
+          `Browser profile ${identity.identityId} is already locked. Refusing concurrent profile use.`,
+          { cause: retryError }
+        );
+      }
     }
-    writeFileSync(fd, JSON.stringify({ identityId: identity.identityId, ownerId, acquiredAt: new Date(now).toISOString() }), "utf8");
+    writeFileSync(fd, JSON.stringify({ identityId: identity.identityId, ownerId, acquiredAt: new Date(now).toISOString(), pid: process.pid }), "utf8");
     closeSync(fd);
 
     let released = false;

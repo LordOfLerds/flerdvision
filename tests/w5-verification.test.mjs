@@ -81,7 +81,7 @@ test("migration 5 creates append-only verification tables", () => {
     assert.deepEqual(versions.slice(0, 5), [1, 2, 3, 4, 5]);
   } finally {
     store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });
 
@@ -225,7 +225,7 @@ test("verification evidence and publications are append-only in SQLite", async (
     raw.close();
   } finally {
     try { store.close(); } catch {}
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });
 
@@ -300,7 +300,7 @@ test("declarative profile verifier emits permalink evidence only from a ready pr
     assert.ok(items[0].artifactRef);
   } finally {
     fixture.store.close();
-    rmSync(fixture.dir, { recursive: true, force: true });
+    rmSync(fixture.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });
 
@@ -314,7 +314,7 @@ test("declarative profile verifier emits negative evidence only after profile-re
     assert.ok(items[0].artifactRef);
   } finally {
     fixture.store.close();
-    rmSync(fixture.dir, { recursive: true, force: true });
+    rmSync(fixture.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });
 
@@ -328,7 +328,7 @@ test("profile verifier never turns an unknown/not-ready surface into negative ab
     assert.equal(fixture.store.listVerificationEvidence("intent:test").length, 0);
   } finally {
     fixture.store.close();
-    rmSync(fixture.dir, { recursive: true, force: true });
+    rmSync(fixture.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });
 

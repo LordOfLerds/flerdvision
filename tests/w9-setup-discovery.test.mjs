@@ -107,7 +107,7 @@ test("registration takes its handle from the session and records the observation
     assert.match(health.note, /channel discovery/i);
   } finally {
     store.close();
-    rmSync(paths.dir, { recursive: true, force: true });
+    rmSync(paths.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });
 
@@ -125,7 +125,7 @@ test("picking the other channel of the same login produces a different account",
     assert.equal(store.getSocialAccount(second.accountId).account.expectedHandle, "lucaerd");
   } finally {
     store.close();
-    rmSync(paths.dir, { recursive: true, force: true });
+    rmSync(paths.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });
 
@@ -155,7 +155,7 @@ test("the retired folder/account binding is fail-closed, not merely unused", () 
     assert.equal(store.getSocialAccount(ig.accountId).account.expectedHandle, "flerdvision");
   } finally {
     store.close();
-    rmSync(paths.dir, { recursive: true, force: true });
+    rmSync(paths.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });
 
@@ -194,7 +194,7 @@ test("the store still enforces one folder per account for any legacy row it hold
     );
   } finally {
     store.close();
-    rmSync(paths.dir, { recursive: true, force: true });
+    rmSync(paths.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });
 
@@ -288,6 +288,6 @@ test("real Chromium discovery reads several channels out of one session", { skip
     }
   } finally {
     store.close();
-    rmSync(paths.dir, { recursive: true, force: true });
+    rmSync(paths.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });

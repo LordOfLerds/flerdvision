@@ -152,7 +152,7 @@ test("migration 4 persists append-only per-account capability probes", () => {
   try {
     assert.throws(() => raw.exec("UPDATE platform_capability_probes SET note = 'rewrite'"), /append-only/);
     assert.throws(() => raw.exec("DELETE FROM platform_capability_probes"), /append-only/);
-  } finally { raw.close(); rmSync(runtimePaths.dir, { recursive: true, force: true }); }
+  } finally { raw.close(); rmSync(runtimePaths.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });
 
 test("local media materializer hashes exact bytes and rejects paths outside allowed root", async () => {
@@ -170,7 +170,7 @@ test("local media materializer hashes exact bytes and rejects paths outside allo
       contentId: "content:bad", acceptedFromObservationId: "source:bad", creatorId: "creator:test",
       mediaFingerprint: "fixture", immutableMediaRef: "file:///etc/passwd", metadata: {}
     }), MediaMaterializationError);
-  } finally { rmSync(runtimePaths.dir, { recursive: true, force: true }); }
+  } finally { rmSync(runtimePaths.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });
 
 test("Google Drive media materializer streams authenticated bytes into controlled cache", async () => {
@@ -196,7 +196,7 @@ test("Google Drive media materializer streams authenticated bytes into controlle
     await materializer.release(artifact);
   } finally {
     globalThis.fetch = previousFetch;
-    rmSync(runtimePaths.dir, { recursive: true, force: true });
+    rmSync(runtimePaths.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });
 
@@ -236,7 +236,7 @@ for (const [platform, format, Adapter] of [
     } finally {
       await page.close();
       await new Promise((resolve) => setTimeout(resolve, 200));
-      rmSync(runtimePaths.dir, { recursive: true, force: true });
+      rmSync(runtimePaths.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
     }
   });
 }
@@ -285,7 +285,7 @@ test("prepare-only publisher integrates fresh identity check, media, copy, capab
   } finally {
     store.close();
     await new Promise((resolve) => setTimeout(resolve, 300));
-    rmSync(runtimePaths.dir, { recursive: true, force: true });
+    rmSync(runtimePaths.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });
 
@@ -321,7 +321,7 @@ test("prepare kernel refuses a configured click when it resolves to the final-ac
   } finally {
     await page.close();
     await new Promise((resolve) => setTimeout(resolve, 200));
-    rmSync(runtimePaths.dir, { recursive: true, force: true });
+    rmSync(runtimePaths.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });
 
@@ -363,7 +363,7 @@ test("existing W1 database migrates through W4 capability storage without losing
     assert.equal(store.latestCapabilityProbe("acct:instagram")?.probeId, "cap:upgrade");
   } finally {
     store.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });
 
