@@ -105,7 +105,9 @@ export async function runHeadlessDemo(input: {
       input.onProgress?.(`LOGIN SKIPPED · ${channel.key} already calibrated`);
       continue;
     }
-    const login = await ensureHeadlessLogin({ specPath: input.specPath, channelKey: channel.key, env, onProgress: input.onProgress });
+    // onProgress is optional on the callee, so under exactOptionalPropertyTypes the key must be
+    // omitted rather than passed as undefined.
+    const login = await ensureHeadlessLogin({ specPath: input.specPath, channelKey: channel.key, env, ...(input.onProgress ? { onProgress: input.onProgress } : {}) });
     stages.push({ stage: "LOGIN", status: "PASS", summary: `${channel.key} verified as @${login.observedHandle}` });
   }
 
