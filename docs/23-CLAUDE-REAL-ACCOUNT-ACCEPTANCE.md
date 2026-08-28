@@ -97,6 +97,43 @@ export FLERDVISION_SPEC="$HOME/flerdvision.json"
 export TZ=Europe/Vienna
 ```
 
+### Google OAuth client (prerequisite for every command, not only drive-auth)
+
+A `google_drive` source needs an OAuth client that only the human owner can create. Without it
+`drive-auth` refuses outright, and `bootstrap` refuses too once a credential exists, because it
+must refresh the access token. Export the pair for **every** `npm run flerdvision` invocation,
+not just the authorization step:
+
+```bash
+set -a; . "$HOME/.flerdvision-google-oauth.env"; set +a
+```
+
+Create the client once, signed in as the account that can open the Drive folder:
+
+1. a Google Cloud project;
+2. the **Google Drive API** enabled on it;
+3. an OAuth consent screen whose **Branding** page is complete -- app name, user support email
+   and developer contact are mandatory. While Branding is incomplete Google blocks the flow with
+   "verification has not been completed", which reads like a verification problem and is not one;
+4. publishing status **Testing**, with the authorizing account added under **Audience** as a
+   test user. Test users do not apply in production status;
+5. an OAuth client of type **Desktop app**. Loopback ports are then unrestricted, so a
+   non-default `--port` needs no console change.
+
+The requested scope is `drive.readonly`; the tool never writes to Drive, so the test media must
+be uploaded to the folder by hand.
+
+The authorizing Google account must be able to open the configured folder. `ownerEmail` in the
+spec is a contact field and grants nothing: if the folder belongs to a different account, the
+authorization still succeeds and the source is simply empty, which only surfaces later as
+`no_ready_asset`.
+
+### Loopback ports
+
+`drive-auth` listens on `127.0.0.1:8765` by default and refuses to start if that port is
+already taken, because a second listener would split the callback and the run would time out
+with no error. Pass `--port <port>` to move it.
+
 STOP if:
 
 - the branch is not `rebuild/headless-agentic-v1`;
@@ -175,6 +212,17 @@ npm run flerdvision -- login \
 ```
 
 The human performs normal login/2FA/challenge steps. Claude waits.
+
+The window is 15 minutes by default and starts when the command does, not when the operator
+reaches the machine. Use `--login-timeout <minutes>` (1..120) or
+`FLERDVISION_LOGIN_TIMEOUT_MINUTES` when a longer window is needed. The browser opens a profile
+that belongs to this identity alone: it carries no bookmarks, extensions or existing sessions,
+so being logged in elsewhere in Chrome does not carry over.
+
+A timeout is a failure, never a pass. To tell "nobody logged in" from "logged in but detection
+failed" without inspecting the profile by hand, check the recorded session health: an
+`AUTH_REQUIRED`/`UNKNOWN` state with no observed handle and a cookie store holding no platform
+session cookie means the login never happened.
 
 PASS requires the retained browser profile to prove the exact expected handle. Merely reaching instagram.com is not a pass.
 
