@@ -89,7 +89,8 @@ export async function ensureHeadlessLogin(input: {
   let lastState = "UNKNOWN";
   try {
     input.onProgress?.(`Browser opened for ${channel.platform}/@${channel.handle}; complete normal login and 2FA. Detection is automatic.`);
-    while (Date.now() - started < (input.timeoutMs ?? 15 * 60_000)) {
+    const timeoutMs = input.timeoutMs ?? 15 * 60_000;
+    while (Date.now() - started < timeoutMs) {
       const checkedAt = new Date().toISOString();
       const check = await new BrowserSessionHealthService(control, new ConfiguredDomSessionProbe(probeConfig(channel, false))).check(
         identityId,
@@ -112,7 +113,13 @@ export async function ensureHeadlessLogin(input: {
       session.heartbeat(checkedAt);
       await sleep(input.pollMs ?? 2000);
     }
-    throw new Error(`Login verification timed out for ${channel.key}`);
+    // The operator has to find the window, type a password and clear 2FA. Saying how long we
+    // waited and how to wait longer is the difference between a dead end and a retry.
+    throw new Error(
+      `Login verification timed out for ${channel.key} after ${Math.round(timeoutMs / 60_000)} minutes. ` +
+      `The browser profile showed no verified @${channel.handle} session. ` +
+      `Re-run with --login-timeout <minutes> if more time is needed.`
+    );
   } finally {
     await session.close().catch(() => {});
     control.close();

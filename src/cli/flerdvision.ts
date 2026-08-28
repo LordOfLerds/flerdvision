@@ -80,7 +80,13 @@ async function main(): Promise<void> {
     return;
   }
   if (command === "login") {
-    const result = await ensureHeadlessLogin({ specPath, channelKey: required(argv, "--channel"), onProgress: (message) => console.error(message) });
+    const loginTimeoutMinutes = positiveInteger(value(argv, "--login-timeout") ?? process.env.FLERDVISION_LOGIN_TIMEOUT_MINUTES, 15, "--login-timeout", 1, 120);
+    const result = await ensureHeadlessLogin({
+      specPath,
+      channelKey: required(argv, "--channel"),
+      timeoutMs: loginTimeoutMinutes * 60_000,
+      onProgress: (message) => console.error(message)
+    });
     console.log(JSON.stringify(result, null, 2));
     return;
   }
