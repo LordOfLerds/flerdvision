@@ -146,6 +146,15 @@ declare module "node:http" {
 }
 
 
+declare module "node:net" {
+  export interface Socket {
+    setTimeout(ms: number): this;
+    once(event: "connect" | "error" | "timeout", listener: () => void): this;
+    destroy(): void;
+  }
+  export function connect(options: { port: number; host: string }): Socket;
+}
+
 declare module "node:os" {
   export function tmpdir(): string;
 }

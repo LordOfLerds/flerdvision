@@ -73,7 +73,8 @@ async function main(): Promise<void> {
     const result = await authorizeWorkspaceDrive({
       specPath,
       port: positiveInteger(value(argv, "--port") ?? process.env.FLERDVISION_DRIVE_OAUTH_PORT, 8765, "--port", 1024, 65535),
-      openBrowser: !flag(argv, "--no-open")
+      openBrowser: !flag(argv, "--no-open"),
+      onAuthorizationUrl: (url) => console.error(`Open this URL to authorize Google Drive:\n${url}`)
     });
     console.log(JSON.stringify(result, null, 2));
     return;

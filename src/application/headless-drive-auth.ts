@@ -6,6 +6,7 @@ import { beginAuthorization, exchangeAuthorizationCode } from "../adapters/ingre
 import { JsonWorkspaceRegistry } from "../adapters/workspace/json-registry.js";
 import { loadWorkspaceSpecFile } from "./headless-bootstrap.js";
 import { WorkspaceService, workspaceRuntimeLayout } from "./workspaces.js";
+import { loopbackPortInUse, portInUseMessage } from "./loopback-port.js";
 
 export interface HeadlessDriveAuthResult {
   workspaceId: string;
@@ -26,6 +27,12 @@ export async function authorizeWorkspaceDrive(input: {
   port?: number;
   timeoutMs?: number;
   openBrowser?: boolean;
+  /**
+   * Called with the authorization URL as soon as it exists, before the wait begins. Without this
+   * the URL is only reachable through the browser tab the tool opens: if that tab is closed or
+   * blocked, the operator has no way back to it and the run can only be restarted.
+   */
+  onAuthorizationUrl?: (url: string) => void;
 }): Promise<HeadlessDriveAuthResult> {
   const spec = loadWorkspaceSpecFile(input.specPath);
   if (spec.source.kind !== "google_drive") throw new Error("drive-auth is only valid for a google_drive source");
@@ -39,7 +46,9 @@ export async function authorizeWorkspaceDrive(input: {
   const registry = new JsonWorkspaceRegistry(resolve(runtimeRoot, "registry", "workspaces.json"));
   new WorkspaceService(registry, runtimeRoot).create({ workspaceId: spec.workspace.id, displayName: spec.workspace.name, timezone: spec.workspace.timezone, now: new Date().toISOString() });
   const layout = workspaceRuntimeLayout(runtimeRoot, spec.workspace.id);
+  if (await loopbackPortInUse(port)) throw new Error(portInUseMessage(port, "--port"));
   const pending = beginAuthorization(client);
+  input.onAuthorizationUrl?.(pending.authorizationUrl);
   const http = new FetchHttpJson();
   let settled = false;
 
