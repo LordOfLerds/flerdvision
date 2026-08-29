@@ -34,3 +34,29 @@ test("the default stays 15 minutes so existing behaviour is unchanged", () => {
   assert.match(cliSource, /"--login-timeout"/);
   assert.match(cliSource, /,\s*15,\s*"--login-timeout"/);
 });
+
+// --- the probe must not touch the browser while the operator is still signing in ---
+
+test("no navigation or probing happens before the platform session cookie exists", () => {
+  // Instagram's code-entry pages live on paths the URL allowlist does not know, so the probe
+  // navigated the operator away mid-2FA every few seconds. The session cookie is the honest
+  // signal: it exists exactly from the moment authentication succeeded.
+  assert.match(loginSource, /sessionCookie = channel\.platform === "instagram" \|\| channel\.platform === "tiktok" \? "sessionid" : null/);
+  assert.match(loginSource, /the browser will not be touched/);
+  const cookieGate = loginSource.indexOf("if (!authenticated) {");
+  const probeCall = loginSource.indexOf("BrowserSessionHealthService(control, new ConfiguredDomSessionProbe");
+  assert.ok(cookieGate > 0 && cookieGate < probeCall, "the cookie gate must sit before any probe");
+});
+
+test("the cookie gate continues the wait instead of failing", () => {
+  const idx = loginSource.indexOf("if (!authenticated) {");
+  const block = loginSource.slice(idx, idx + 600);
+  assert.match(block, /continue;/);
+  assert.match(block, /heartbeat/);
+  assert.doesNotMatch(block, /throw/);
+});
+
+test("platforms without a known session cookie keep the legacy URL guard", () => {
+  assert.match(loginSource, /Legacy guard for platforms without a known session cookie/);
+  assert.match(loginSource, /inLoginFlow/);
+});

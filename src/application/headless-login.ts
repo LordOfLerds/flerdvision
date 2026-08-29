@@ -105,11 +105,29 @@ export async function ensureHeadlessLogin(input: {
   try {
     input.onProgress?.(`Browser opened for ${channel.platform}/@${channel.handle}; complete normal login and 2FA. Detection is automatic.`);
     const timeoutMs = input.timeoutMs ?? 15 * 60_000;
+    // The URL allowlist alone proved insufficient: Instagram's code-entry pages live on paths
+    // the list does not know (auth_platform and friends), so the probe navigated the operator
+    // away mid-2FA every few seconds. The platform's own session cookie is the honest signal --
+    // it exists exactly from the moment authentication succeeded. Until it does, the browser is
+    // the operator's alone: no navigation, no probing, nothing.
+    const sessionCookie = channel.platform === "instagram" || channel.platform === "tiktok" ? "sessionid" : null;
     while (Date.now() - started < timeoutMs) {
       const checkedAt = new Date().toISOString();
-      // Navigating while the operator is typing a password or a 2FA code would destroy their
-      // attempt, so the probe only takes the browser to the identity page once the login flow
-      // has visibly ended.
+      if (sessionCookie) {
+        const authenticated = await session.page.cookies(bootstrapUrl(channel))
+          .then((cookies) => cookies.some((cookie) => cookie.name === sessionCookie && cookie.value.length > 0))
+          .catch(() => false);
+        if (!authenticated) {
+          if (lastState !== "AWAITING_LOGIN") {
+            lastState = "AWAITING_LOGIN";
+            input.onProgress?.(`Login state ${channel.key}: waiting for the operator to finish signing in (no ${sessionCookie} cookie yet; the browser will not be touched)`);
+          }
+          session.heartbeat(checkedAt);
+          await sleep(input.pollMs ?? 2000);
+          continue;
+        }
+      }
+      // Legacy guard for platforms without a known session cookie.
       const currentUrl = await session.page.currentUrl().catch(() => "");
       const inLoginFlow = currentUrl.includes("/accounts/login") || currentUrl.includes("/challenge/") || currentUrl.includes("/login") || currentUrl.includes("accounts.google.com");
       const check = await new BrowserSessionHealthService(control, new ConfiguredDomSessionProbe(probeConfig(channel, !inLoginFlow))).check(
