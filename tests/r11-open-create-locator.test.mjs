@@ -50,3 +50,13 @@ test("the final action is not given substring fallbacks", () => {
   const finalLines = source.split("\n").filter((l) => l.includes("FINAL_ACTION"));
   for (const line of finalLines) assert.doesNotMatch(line, /namedContains/);
 });
+
+test("format selection never targets the Reels feed navigation", () => {
+  // The create menu offers "Beitrag" only; "Reels" is the nav feed item, and clicking it closes
+  // the menu and navigates away. That collision burned a real qualification run.
+  const line = source.split("\n").find((l) => l.includes("const formatNames"));
+  assert.ok(line, "formatNames must exist");
+  assert.doesNotMatch(line, /"Reels"/);
+  assert.doesNotMatch(line, /"Reel"/);
+  assert.match(line, /"Beitrag"/);
+});

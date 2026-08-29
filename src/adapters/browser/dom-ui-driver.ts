@@ -114,16 +114,43 @@ export class BrowserDomUiDriver {
     }
   }
 
-  async clickIrreversible(locators: readonly UiLocator[], timeoutMs = 10_000): Promise<string> {
-    const target = await this.locate(locators, timeoutMs, true);
-    const selector = `[data-flerdvision-node=${JSON.stringify(target.token)}]`;
+  /**
+   * Click the already-located, token-pinned target.
+   *
+   * Prefers a trusted click through the browser input pipeline: Instagram ignores synthetic
+   * events outright (isTrusted === false), so an in-page el.click() reports true while the
+   * application does nothing -- on the create flow that surfaced as a dialog that never opened,
+   * and on a final action it would surface as an "invoked" click with no publication, i.e. a
+   * guaranteed PUBLISH_UNCERTAIN. The in-page click remains only as a fallback for session
+   * fakes that do not implement clickAt.
+   */
+  private async dispatchClick(token: string, descriptor: string, failurePrefix: string): Promise<void> {
+    const selector = `[data-flerdvision-node=${JSON.stringify(token)}]`;
+    const center = await this.session.evaluate<{ x: number; y: number } | null>(`(() => {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return null;
+      el.scrollIntoView({ block: 'center', inline: 'center' });
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return null;
+      return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+    })()`);
+    if (!center) throw new UiActionExecutionError(`${failurePrefix}: ${descriptor}`);
+    if (this.session.clickAt) {
+      await this.session.clickAt(center.x, center.y);
+      return;
+    }
     const clicked = await this.session.evaluate<boolean>(`(() => {
       const el = document.querySelector(${JSON.stringify(selector)});
       if (!el) return false;
       el.click();
       return true;
     })()`);
-    if (!clicked) throw new UiActionExecutionError(`Final-action target disappeared before click: ${target.descriptor}`);
+    if (!clicked) throw new UiActionExecutionError(`${failurePrefix}: ${descriptor}`);
+  }
+
+  async clickIrreversible(locators: readonly UiLocator[], timeoutMs = 10_000): Promise<string> {
+    const target = await this.locate(locators, timeoutMs, true);
+    await this.dispatchClick(target.token, target.descriptor, "Final-action target disappeared before click");
     return target.descriptor;
   }
 
@@ -138,14 +165,7 @@ export class BrowserDomUiDriver {
         if (!(error instanceof UiTargetNotFoundError)) throw error;
       }
     }
-    const selector = `[data-flerdvision-node=${JSON.stringify(target.token)}]`;
-    const clicked = await this.session.evaluate<boolean>(`(() => {
-      const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return false;
-      el.click();
-      return true;
-    })()`);
-    if (!clicked) throw new UiActionExecutionError(`Target disappeared before click: ${target.descriptor}`);
+    await this.dispatchClick(target.token, target.descriptor, "Target disappeared before click");
     return target.descriptor;
   }
 

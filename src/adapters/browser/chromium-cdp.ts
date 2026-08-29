@@ -215,6 +215,12 @@ export class ChromiumCdpRuntimeAdapter implements BrowserRuntimePort {
           if (!remote) throw new Error("Browser evaluation returned no result");
           return remote.value as T;
         },
+        async clickAt(x: number, y: number): Promise<void> {
+          const base = { x: Math.round(x), y: Math.round(y), button: "left", clickCount: 1, pointerType: "mouse" };
+          await page.send("Input.dispatchMouseEvent", { ...base, type: "mouseMoved", button: "none", clickCount: 0 });
+          await page.send("Input.dispatchMouseEvent", { ...base, type: "mousePressed" });
+          await page.send("Input.dispatchMouseEvent", { ...base, type: "mouseReleased" });
+        },
         async setInputFiles(selector: string, filePaths: readonly string[]): Promise<void> {
           if (filePaths.length === 0) throw new Error("setInputFiles requires at least one file");
           const documentResult = await page.send("DOM.getDocument", { depth: 1, pierce: true });

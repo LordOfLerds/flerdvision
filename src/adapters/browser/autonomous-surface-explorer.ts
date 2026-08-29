@@ -63,7 +63,12 @@ function text(names: readonly string[]): UiLocator[] { return names.map((value) 
 
 function openingSteps(profile: PostingProfile): AutonomousStep[] {
   if (profile.platform === "instagram") {
-    const formatNames = profile.format === "story" ? ["Story", "Stories"] : profile.format === "trial_reel" ? ["Reel", "Trial reel", "Test-Reel"] : ["Reel", "Reels", "Post", "Beitrag"];
+    // Evidence from the live create menu (see qualification screenshots): it offers exactly one
+    // entry, "Beitrag" -- Instagram merged the formats and a video post becomes a reel on its
+    // own; trial mode is a later dialog setting, not a menu entry. "Reel"/"Reels" must NOT be
+    // candidates here: "Reels" is the accessible name of the left-navigation feed item, so an
+    // exact text match clicked the feed, which closed the menu and navigated away from the flow.
+    const formatNames = profile.format === "story" ? ["Story", "Stories"] : ["Beitrag", "Post"];
     return [
       { stepKey: "OPEN_CREATE", label: "Open create flow", action: "CLICK", required: true, locators: [...named("button", ["Create", "Erstellen", "New post", "Neuer Beitrag"]), ...named("link", ["Create", "Erstellen"]), ...text(["Create", "Erstellen"]), ...namedContains("link", ["Erstellen", "Create"]), ...namedContains("button", ["Erstellen", "Create"])] },
       { stepKey: profile.format === "story" ? "SELECT_STORY" : "SELECT_REEL", label: `Select ${profile.format}`, action: "CLICK", required: false, locators: [...named("button", formatNames), ...named("menuitem", formatNames), ...text(formatNames), ...namedContains("button", formatNames), ...namedContains("menuitem", formatNames)] }

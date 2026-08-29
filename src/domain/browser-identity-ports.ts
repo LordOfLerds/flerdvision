@@ -35,6 +35,14 @@ export interface BrowserPageSessionPort {
   navigate(url: string): Promise<void>;
   currentUrl(): Promise<string>;
   evaluate<T>(expression: string): Promise<T>;
+  /**
+   * Dispatch a trusted mouse click at viewport coordinates via the browser's input pipeline.
+   * Optional: test fakes may omit it, in which case callers fall back to an in-page click().
+   * Real platforms need it -- Instagram ignores synthetic events (isTrusted === false) entirely,
+   * including a full pointerdown/mousedown/click sequence, so an in-page click can "succeed"
+   * while the application does nothing.
+   */
+  clickAt?(x: number, y: number): Promise<void>;
   setInputFiles(selector: string, filePaths: readonly string[]): Promise<void>;
   captureScreenshot(filePath: string): Promise<void>;
   setCookie(url: string, name: string, value: string, expires?: number): Promise<void>;
