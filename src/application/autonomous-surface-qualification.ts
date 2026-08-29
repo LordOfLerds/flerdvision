@@ -207,7 +207,11 @@ export class AutonomousRouteQualifier {
       try {
         session = await this.runtime.launch(ctx.identity, { headless: this.options.headless ?? false, initialUrl: "about:blank" });
         const health = await new BrowserSessionHealthService(this.control, new ConfiguredDomSessionProbe(probeEntry.config)).check(ctx.identity.identityId, session, at, { type: "operator", id: ownerId });
-        if (health.state !== "HEALTHY") throw new Error(`Session is not healthy: ${health.state}`);
+        if (health.state !== "HEALTHY") {
+          // The probe records WHY (its note and the URL it saw); discarding that turned every
+          // diagnosis into a guessing game during the real acceptance.
+          throw new Error(`Session is not healthy: ${health.state}${health.note ? ` · ${health.note}` : ""}${health.currentUrl ? ` · at ${health.currentUrl}` : ""}`);
+        }
         const proven = new AccountIdentityGuard(this.control).assertReady(ctx.identity.identityId);
         const identityArtifacts = await artifactSink.captureBoundary(session, ctx.intent, ctx.identity, "qualification-session-identity", at);
         this.record(routeId, "SESSION", isoAt(at, 1), `Persistent session is HEALTHY for ${ctx.identity.identityId}`, identityArtifacts);
@@ -235,7 +239,7 @@ export class AutonomousRouteQualifier {
         try {
           replaySession = await this.runtime.launch(ctx.identity, { headless: this.options.headless ?? false, initialUrl: "about:blank" });
           const health = await new BrowserSessionHealthService(this.control, new ConfiguredDomSessionProbe(probeEntry.config)).check(ctx.identity.identityId, replaySession, replayAt, { type: "worker", id: owner });
-          if (health.state !== "HEALTHY") throw new Error(`Replay session is not healthy: ${health.state}`);
+          if (health.state !== "HEALTHY") throw new Error(`Replay session is not healthy: ${health.state}${health.note ? ` · ${health.note}` : ""}${health.currentUrl ? ` · at ${health.currentUrl}` : ""}`);
           new AccountIdentityGuard(this.control).assertReady(ctx.identity.identityId);
           let tick = 0;
           const execution = await new SafePlatformExecutionRunner(replaySession, boundArtifacts, () => isoAt(replayAt, tick++)).execute(

@@ -98,6 +98,19 @@ function titleLocators(): readonly UiLocator[] {
   return unique([...named("textbox", ["Title", "Titel"]), { kind: "label", value: "Title", exact: false }, { kind: "label", value: "Titel", exact: false }, { kind: "css", value: "#textbox[contenteditable=\"true\"]" }]);
 }
 function nextLocators(): readonly UiLocator[] { return unique([...named("button", ["Next", "Weiter", "Continue", "Fortfahren"]), ...text(["Next", "Weiter", "Continue", "Fortfahren"])]); }
+/**
+ * One-shot informational overlays Instagram lays over the create flow ("Videobeiträge sind jetzt
+ * Reels" after the first upload of a fresh profile). They absorb trusted clicks aimed at the
+ * dialog underneath, so a NEXT click reports success while the flow never advances.
+ *
+ * Dismissal is deliberately narrow. Only a [role=dialog] qualifies, only when it carries a
+ * confirm button whose exact accessible name is in the allowlist, and never when the dialog
+ * contains flow or publish vocabulary, a file input, or a text field -- that excludes the create
+ * dialog itself and anything resembling a final action.
+ */
+export const BENIGN_OVERLAY_CONFIRM_LABELS = ["OK", "Verstanden", "Got it", "Jetzt nicht", "Not now"] as const;
+export const OVERLAY_DISMISS_FORBIDDEN_WORDS = ["Weiter", "Next", "Continue", "Fortfahren", "Teilen", "Share", "Post", "Posten", "Publish", "Veröffentlichen"] as const;
+
 function finalLocators(profile: PostingProfile): readonly UiLocator[] {
   if (profile.platform === "instagram") return unique([...named("button", ["Share", "Teilen", "Publish", "Veröffentlichen"]), ...text(["Share", "Teilen"])]);
   if (profile.platform === "tiktok") return unique([...named("button", ["Post", "Posten", "Publish", "Veröffentlichen"]), ...text(["Post", "Posten"])]);
@@ -155,6 +168,37 @@ export class AutonomousSurfaceExplorer {
     };
     const proposed = await this.agent.propose(request);
     return unique([...(proposed?.locators ?? []), ...builtIn]);
+  }
+
+  /** Returns true when a benign overlay was dismissed with a trusted click. */
+  private async dismissBenignOverlay(journal: AutonomousSurfaceJournalEntry[]): Promise<boolean> {
+    const allow = JSON.stringify(BENIGN_OVERLAY_CONFIRM_LABELS);
+    const forbid = JSON.stringify(OVERLAY_DISMISS_FORBIDDEN_WORDS.map((word) => word.toLocaleLowerCase("en-US")));
+    const marker = `flerdvision-overlay-${Date.now().toString(36)}`;
+    const center = await this.session.evaluate<{ x: number; y: number; title: string } | null>(`(() => {
+      const allow = new Set(${allow});
+      const forbid = ${forbid};
+      const normalize = (value) => (value || "").replace(/\s+/g, " ").trim();
+      for (const dialog of document.querySelectorAll('[role="dialog"]')) {
+        const text = normalize(dialog.textContent).toLocaleLowerCase("en-US");
+        if (forbid.some((word) => text.includes(word.toLocaleLowerCase("en-US")))) continue;
+        if (dialog.querySelector('input[type="file"], textarea, [contenteditable="true"]')) continue;
+        const buttons = [...dialog.querySelectorAll('button, [role="button"]')];
+        const confirm = buttons.find((el) => allow.has(normalize(el.getAttribute("aria-label") || el.textContent)));
+        if (!confirm) continue;
+        confirm.setAttribute("data-flerdvision-overlay", ${JSON.stringify("m")});
+        confirm.scrollIntoView({ block: "center", inline: "center" });
+        const rect = confirm.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) continue;
+        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, title: normalize(dialog.textContent).slice(0, 80) };
+      }
+      return null;
+    })()`);
+    if (!center) return false;
+    if (this.session.clickAt) await this.session.clickAt(center.x, center.y);
+    else await this.session.evaluate(`(() => { const el = document.querySelector('[data-flerdvision-overlay]'); if (el) el.click(); })()`);
+    journal.push({ at: this.now(), stepKey: "DISMISS_OVERLAY", action: "CLICK", outcome: "PASS", detail: `Dismissed benign overlay: ${center.title}` });
+    return true;
   }
 
   private async executeStep(step: AutonomousStep, intent: PublicationIntent, input: { mediaPath: string; caption?: string; title?: string }, artifactRefs: string[], journal: AutonomousSurfaceJournalEntry[]): Promise<{ locator: UiLocator; fallbacks: readonly UiLocator[] } | null> {
@@ -222,9 +266,12 @@ export class AutonomousSurfaceExplorer {
     const fieldAction: AutonomousStep = input.postingProfile.platform === "youtube"
       ? { stepKey: "TITLE", label: "Title field", action: "FILL_TITLE", required: true, locators: titleLocators(), timeoutMs: 60_000 }
       : { stepKey: "CAPTION", label: "Caption field", action: "FILL_CAPTION", required: true, locators: captionLocators(), timeoutMs: 60_000 };
+    // The first upload on a fresh profile summons the one-shot info overlay right here.
+    await this.dismissBenignOverlay(journal);
     let fieldLocators = await this.locatorsFor(fieldAction, input.intent);
     let fieldSelected = await this.workingLocator(fieldLocators, true, 2500);
     for (let nextIndex = 1; !fieldSelected && nextIndex <= 3; nextIndex += 1) {
+      await this.dismissBenignOverlay(journal);
       const next: AutonomousStep = { stepKey: `NEXT_${nextIndex}`, label: `Continue ${nextIndex}`, action: "CLICK", required: true, locators: nextLocators(), timeoutMs: 45_000 };
       const result = await this.executeStep(next, input.intent, input, artifactRefs, journal);
       if (!result) throw new Error(`Could not continue platform flow at ${next.stepKey}`);
