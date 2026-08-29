@@ -47,14 +47,26 @@ function unique(locators: readonly UiLocator[]): readonly UiLocator[] {
 function named(role: string, names: readonly string[]): UiLocator[] {
   return names.map((value) => ({ kind: "role" as const, role, value, exact: true }));
 }
+/**
+ * Substring fallbacks, always appended after the exact candidates so precision is still tried
+ * first.
+ *
+ * A control's accessible name is not always the label a human reads. Instagram renders its create
+ * control as a single link holding two text nodes, so textContent concatenates to
+ * "Neuer BeitragErstellen" and every exact match against "Erstellen" or "Neuer Beitrag" fails on
+ * a perfectly ordinary page.
+ */
+function namedContains(role: string, names: readonly string[]): UiLocator[] {
+  return names.map((value) => ({ kind: "role" as const, role, value, exact: false }));
+}
 function text(names: readonly string[]): UiLocator[] { return names.map((value) => ({ kind: "text" as const, value, exact: true })); }
 
 function openingSteps(profile: PostingProfile): AutonomousStep[] {
   if (profile.platform === "instagram") {
     const formatNames = profile.format === "story" ? ["Story", "Stories"] : profile.format === "trial_reel" ? ["Reel", "Trial reel", "Test-Reel"] : ["Reel", "Reels", "Post", "Beitrag"];
     return [
-      { stepKey: "OPEN_CREATE", label: "Open create flow", action: "CLICK", required: true, locators: [...named("button", ["Create", "Erstellen", "New post", "Neuer Beitrag"]), ...named("link", ["Create", "Erstellen"]), ...text(["Create", "Erstellen"])] },
-      { stepKey: profile.format === "story" ? "SELECT_STORY" : "SELECT_REEL", label: `Select ${profile.format}`, action: "CLICK", required: false, locators: [...named("button", formatNames), ...named("menuitem", formatNames), ...text(formatNames)] }
+      { stepKey: "OPEN_CREATE", label: "Open create flow", action: "CLICK", required: true, locators: [...named("button", ["Create", "Erstellen", "New post", "Neuer Beitrag"]), ...named("link", ["Create", "Erstellen"]), ...text(["Create", "Erstellen"]), ...namedContains("link", ["Erstellen", "Create"]), ...namedContains("button", ["Erstellen", "Create"])] },
+      { stepKey: profile.format === "story" ? "SELECT_STORY" : "SELECT_REEL", label: `Select ${profile.format}`, action: "CLICK", required: false, locators: [...named("button", formatNames), ...named("menuitem", formatNames), ...text(formatNames), ...namedContains("button", formatNames), ...namedContains("menuitem", formatNames)] }
     ];
   }
   if (profile.platform === "tiktok") {
