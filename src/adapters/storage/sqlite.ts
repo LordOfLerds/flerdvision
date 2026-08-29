@@ -3020,9 +3020,16 @@ export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressSt
       const existing = this.db.prepare("SELECT * FROM e2e_runs WHERE run_id = ?").get(run.runId) as E2ERunRow | undefined;
       if (existing) {
         const stored = e2eRunFromRow(existing);
-        const comparable = { ...stored, note: stored.note ?? undefined };
-        const candidate = { ...run, createdAt: asIso(run.createdAt), note: run.note ?? undefined };
-        if (JSON.stringify(comparable) !== JSON.stringify(candidate)) throw new E2ERunConflictError(`E2E run ${run.runId} conflicts with existing record`);
+        // Identity only: the run id is deterministic (intent + release), and resuming the same
+        // acceptance flow re-enters here with a fresh createdAt/note and a progressed status.
+        // Key-order-sensitive JSON.stringify over whole objects reported such content-identical
+        // re-entries as conflicts and aborted a live private E2E before the boundary.
+        const identity = (value: PrivateE2ERun) => JSON.stringify({
+          runId: value.runId, accountId: value.accountId, platform: value.platform,
+          releaseSha: value.releaseSha, testMediaOnly: value.testMediaOnly,
+          zeroViewerRequired: value.zeroViewerRequired
+        });
+        if (identity(stored) !== identity(run)) throw new E2ERunConflictError(`E2E run ${run.runId} conflicts with existing record`);
         return stored;
       }
       const createdAt = asIso(run.createdAt);
@@ -3068,11 +3075,19 @@ export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressSt
       const existing = this.db.prepare("SELECT * FROM e2e_gate_results WHERE gate_result_id = ?").get(result.gateResultId) as E2EGateRow | undefined;
       if (existing) {
         const stored = e2eGateFromRow(existing);
-        if (JSON.stringify(stored) !== JSON.stringify({ ...result, checkedAt: asIso(result.checkedAt) })) throw new E2EGateConflictError(`E2E gate ${result.gateResultId} conflicts`);
+        // Canonical comparison: the stored row and the caller literal build their keys in
+        // different orders, and an absent details is undefined on one side and null on the
+        // other -- plain JSON.stringify called identical re-records a conflict.
+        const canonical = (value: E2EGateResult) => JSON.stringify({
+          gateResultId: value.gateResultId, runId: value.runId, gate: value.gate, status: value.status,
+          checkedAt: asIso(value.checkedAt), checkedBy: value.checkedBy, summary: value.summary,
+          artifactRefs: [...value.artifactRefs], details: value.details ?? null
+        });
+        if (canonical(stored) !== canonical(result)) throw new E2EGateConflictError(`E2E gate ${result.gateResultId} conflicts`);
         return stored;
       }
       this.db.prepare(`INSERT INTO e2e_gate_results(gate_result_id,run_id,gate,status,checked_at,checked_by,summary,artifact_refs_json,details_json) VALUES(?,?,?,?,?,?,?,?,?)`).run(
-        result.gateResultId, result.runId, result.gate, result.status, asIso(result.checkedAt), result.checkedBy, result.summary, JSON.stringify(result.artifactRefs), JSON.stringify(result.details)
+        result.gateResultId, result.runId, result.gate, result.status, asIso(result.checkedAt), result.checkedBy, result.summary, JSON.stringify(result.artifactRefs), JSON.stringify(result.details ?? null)
       );
       this.appendEvent({ aggregateType: "e2e_gate", aggregateId: result.gateResultId, eventType: `e2e_gate.${result.gate.toLowerCase()}.${result.status.toLowerCase()}`, occurredAt: result.checkedAt, actor, payload: { runId: result.runId, summary: result.summary } });
       return e2eGateFromRow(this.db.prepare("SELECT * FROM e2e_gate_results WHERE gate_result_id = ?").get(result.gateResultId) as E2EGateRow);
@@ -3095,7 +3110,13 @@ export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressSt
       const existing = this.db.prepare("SELECT * FROM e2e_publish_permits WHERE permit_id = ?").get(permit.permitId) as E2EPermitRow | undefined;
       if (existing) {
         const stored = e2ePermitFromRow(existing);
-        if (JSON.stringify(stored) !== JSON.stringify({ ...permit, issuedAt: asIso(permit.issuedAt), expiresAt: asIso(permit.expiresAt) })) throw new E2EPermitConflictError(`E2E permit ${permit.permitId} conflicts`);
+        const canonical = (value: E2EPublishPermit) => JSON.stringify({
+          permitId: value.permitId, runId: value.runId, intentId: value.intentId,
+          accountId: value.accountId, releaseSha: value.releaseSha,
+          issuedAt: asIso(value.issuedAt), expiresAt: asIso(value.expiresAt),
+          issuedBy: value.issuedBy, tokenHash: value.tokenHash
+        });
+        if (canonical(stored) !== canonical(permit)) throw new E2EPermitConflictError(`E2E permit ${permit.permitId} conflicts`);
         return stored;
       }
       this.db.prepare(`INSERT INTO e2e_publish_permits(permit_id,run_id,intent_id,account_id,release_sha,issued_at,expires_at,issued_by,token_hash) VALUES(?,?,?,?,?,?,?,?,?)`).run(
