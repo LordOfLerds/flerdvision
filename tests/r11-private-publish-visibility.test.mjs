@@ -39,3 +39,25 @@ test("the gate sits before anything irreversible is reachable", () => {
   const invoke = source.indexOf("invokeFinal");
   assert.ok(gate > 0 && gate < start && start < invoke, "visibility must be judged before the run even starts");
 });
+
+// --- the same rule at the shared choke point, closing CLI/HTTP bypasses ---
+
+const commands = readFileSync(new URL("../src/adapters/runtime/workspace-private-e2e.ts", import.meta.url).pathname, "utf8");
+
+test("the choke point every entry path shares enforces zero-viewer visibility", () => {
+  // headless demo, CLI and the legacy HTTP surface all start runs through
+  // WorkspacePrivateE2ECommands.start; a gate only in the demo would leave two open doors.
+  assert.match(commands, /assertZeroViewerVisibility/);
+  assert.match(commands, /this\.assertZeroViewerVisibility\(intentId\)/);
+  const startIdx = commands.indexOf("start(intentId:string");
+  const checkIdx = commands.indexOf("this.assertZeroViewerVisibility(intentId)");
+  const runStart = commands.indexOf("this.runService.start", startIdx);
+  assert.ok(checkIdx > startIdx && checkIdx < runStart, "the check must run before the run record exists");
+});
+
+test("the choke point judges the compiled posting profile, not the spec", () => {
+  assert.match(commands, /postingProfiles\.find/);
+  assert.match(commands, /"only_you"/);
+  assert.match(commands, /"private"/);
+  assert.match(commands, /A default visibility would publish publicly/);
+});

@@ -13,6 +13,7 @@ import { NodeHostPreflightAdapter } from "../e2e/host-preflight.js";
 import { resolveChromiumExecutablePath } from "../browser/resolve-chromium.js";
 import { resolveFfprobeExecutablePath } from "../media/resolve-ffprobe.js";
 import { SqliteDistributionProvenanceStore } from "../distribution/sqlite-provenance.js";
+import { JsonDistributionConfigurationStore } from "../distribution/json-config-store.js";
 import { SqlitePlatformSurfaceStore } from "../distribution/sqlite-surface-store.js";
 import { SqliteRouteTestEvidenceStore } from "../distribution/sqlite-route-test-evidence.js";
 import { SqliteControlPlaneStore } from "../storage/sqlite.js";
@@ -26,6 +27,7 @@ export interface WorkspacePrivateE2EOptions {runtimeRoot:string;workspaceId:stri
 /** Long-lived command workflow. Technical gates are derived from durable host/session/surface evidence; only privacy + cleanup are human attestations. */
 export class WorkspacePrivateE2ECommands implements PrivateE2ECommandPort {
   private readonly layout:ReturnType<typeof workspaceRuntimeLayout>;
+  private readonly config:JsonDistributionConfigurationStore;
   private readonly store:SqliteControlPlaneStore;
   private readonly provenance:SqliteDistributionProvenanceStore;
   private readonly surfaces:SqlitePlatformSurfaceStore;
@@ -40,7 +42,7 @@ export class WorkspacePrivateE2ECommands implements PrivateE2ECommandPort {
   constructor(private readonly options:WorkspacePrivateE2EOptions){
     if(!options.releaseSha.trim())throw new Error("Private E2E requires exact releaseSha");this.operatorId=options.operatorId??"private-e2e";this.layout=workspaceRuntimeLayout(resolve(options.runtimeRoot),options.workspaceId);
     const env=options.env??process.env,chromiumExecutablePath=options.chromiumExecutablePath??env.CHROMIUM_EXECUTABLE_PATH??resolveChromiumExecutablePath();
-    this.store=new SqliteControlPlaneStore(this.layout.databasePath);this.provenance=new SqliteDistributionProvenanceStore(this.layout.databasePath);this.surfaces=new SqlitePlatformSurfaceStore(this.layout.databasePath);this.routeEvidence=new SqliteRouteTestEvidenceStore(this.layout.databasePath);this.bridge=new RouteE2EGateBridge(this.routeEvidence);this.runService=new PrivateE2ERunService(this.store);this.permitService=new E2EPublishPermitService(this.store);
+    this.config=new JsonDistributionConfigurationStore(resolve(this.layout.configDir,"distribution.json"));this.store=new SqliteControlPlaneStore(this.layout.databasePath);this.provenance=new SqliteDistributionProvenanceStore(this.layout.databasePath);this.surfaces=new SqlitePlatformSurfaceStore(this.layout.databasePath);this.routeEvidence=new SqliteRouteTestEvidenceStore(this.layout.databasePath);this.bridge=new RouteE2EGateBridge(this.routeEvidence);this.runService=new PrivateE2ERunService(this.store);this.permitService=new E2EPublishPermitService(this.store);
     this.publisher=new WorkspaceSurfacePublisher({runtimeRoot:options.runtimeRoot,workspaceId:options.workspaceId,releaseSha:options.releaseSha,env,chromiumExecutablePath,ownerId:`${options.workspaceId}:private-e2e`,headless:true});
     this.finalController=new PrivateE2EFinalActionController(this.store,this.store,this.publisher.finalAction,this.permitService,()=>new Date().toISOString(),new KillSwitchGate(this.store));
     this.preflight=new NodeHostPreflightAdapter({chromiumExecutablePath,ffprobeExecutablePath:env.FFPROBE_EXECUTABLE_PATH??resolveFfprobeExecutablePath(),runtimeDir:this.layout.workspaceRoot,profilesDir:this.layout.profilesDir,evidenceDir:this.layout.evidenceDir,expectedTimezone:env.TZ??"Europe/Vienna"});
@@ -56,7 +58,24 @@ export class WorkspacePrivateE2ECommands implements PrivateE2ECommandPort {
   }
   candidates():readonly PrivateE2EIntentCandidate[]{return this.store.listIntents(["SCHEDULED"]).filter(record=>this.options.allowedAccountIds.has(record.intent.accountId)).flatMap(record=>{const envelope=this.provenance.getIntent(record.intent.intentId)?.envelope;if(!envelope)return[];const surface=this.surfaces.latestContract(record.intent.accountId,envelope.provenance.postingProfileId);return[{intent:record.intent,routeId:envelope.provenance.routeId,...(surface?{surfaceContractId:surface.contract.contractId}:{}),state:record.state}];});}
   runs():readonly PrivateE2ERunView[]{return this.store.listE2ERuns().filter(run=>run.releaseSha===this.options.releaseSha&&this.options.allowedAccountIds.has(run.accountId)).map(run=>{let intent;try{intent=this.store.getIntent(intentIdFromRun(run.runId,this.options.releaseSha))?.intent;}catch{}const attempt=intent?this.store.listPublishAttempts(intent.intentId).at(-1):undefined;const provenance=intent?this.provenance.getIntent(intent.intentId)?.envelope.provenance:undefined,surface=intent&&provenance?this.surfaces.latestContract(intent.accountId,provenance.postingProfileId):null;return{run,gates:this.store.listE2EGateResults(run.runId),...(intent?{intent}:{}),...(attempt?{attempt}:{}),...(provenance?{routeId:provenance.routeId}:{}),...(surface?{surfaceContractId:surface.contract.contractId}:{})};});}
-  start(intentId:string,note:string|undefined,now:string):PrivateE2ERun{const record=this.store.getIntent(intentId);if(!record||record.state!=="SCHEDULED")throw new Error(`Private E2E requires SCHEDULED intent ${intentId}`);this.assertAllowed(record.intent.accountId);this.route(intentId);return this.runService.start({runId:runIdFor(intentId,this.options.releaseSha),accountId:record.intent.accountId,platform:record.intent.platform,releaseSha:this.options.releaseSha,now,operatorId:this.operatorId,zeroViewerRequired:true,...(note?.trim()?{note:note.trim()}:{})},this.actor());}
+  /**
+   * Per-post visibility is part of the zero-viewer contract wherever the platform has it: an
+   * account can be private while a tiktok/youtube post left on its default (everyone/public)
+   * publishes publicly regardless. This is the single choke point every entry path shares --
+   * headless demo, CLI and the legacy HTTP surface all start runs here -- so the check cannot
+   * be bypassed by choosing a different front door. Instagram has no per-post visibility; its
+   * privacy is carried by the attested private account.
+   */
+  private assertZeroViewerVisibility(intentId:string):void{
+    const provenance=this.route(intentId);
+    const profile=this.config.load().config.postingProfiles.find((item: { postingProfileId: string })=>item.postingProfileId===provenance.postingProfileId);
+    if(!profile)throw new Error(`Posting profile ${provenance.postingProfileId} not found for intent ${intentId}`);
+    const required=profile.platform==="tiktok"?"only_you":profile.platform==="youtube"?"private":null;
+    if(required===null)return;
+    const visibility=(profile as {visibility?:string}).visibility;
+    if(visibility!==required)throw new Error(`Private E2E on ${profile.platform} requires posting-profile visibility "${required}"; found "${visibility??"unset"}". A default visibility would publish publicly.`);
+  }
+  start(intentId:string,note:string|undefined,now:string):PrivateE2ERun{const record=this.store.getIntent(intentId);if(!record||record.state!=="SCHEDULED")throw new Error(`Private E2E requires SCHEDULED intent ${intentId}`);this.assertAllowed(record.intent.accountId);this.route(intentId);this.assertZeroViewerVisibility(intentId);return this.runService.start({runId:runIdFor(intentId,this.options.releaseSha),accountId:record.intent.accountId,platform:record.intent.platform,releaseSha:this.options.releaseSha,now,operatorId:this.operatorId,zeroViewerRequired:true,...(note?.trim()?{note:note.trim()}:{})},this.actor());}
   async syncEvidence(runId:string,now:string):Promise<PrivateE2ERunView>{
     const {run,record}=this.intentForRun(runId),at=new Date(now).toISOString(),preflight=await this.preflight.check(at);this.recordGate(run,"HOST_PREFLIGHT",preflight.ready?"PASS":"FAIL",preflight.checkedAt,preflight.ready?"host preflight passed":"host preflight failed",[],{checks:preflight.checks});
     const identities=this.store.listBrowserIdentities().map(item=>item.identity).filter(item=>item.accountId===record.intent.accountId&&item.enabled),identity=identities.length===1?identities[0]:undefined,health=identity?this.store.latestSessionHealth(identity.identityId):null;
