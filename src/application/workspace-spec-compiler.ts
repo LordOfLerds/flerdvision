@@ -42,7 +42,8 @@ export function accountIdForChannel(channel: WorkspaceChannelSpec): string { ret
 export function identityIdForChannel(channel: WorkspaceChannelSpec): string { return `browser:${channel.platform}:${slug(channel.key)}`; }
 export function profileKeyForChannel(channel: WorkspaceChannelSpec): string { return `${channel.platform}/${slug(channel.key)}`; }
 
-function postingProfile(channel: WorkspaceChannelSpec, format: WorkspaceChannelFormatSpec): PostingProfile {
+/** Exported for tests: the pure per-format profile builder, free of store wiring. */
+export function postingProfile(channel: WorkspaceChannelSpec, format: WorkspaceChannelFormatSpec): PostingProfile {
   const postingProfileId = stable("posting-profile", `${channel.key}|${format.type}|${JSON.stringify(format.settings)}`);
   const base = { postingProfileId, displayName: `${channel.name} · ${format.type}`, enabled: true };
   if (channel.platform === "instagram") {
@@ -53,7 +54,8 @@ function postingProfile(channel: WorkspaceChannelSpec, format: WorkspaceChannelF
       format: format.type,
       commentsEnabled: format.settings.commentsEnabled ?? true,
       shareToFeed: format.settings.shareToFeed ?? format.type !== "story",
-      crosspostFacebook: format.settings.crosspostFacebook ?? false
+      crosspostFacebook: format.settings.crosspostFacebook ?? false,
+      explicitSettings: Object.keys(format.settings ?? {}),
     };
   }
   if (channel.platform === "tiktok") {
@@ -67,13 +69,14 @@ function postingProfile(channel: WorkspaceChannelSpec, format: WorkspaceChannelF
       visibility: visibility ?? "everyone",
       commentsEnabled: format.settings.commentsEnabled ?? true,
       duetEnabled: format.settings.duetEnabled ?? true,
-      stitchEnabled: format.settings.stitchEnabled ?? true
+      stitchEnabled: format.settings.stitchEnabled ?? true,
+      explicitSettings: Object.keys(format.settings ?? {})
     };
   }
   if (format.type !== "short") throw new Error(`Invalid YouTube format ${format.type}`);
   const visibility = format.settings.visibility;
   if (visibility && visibility !== "private" && visibility !== "unlisted" && visibility !== "public") throw new Error(`Invalid YouTube visibility ${visibility}`);
-  return { ...base, platform: "youtube", format: "short", visibility: visibility ?? "public", commentsEnabled: format.settings.commentsEnabled ?? true };
+  return { ...base, platform: "youtube", format: "short", visibility: visibility ?? "public", commentsEnabled: format.settings.commentsEnabled ?? true, explicitSettings: Object.keys(format.settings ?? {}) };
 }
 
 function payloadTemplate(channel: WorkspaceChannelSpec, format: WorkspaceChannelFormatSpec): { copy: CopyProfile; payload: Record<string, unknown> } {

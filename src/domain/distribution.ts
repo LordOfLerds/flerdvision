@@ -114,6 +114,14 @@ interface PostingProfileBase {
   postingProfileId: string;
   displayName: string;
   enabled: boolean;
+  /**
+   * Settings keys the operator wrote explicitly in the spec, as opposed to compiler defaults.
+   * The platform keeps removing choices from its compose surface (share-to-feed disappeared with
+   * the reel merge); a control that is absent there is tolerable only for a setting nobody
+   * actually demanded. Optional for backward compatibility: absent means unknown, which callers
+   * must treat as explicit.
+   */
+  explicitSettings?: readonly string[];
 }
 
 export interface InstagramPostingProfile extends PostingProfileBase {

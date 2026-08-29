@@ -129,7 +129,14 @@ export class AutonomousSurfaceSettings {
     forbidden: readonly UiLocator[];
     artifactRefs: string[];
     journal: AutonomousSurfaceJournalEntry[];
-  }): Promise<SurfaceContractStep> {
+    /**
+     * True when the operator never wrote this setting in the spec and the desired value is only
+     * a compiler default. The platform keeps removing choices from its compose surface; a control
+     * that is absent there may be tolerated for a defaulted setting, but an explicit operator
+     * demand for a control the surface cannot offer must keep failing.
+     */
+    optionalWhenAbsent?: boolean;
+  }): Promise<SurfaceContractStep | null> {
     let candidates = input.candidates;
     let selectedEntry: BooleanLocatorCandidate | undefined;
     for (const entry of candidates) if (await this.firstPresent([entry.locator], 220)) { selectedEntry = entry; break; }
@@ -144,7 +151,16 @@ export class AutonomousSurfaceSettings {
         for (const entry of candidates) if (await this.firstPresent([entry.locator], 350)) { selectedEntry = entry; break; }
       }
     }
-    if (!selectedEntry) throw new UiActionExecutionError(`Could not locate required setting ${input.stepKey}`);
+    if (!selectedEntry) {
+      // A missing setting used to fail without a trace of what the page actually offered, which
+      // made every such failure a guessing game. Capture the surface as it stood, then decide.
+      input.artifactRefs.push(...await this.artifacts.captureBoundary(this.session, input.intent, input.identity, `autonomous-setting-${input.stepKey.toLocaleLowerCase("en-US")}-missing`, this.now()));
+      if (input.optionalWhenAbsent) {
+        input.journal.push({ at: this.now(), stepKey: input.stepKey, action: "CLICK", outcome: "SKIPPED", detail: `Control absent on the surface; setting was not operator-demanded, platform default applies` });
+        return null;
+      }
+      throw new UiActionExecutionError(`Could not locate required setting ${input.stepKey}`);
+    }
     const requestedControlState = selectedEntry.polarity === "INVERTED" ? !input.desired : input.desired;
     const before = await this.readBoolean(selectedEntry.locator);
     if (before === null) throw new UiActionExecutionError(`Cannot prove boolean state for ${input.stepKey}`);
@@ -238,16 +254,19 @@ export class AutonomousSurfaceSettings {
       if (entry?.locator) settings.push({ stepKey: "ADVANCED_SETTINGS", label: "Open advanced settings", actionMode: "OBSERVE_ACTION", locator: entry.locator, fallbackLocators: [], observations: 1 });
     };
 
+    // Absent explicitSettings (older compiled configs) means unknown, treated as explicit.
+    const explicit = (key: string): boolean => input.postingProfile.explicitSettings === undefined || input.postingProfile.explicitSettings.includes(key);
+    const push = (step: SurfaceContractStep | null) => { if (step) settings.push(step); };
     if (input.postingProfile.platform === "instagram" && input.postingProfile.format !== "story") {
-      if (input.postingProfile.format === "trial_reel") settings.push(await this.ensureBoolean({ intent: input.intent, identity: input.identity, stepKey: "TRIAL_MODE", label: "Trial Reel mode", desired: true, candidates: booleanCandidates(["Trial reel", "Trial", "Test-Reel", "Test reel"]), forbidden, artifactRefs, journal }));
-      settings.push(await this.ensureBoolean({ intent: input.intent, identity: input.identity, stepKey: "SHARE_TO_FEED", label: "Share to feed setting", desired: input.postingProfile.shareToFeed, candidates: booleanCandidates(["Also share to feed", "Share to feed", "Im Feed teilen", "Auch im Feed teilen"]), forbidden, artifactRefs, journal }));
-      settings.push(await this.ensureBoolean({ intent: input.intent, identity: input.identity, stepKey: "CROSSPOST_FACEBOOK", label: "Facebook cross-post setting", desired: input.postingProfile.crosspostFacebook, candidates: booleanCandidates(["Share to Facebook", "Recommend on Facebook", "Auf Facebook teilen", "Auf Facebook empfehlen"]), forbidden, artifactRefs, journal }));
-      settings.push(await this.ensureBoolean({ intent: input.intent, identity: input.identity, stepKey: "COMMENTS", label: "Comments setting", desired: input.postingProfile.commentsEnabled, candidates: booleanCandidates(["Allow comments", "Kommentare erlauben"], ["Turn off commenting", "Disable comments", "Kommentare deaktivieren"]), forbidden, artifactRefs, journal }));
+      if (input.postingProfile.format === "trial_reel") push(await this.ensureBoolean({ intent: input.intent, identity: input.identity, stepKey: "TRIAL_MODE", label: "Trial Reel mode", desired: true, candidates: booleanCandidates(["Trial reel", "Trial", "Test-Reel", "Test reel"]), forbidden, artifactRefs, journal }));
+      push(await this.ensureBoolean({ intent: input.intent, identity: input.identity, stepKey: "SHARE_TO_FEED", label: "Share to feed setting", desired: input.postingProfile.shareToFeed, candidates: booleanCandidates(["Also share to feed", "Share to feed", "Im Feed teilen", "Auch im Feed teilen"]), forbidden, artifactRefs, journal , optionalWhenAbsent: !explicit("shareToFeed") }));
+      push(await this.ensureBoolean({ intent: input.intent, identity: input.identity, stepKey: "CROSSPOST_FACEBOOK", label: "Facebook cross-post setting", desired: input.postingProfile.crosspostFacebook, candidates: booleanCandidates(["Share to Facebook", "Recommend on Facebook", "Auf Facebook teilen", "Auf Facebook empfehlen"]), forbidden, artifactRefs, journal , optionalWhenAbsent: !explicit("crosspostFacebook") }));
+      push(await this.ensureBoolean({ intent: input.intent, identity: input.identity, stepKey: "COMMENTS", label: "Comments setting", desired: input.postingProfile.commentsEnabled, candidates: booleanCandidates(["Allow comments", "Kommentare erlauben"], ["Turn off commenting", "Disable comments", "Kommentare deaktivieren"]), forbidden, artifactRefs, journal , optionalWhenAbsent: !explicit("commentsEnabled") }));
     } else if (input.postingProfile.platform === "tiktok") {
       settings.push(await this.ensureVisibility({ intent: input.intent, identity: input.identity, expected: input.postingProfile.visibility, forbidden, artifactRefs, journal }));
-      settings.push(await this.ensureBoolean({ intent: input.intent, identity: input.identity, stepKey: "COMMENTS", label: "Comments setting", desired: input.postingProfile.commentsEnabled, candidates: booleanCandidates(["Allow comments", "Comments", "Kommentare erlauben", "Kommentare"]), forbidden, artifactRefs, journal }));
-      settings.push(await this.ensureBoolean({ intent: input.intent, identity: input.identity, stepKey: "DUET", label: "Duet setting", desired: input.postingProfile.duetEnabled, candidates: booleanCandidates(["Allow Duet", "Duet", "Duett erlauben", "Duett"]), forbidden, artifactRefs, journal }));
-      settings.push(await this.ensureBoolean({ intent: input.intent, identity: input.identity, stepKey: "STITCH", label: "Stitch setting", desired: input.postingProfile.stitchEnabled, candidates: booleanCandidates(["Allow Stitch", "Stitch", "Stitch erlauben"]), forbidden, artifactRefs, journal }));
+      push(await this.ensureBoolean({ intent: input.intent, identity: input.identity, stepKey: "COMMENTS", label: "Comments setting", desired: input.postingProfile.commentsEnabled, candidates: booleanCandidates(["Allow comments", "Comments", "Kommentare erlauben", "Kommentare"]), forbidden, artifactRefs, journal , optionalWhenAbsent: !explicit("commentsEnabled") }));
+      push(await this.ensureBoolean({ intent: input.intent, identity: input.identity, stepKey: "DUET", label: "Duet setting", desired: input.postingProfile.duetEnabled, candidates: booleanCandidates(["Allow Duet", "Duet", "Duett erlauben", "Duett"]), forbidden, artifactRefs, journal , optionalWhenAbsent: !explicit("duetEnabled") }));
+      push(await this.ensureBoolean({ intent: input.intent, identity: input.identity, stepKey: "STITCH", label: "Stitch setting", desired: input.postingProfile.stitchEnabled, candidates: booleanCandidates(["Allow Stitch", "Stitch", "Stitch erlauben"]), forbidden, artifactRefs, journal , optionalWhenAbsent: !explicit("stitchEnabled") }));
     } else if (input.postingProfile.platform === "youtube") {
       settings.push(await this.ensureVisibility({ intent: input.intent, identity: input.identity, expected: input.postingProfile.visibility, forbidden, artifactRefs, journal }));
     }
