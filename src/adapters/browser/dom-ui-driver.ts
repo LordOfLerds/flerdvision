@@ -71,14 +71,33 @@ function locatorExpression(locators: readonly UiLocator[], token: string, visibl
       }
       return all.filter((el) => textMatches(accessibleName(el), locator.value, locator.exact));
     };
+    // Style visibility alone is a lie on this platform: it renders stacked accessibility twins
+    // of its controls, and the first style-visible match can sit UNDER the strip that actually
+    // receives clicks. Among visible candidates, the one that wins the hit-test at its own
+    // center is the control a person would press; the first style-visible one remains a fallback
+    // for targets that legitimately fail hit-testing at rest.
+    const hitTestable = (el) => {
+      const rect = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+      return hit !== null && (el === hit || el.contains(hit) || hit.contains(el));
+    };
     for (let i = 0; i < locators.length; i++) {
       const locator = locators[i];
       const candidates = candidatesFor(locator);
-      for (const el of candidates) {
-        if (${visibleOnly ? "true" : "false"} && !isVisible(el)) continue;
+      const pick = (el, kind) => {
         const nodeToken = el.getAttribute('data-flerdvision-node') || token;
         el.setAttribute('data-flerdvision-node', nodeToken);
-        return { token: nodeToken, descriptor: locator.kind + ':' + locator.value };
+        return { token: nodeToken, descriptor: kind + ':' + locator.value };
+      };
+      if (${visibleOnly ? "true" : "false"}) {
+        const visible = candidates.filter((el) => isVisible(el));
+        const winner = visible.find((el) => hitTestable(el));
+        if (winner) return pick(winner, locator.kind);
+        if (visible.length > 0) return pick(visible[0], locator.kind);
+        continue;
+      }
+      for (const el of candidates) {
+        return pick(el, locator.kind);
       }
     }
     return null;
@@ -164,7 +183,7 @@ export class BrowserDomUiDriver {
         const related = hit !== null && (el === hit || el.contains(hit) || hit.contains(el));
         const describe = (node) => node === null ? 'nothing' : node.tagName.toLowerCase() +
           (node.getAttribute('role') ? '[role=' + node.getAttribute('role') + ']' : '') +
-          ' "' + ((node.getAttribute('aria-label') || node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40)) + '"';
+          ' "' + ((node.getAttribute('aria-label') || node.textContent || '').split(String.fromCharCode(10)).join(' ').trim().slice(0, 40)) + '"';
         return { x, y, occludedBy: related ? null : describe(hit), moved };
       })()`);
       if (!probe) throw new UiActionExecutionError(`${failurePrefix}: ${descriptor}`);

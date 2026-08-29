@@ -42,3 +42,16 @@ test("both click paths still route through the guarded dispatch", () => {
   assert.match(source.slice(irreversible, irreversible + 400), /dispatchClick/);
   assert.match(source.slice(plain, plain + 700), /dispatchClick/);
 });
+
+test("candidate selection prefers the element that wins the hit-test", () => {
+  // Instagram renders stacked accessibility twins; the first style-visible match can sit under
+  // the strip that actually receives clicks. Run 10 refused exactly that: the located Weiter was
+  // occluded by the header strip containing the real control.
+  assert.match(source, /const hitTestable = \(el\)/);
+  assert.match(source, /visible\.find\(\(el\) => hitTestable\(el\)\)/);
+});
+
+test("hit-test preference keeps a style-visible fallback and never applies to hidden targets", () => {
+  // SET_FILE targets are legitimately invisible; the preference is scoped to visibleOnly.
+  assert.match(source, /if \(visible\.length > 0\) return pick\(visible\[0\]/);
+});
