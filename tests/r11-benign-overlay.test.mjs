@@ -37,7 +37,12 @@ test("dismissal only ever targets a role=dialog and skips dialogs with inputs", 
   assert.match(source, /input\[type="file"\], textarea, \[contenteditable="true"\]/);
 });
 
-test("dismissal runs after upload and inside the continue loop", () => {
+test("dismissal runs before the opening steps, after upload, and inside the continue loop", () => {
+  // A fresh account shows enable-notifications over the create control before any click; the
+  // post-upload dismissal cannot reach that.
+  const openingIndex = source.indexOf("for (const step of openingSteps(");
+  const beforeOpening = source.slice(openingIndex - 500, openingIndex);
+  assert.match(beforeOpening, /dismissBenignOverlay/);
   const uploadIndex = source.indexOf("The first upload on a fresh profile summons");
   const loopIndex = source.indexOf("for (let nextIndex = 1;");
   assert.ok(uploadIndex > 0 && uploadIndex < loopIndex, "a dismissal attempt must precede the field search");

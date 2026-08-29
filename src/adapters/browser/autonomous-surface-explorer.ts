@@ -251,6 +251,10 @@ export class AutonomousSurfaceExplorer {
     artifactRefs.push(...await this.artifacts.captureBoundary(this.session, input.intent, input.identity, "autonomous-bootstrap", this.now()));
     const environment = await this.recorder.environment(this.session);
 
+    // First-run dialogs (enable-notifications on a fresh account, and friends) sit over the
+    // create control before anything has been clicked at all. The post-upload dismissal cannot
+    // help there; the TikTok-readiness review flagged exactly this wiring gap.
+    await this.dismissBenignOverlay(journal);
     for (const step of openingSteps(input.postingProfile)) {
       const result = await this.executeStep(step, input.intent, input, artifactRefs, journal);
       if (result) steps.push({ stepKey: step.stepKey, label: step.label, actionMode: "OBSERVE_ACTION", locator: result.locator, fallbackLocators: result.fallbacks, observations: 1 });
