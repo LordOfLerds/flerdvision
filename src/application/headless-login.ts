@@ -27,15 +27,30 @@ function bootstrapUrl(channel: WorkspaceChannelSpec): string {
   if (channel.platform === "tiktok") return "https://www.tiktok.com/";
   return "https://studio.youtube.com/";
 }
+/**
+ * The page an identity probe must look at.
+ *
+ * Instagram is checked on the account-settings page rather than the feed. On the feed a link to
+ * /<handle>/ proves nothing about who is logged in -- a post by that account renders the same
+ * markup -- so the old selector leaned on a nav ancestor for self-scoping, and Instagram has
+ * since moved the profile link out of any nav or [role=navigation]. The settings page exists
+ * only for the authenticated account, so the page itself supplies the self-scoping. A logged-out
+ * or wrong-account visitor is redirected to the login URL and classified AUTH_REQUIRED.
+ */
+function identityUrl(channel: WorkspaceChannelSpec): string {
+  if (channel.platform === "instagram") return "https://www.instagram.com/accounts/edit/";
+  return bootstrapUrl(channel);
+}
 function identitySelector(channel: WorkspaceChannelSpec): string {
   const handle = channel.handle.replace(/["\\]/g, "");
-  if (channel.platform === "instagram") return `nav a[href="/${handle}/"], [role="navigation"] a[href="/${handle}/"], a[aria-label*="Profile"][href="/${handle}/"]`;
+  // Scoped by identityUrl above; a nav ancestor is no longer part of Instagram's markup.
+  if (channel.platform === "instagram") return `a[href="/${handle}/"]`;
   if (channel.platform === "tiktok") return `nav a[href*="/@${handle}"], a[data-e2e*="profile"][href*="/@${handle}"]`;
   return `a[href*="/@${handle}"], a[href*="/channel/"][aria-label*="${handle}"]`;
 }
 function probeConfig(channel: WorkspaceChannelSpec, navigate: boolean): ConfiguredDomSessionProbeConfig {
   return {
-    probeUrl: bootstrapUrl(channel),
+    probeUrl: identityUrl(channel),
     identitySelector: identitySelector(channel),
     identityAttribute: "href",
     authUrlIncludes: channel.platform === "instagram" ? ["/accounts/login"] : channel.platform === "tiktok" ? ["/login"] : ["accounts.google.com"],
@@ -92,7 +107,12 @@ export async function ensureHeadlessLogin(input: {
     const timeoutMs = input.timeoutMs ?? 15 * 60_000;
     while (Date.now() - started < timeoutMs) {
       const checkedAt = new Date().toISOString();
-      const check = await new BrowserSessionHealthService(control, new ConfiguredDomSessionProbe(probeConfig(channel, false))).check(
+      // Navigating while the operator is typing a password or a 2FA code would destroy their
+      // attempt, so the probe only takes the browser to the identity page once the login flow
+      // has visibly ended.
+      const currentUrl = await session.page.currentUrl().catch(() => "");
+      const inLoginFlow = currentUrl.includes("/accounts/login") || currentUrl.includes("/challenge/") || currentUrl.includes("/login") || currentUrl.includes("accounts.google.com");
+      const check = await new BrowserSessionHealthService(control, new ConfiguredDomSessionProbe(probeConfig(channel, !inLoginFlow))).check(
         identityId,
         session.page,
         checkedAt,
