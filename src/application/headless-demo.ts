@@ -173,6 +173,25 @@ export async function runHeadlessDemo(input: {
     if (!test.enabled || !test.accountPrivate || test.approvedFollowers !== 0 || !test.contactsSyncOff || !test.crossPostingOff) {
       throw new Error("Private publish requires privateTest.enabled, private account, zero followers, contacts sync off and cross-posting off in the canonical spec");
     }
+    // Account privacy protects an Instagram test, but on platforms with per-post visibility the
+    // post's own audience decides who sees it: a tiktok/youtube channel left on its default
+    // (everyone/public) would pass every attestation above and still publish publicly. The
+    // private test therefore demands the platform's zero-viewer visibility on every format of
+    // the selected channel before anything irreversible is reachable.
+    const ZERO_VIEWER_VISIBILITY: Readonly<Record<string, string>> = { tiktok: "only_you", youtube: "private" };
+    for (const channel of selectedChannels) {
+      const required = ZERO_VIEWER_VISIBILITY[channel.platform];
+      if (!required) continue;
+      for (const format of channel.formats) {
+        const visibility = format.settings.visibility;
+        if (visibility !== required) {
+          throw new Error(
+            `Private publish on ${channel.platform} requires settings.visibility "${required}" on every format of ${channel.key}; ` +
+            `found "${visibility ?? "unset (platform default)"}" for format ${format.type}. A default visibility would publish publicly.`
+          );
+        }
+      }
+    }
     const allowedAccountId = accountIdForChannel(selectedChannels[0]!);
     const commands = new WorkspacePrivateE2ECommands({ runtimeRoot: bootstrap.runtimeRoot, workspaceId: bootstrap.spec.workspace.id, releaseSha: input.releaseSha, allowedAccountIds: new Set([allowedAccountId]), operatorId: "headless-demo", env });
     try {
