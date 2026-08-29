@@ -216,7 +216,23 @@ export class AutonomousSurfaceExplorer {
       return null;
     }
     const fallbacks = candidates.filter((locator) => locatorKey(locator) !== locatorKey(selected)).slice(0, 3);
-    if (step.action === "CLICK") await this.driver.click([selected], step.timeoutMs ?? 12_000, []);
+    if (step.action === "CLICK") {
+      try {
+        await this.driver.click([selected], step.timeoutMs ?? 12_000, []);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        // An optional step names a control some surface variants simply do not have: the
+        // compact-nav create button opens the dialog directly, so the format-picker step found
+        // only a stray namedContains match buried under the dialog. A target that stays occluded
+        // for the whole click deadline is the same statement as "not present" -- for an OPTIONAL
+        // step that means SKIPPED, with evidence. Required steps and every other error still
+        // escalate, and the next required step keeps the flow fail-closed if the click mattered.
+        if (step.required || !/^Refusing to click/.test(message)) throw error;
+        journal.push({ at: this.now(), stepKey: step.stepKey, action: step.action, outcome: "SKIPPED", locator: selected, detail: message });
+        artifactRefs.push(...await this.artifacts.captureBoundary(this.session, intent, { identityId: "surface-explorer", accountId: intent.accountId, platform: intent.platform, profileKey: "surface-explorer", expectedHandle: intent.accountId, enabled: true }, `autonomous-${step.stepKey.toLocaleLowerCase("en-US")}-occluded`, this.now()));
+        return null;
+      }
+    }
     else if (step.action === "SET_FILE") await this.driver.setFile([selected], input.mediaPath, step.timeoutMs ?? 60_000);
     else if (step.action === "FILL_CAPTION") {
       if (input.caption === undefined) throw new Error("Caption payload is missing");

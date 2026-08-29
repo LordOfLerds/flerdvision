@@ -60,3 +60,15 @@ test("format selection never targets the Reels feed navigation", () => {
   assert.doesNotMatch(line, /"Reel"/);
   assert.match(line, /"Beitrag"/);
 });
+
+test("an optional step whose only match stays occluded is skipped, not fatal", () => {
+  // lordoflerds run 2: the compact-nav "+" opens the create dialog directly; SELECT_REEL found a
+  // stray namedContains match under the dialog and the occlusion refusal ended the run. For an
+  // optional step, a persistently occluded target means "this variant has no such step".
+  const idx = source.indexOf('if (step.action === "CLICK") {');
+  assert.ok(idx > 0, "the click action must have a guarded branch");
+  const block = source.slice(idx, idx + 1600);
+  assert.match(block, /if \(step\.required \|\| !\/\^Refusing to click\/\.test\(message\)\) throw error;/);
+  assert.match(block, /outcome: "SKIPPED"/);
+  assert.match(block, /-occluded/);
+});
