@@ -222,6 +222,38 @@ export class BrowserDomUiDriver {
   async fill(locators: readonly UiLocator[], value: string, timeoutMs?: number): Promise<string> {
     const target = await this.locate(locators, timeoutMs ?? 10_000, true);
     const selector = `[data-flerdvision-node=${JSON.stringify(target.token)}]`;
+
+    const kind = await this.session.evaluate<{ editable: boolean; hasValue: boolean } | null>(`(() => {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return null;
+      return { editable: el.isContentEditable === true, hasValue: 'value' in el };
+    })()`);
+    if (!kind) throw new UiActionExecutionError(`Target cannot be filled: ${target.descriptor}`);
+
+    // A state-owning editor (Instagram's caption is a Lexical instance) ignores synthetic
+    // textContent writes for the same reason the platform ignores synthetic clicks: only input
+    // that flows through the browser's own pipeline updates its internal state. So editable
+    // targets are focused with a trusted click and typed via Input.insertText, and the write is
+    // proven by reading the text back -- a caption that only LOOKS set would otherwise surface
+    // as an empty caption on a real publication.
+    if (kind.editable && this.session.clickAt && this.session.insertText) {
+      await this.dispatchClick(target.token, target.descriptor, "Caption target disappeared before focus");
+      const focused = await this.session.evaluate<boolean>(`(() => {
+        const el = document.querySelector(${JSON.stringify(selector)});
+        return el !== null && (document.activeElement === el || el.contains(document.activeElement));
+      })()`);
+      if (!focused) throw new UiActionExecutionError(`Editable target did not take focus: ${target.descriptor}`);
+      await this.session.insertText(value);
+      const readback = await this.session.evaluate<string>(`(() => {
+        const el = document.querySelector(${JSON.stringify(selector)});
+        return el ? (el.textContent || '') : '';
+      })()`);
+      if (!readback.includes(value)) {
+        throw new UiActionExecutionError(`Editable target did not accept the text (readback mismatch): ${target.descriptor}`);
+      }
+      return target.descriptor;
+    }
+
     const changed = await this.session.evaluate<boolean>(`(() => {
       const el = document.querySelector(${JSON.stringify(selector)});
       if (!el) return false;

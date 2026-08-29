@@ -1,0 +1,45 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+// Run 11 reached the compose stage -- video left, caption right, Teilen visible -- and failed to
+// find the caption field. The live element is role=textbox, contenteditable, aria-label
+// "Bildunterschrift verfassen …" (U+2026, space before it), backed by a Lexical editor whose
+// internal state ignores synthetic textContent writes exactly as the platform ignores synthetic
+// clicks.
+
+const explorer = readFileSync(new URL("../src/adapters/browser/autonomous-surface-explorer.ts", import.meta.url).pathname, "utf8");
+const driver = readFileSync(new URL("../src/adapters/browser/dom-ui-driver.ts", import.meta.url).pathname, "utf8");
+
+test("the observed caption label is an exact candidate", () => {
+  assert.match(explorer, /Bildunterschrift verfassen …/);
+});
+
+test("contains fallbacks exist for the caption textbox and come after the exact names", () => {
+  const block = explorer.slice(explorer.indexOf("function captionLocators"), explorer.indexOf("function captionLocators") + 900);
+  assert.match(block, /role: "textbox", value: "Bildunterschrift", exact: false/);
+  assert.match(block, /role: "textbox", value: "caption", exact: false/);
+  assert.ok(block.indexOf('named("textbox"') < block.indexOf('exact: false'), "exact candidates must be tried first");
+});
+
+test("editable targets are typed through the browser input pipeline, not textContent", () => {
+  assert.match(driver, /this\.session\.insertText\(value\)/);
+  assert.match(driver, /kind\.editable && this\.session\.clickAt && this\.session\.insertText/);
+});
+
+test("the editable fill proves focus before typing", () => {
+  assert.match(driver, /document\.activeElement === el \|\| el\.contains\(document\.activeElement\)/);
+  assert.match(driver, /did not take focus/);
+});
+
+test("the editable fill proves the text arrived by reading it back", () => {
+  // A caption that only LOOKS set surfaces as an empty caption on a real publication.
+  assert.match(driver, /readback\.includes\(value\)/);
+  assert.match(driver, /readback mismatch/);
+});
+
+test("session fakes without insertText keep the legacy fill path", () => {
+  const fillBlock = driver.slice(driver.indexOf("async fill("), driver.indexOf("async fill(") + 3200);
+  assert.match(fillBlock, /el\.isContentEditable/);
+  assert.match(fillBlock, /dispatchEvent\(new InputEvent\('input'/);
+});

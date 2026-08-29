@@ -43,6 +43,12 @@ export interface BrowserPageSessionPort {
    * while the application does nothing.
    */
   clickAt?(x: number, y: number): Promise<void>;
+  /**
+   * Insert text through the browser's input pipeline into the focused element. Optional like
+   * clickAt; needed because state-owning editors (Instagram's caption is a Lexical editor)
+   * ignore synthetic textContent writes exactly as the platform ignores synthetic clicks.
+   */
+  insertText?(text: string): Promise<void>;
   setInputFiles(selector: string, filePaths: readonly string[]): Promise<void>;
   captureScreenshot(filePath: string): Promise<void>;
   setCookie(url: string, name: string, value: string, expires?: number): Promise<void>;

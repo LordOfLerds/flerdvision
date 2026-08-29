@@ -87,7 +87,11 @@ function uploadRevealStep(): AutonomousStep {
 }
 function captionLocators(): readonly UiLocator[] {
   return unique([
-    ...named("textbox", ["Write a caption…", "Write a caption...", "Caption", "Bildunterschrift", "Schreibe eine Bildunterschrift …", "Describe your post", "Beschreibe deinen Beitrag"]),
+    // "Bildunterschrift verfassen …" is the observed accessible name on the live compose stage
+    // (U+2026, preceded by a space); the older guesses stay for other locales/ages of the UI.
+    ...named("textbox", ["Bildunterschrift verfassen …", "Bildunterschrift verfassen ...", "Write a caption…", "Write a caption...", "Caption", "Bildunterschrift", "Schreibe eine Bildunterschrift …", "Describe your post", "Beschreibe deinen Beitrag"]),
+    { kind: "role", role: "textbox", value: "Bildunterschrift", exact: false },
+    { kind: "role", role: "textbox", value: "caption", exact: false },
     { kind: "label", value: "Caption", exact: false },
     { kind: "label", value: "Bildunterschrift", exact: false },
     { kind: "css", value: "textarea[aria-label*=\"caption\" i]" },
