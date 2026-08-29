@@ -126,26 +126,57 @@ export class BrowserDomUiDriver {
    */
   private async dispatchClick(token: string, descriptor: string, failurePrefix: string): Promise<void> {
     const selector = `[data-flerdvision-node=${JSON.stringify(token)}]`;
-    const center = await this.session.evaluate<{ x: number; y: number } | null>(`(() => {
-      const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return null;
-      el.scrollIntoView({ block: 'center', inline: 'center' });
-      const rect = el.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) return null;
-      return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
-    })()`);
-    if (!center) throw new UiActionExecutionError(`${failurePrefix}: ${descriptor}`);
-    if (this.session.clickAt) {
-      await this.session.clickAt(center.x, center.y);
+    if (!this.session.clickAt) {
+      // Session fakes without a trusted-click capability keep the legacy in-page click.
+      const clicked = await this.session.evaluate<boolean>(`(() => {
+        const el = document.querySelector(${JSON.stringify(selector)});
+        if (!el) return false;
+        el.click();
+        return true;
+      })()`);
+      if (!clicked) throw new UiActionExecutionError(`${failurePrefix}: ${descriptor}`);
       return;
     }
-    const clicked = await this.session.evaluate<boolean>(`(() => {
-      const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return false;
-      el.click();
-      return true;
-    })()`);
-    if (!clicked) throw new UiActionExecutionError(`${failurePrefix}: ${descriptor}`);
+
+    // A trusted click lands at coordinates, so the coordinates must be true when it lands.
+    // Two real failures forced this: an info overlay absorbed clicks aimed at the button under
+    // it ("passing" while the flow stood still), and a dialog still animating after upload moved
+    // its Weiter button between rect-read and dispatch -- the click hit the backdrop, which
+    // Instagram answers with "Beitrag verwerfen?". So before dispatching: the rect must be
+    // stable across two reads, and the element under the click point must be the target itself
+    // (or within it). Occlusion and movement wait bounded; persisting, they fail loudly instead
+    // of clicking whatever happens to be there.
+    const deadline = Date.now() + 5_000;
+    let lastProblem = "target never became stable";
+    for (;;) {
+      const probe = await this.session.evaluate<{ x: number; y: number; occludedBy: string | null; moved: boolean } | null>(`(async () => {
+        const el = document.querySelector(${JSON.stringify(selector)});
+        if (!el) return null;
+        el.scrollIntoView({ block: 'center', inline: 'center' });
+        const first = el.getBoundingClientRect();
+        if (first.width <= 0 || first.height <= 0) return null;
+        await new Promise((resolve) => setTimeout(resolve, 120));
+        const second = el.getBoundingClientRect();
+        const moved = Math.abs(first.x - second.x) > 1 || Math.abs(first.y - second.y) > 1 ||
+          Math.abs(first.width - second.width) > 1 || Math.abs(first.height - second.height) > 1;
+        const x = second.x + second.width / 2, y = second.y + second.height / 2;
+        const hit = document.elementFromPoint(x, y);
+        const related = hit !== null && (el === hit || el.contains(hit) || hit.contains(el));
+        const describe = (node) => node === null ? 'nothing' : node.tagName.toLowerCase() +
+          (node.getAttribute('role') ? '[role=' + node.getAttribute('role') + ']' : '') +
+          ' "' + ((node.getAttribute('aria-label') || node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40)) + '"';
+        return { x, y, occludedBy: related ? null : describe(hit), moved };
+      })()`);
+      if (!probe) throw new UiActionExecutionError(`${failurePrefix}: ${descriptor}`);
+      if (!probe.moved && probe.occludedBy === null) {
+        await this.session.clickAt(probe.x, probe.y);
+        return;
+      }
+      lastProblem = probe.occludedBy ? `occluded by ${probe.occludedBy}` : "still moving";
+      if (Date.now() >= deadline) {
+        throw new UiActionExecutionError(`Refusing to click ${descriptor}: ${lastProblem}`);
+      }
+    }
   }
 
   async clickIrreversible(locators: readonly UiLocator[], timeoutMs = 10_000): Promise<string> {
