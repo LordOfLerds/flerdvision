@@ -55,3 +55,25 @@ test("hit-test preference keeps a style-visible fallback and never applies to hi
   // SET_FILE targets are legitimately invisible; the preference is scoped to visibleOnly.
   assert.match(source, /if \(visible\.length > 0\) return pick\(visible\[0\]/);
 });
+
+test("a persistently occluded reversible click may fall back to the rendered label", () => {
+  // Instagram paints the visible Weiter as a bare text node inside a strip that owns pointer
+  // events, while the accessible control is a stacked twin. A person clicks where the word is.
+  assert.match(source, /allowLabelFallback && probe\.occludedBy !== null/);
+  assert.match(source, /createTreeWalker\(hit, NodeFilter\.SHOW_TEXT\)/);
+});
+
+test("the label fallback exists for click() and never for clickIrreversible()", () => {
+  const irreversible = source.indexOf("async clickIrreversible");
+  const plain = source.indexOf("async click(");
+  const irreversibleBlock = source.slice(irreversible, source.indexOf("async click(", irreversible));
+  assert.match(source, /dispatchClick\(target\.token, target\.descriptor, "Target disappeared before click", true\)/);
+  // The irreversible dispatch line itself carries no fallback flag.
+  assert.match(irreversibleBlock, /dispatchClick\(target\.token, target\.descriptor, "Final-action target disappeared before click"\)/);
+  assert.doesNotMatch(irreversibleBlock, /dispatchClick\([^)]*true\)/);
+});
+
+test("the fallback clicks only an exact text match of the located label", () => {
+  assert.match(source, /text !== /);
+  assert.match(source, /range\.selectNodeContents\(node\)/);
+});

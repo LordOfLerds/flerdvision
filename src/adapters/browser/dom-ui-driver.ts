@@ -143,7 +143,7 @@ export class BrowserDomUiDriver {
    * guaranteed PUBLISH_UNCERTAIN. The in-page click remains only as a fallback for session
    * fakes that do not implement clickAt.
    */
-  private async dispatchClick(token: string, descriptor: string, failurePrefix: string): Promise<void> {
+  private async dispatchClick(token: string, descriptor: string, failurePrefix: string, allowLabelFallback = false): Promise<void> {
     const selector = `[data-flerdvision-node=${JSON.stringify(token)}]`;
     if (!this.session.clickAt) {
       // Session fakes without a trusted-click capability keep the legacy in-page click.
@@ -193,6 +193,38 @@ export class BrowserDomUiDriver {
       }
       lastProblem = probe.occludedBy ? `occluded by ${probe.occludedBy}` : "still moving";
       if (Date.now() >= deadline) {
+        // Last resort for reversible clicks only: the platform sometimes renders the accessible
+        // control as a stacked twin while the visible label is a bare text node inside a strip
+        // that owns the pointer events. A person clicks where the word is painted; when the
+        // stable occluder itself carries the target's label, dispatch at the rendered position
+        // of that label. The irreversible path never does this -- a final action must hit the
+        // exact located element or nothing.
+        if (allowLabelFallback && probe.occludedBy !== null) {
+          const label = descriptor.slice(descriptor.indexOf(":") + 1);
+          const point = await this.session.evaluate<{ x: number; y: number } | null>(`(() => {
+            const el = document.querySelector(${JSON.stringify(selector)});
+            if (!el) return null;
+            const target = (el.getBoundingClientRect());
+            const hit = document.elementFromPoint(target.x + target.width / 2, target.y + target.height / 2);
+            if (!hit) return null;
+            const wanted = ${JSON.stringify("LBL")}.length ? ${JSON.stringify("LBL")} : null;
+            const walker = document.createTreeWalker(hit, NodeFilter.SHOW_TEXT);
+            for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+              const text = (node.textContent || "").trim();
+              if (text !== ${JSON.stringify("LBL")}) continue;
+              const range = document.createRange();
+              range.selectNodeContents(node);
+              const rect = range.getBoundingClientRect();
+              if (rect.width <= 0 || rect.height <= 0) continue;
+              return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+            }
+            return null;
+          })()`.split(JSON.stringify("LBL")).join(JSON.stringify(label)));
+          if (point && this.session.clickAt) {
+            await this.session.clickAt(point.x, point.y);
+            return;
+          }
+        }
         throw new UiActionExecutionError(`Refusing to click ${descriptor}: ${lastProblem}`);
       }
     }
@@ -215,7 +247,7 @@ export class BrowserDomUiDriver {
         if (!(error instanceof UiTargetNotFoundError)) throw error;
       }
     }
-    await this.dispatchClick(target.token, target.descriptor, "Target disappeared before click");
+    await this.dispatchClick(target.token, target.descriptor, "Target disappeared before click", true);
     return target.descriptor;
   }
 
