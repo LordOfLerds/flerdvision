@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from "node:timers/promises";
 import type { BrowserIdentity, SessionProbeResult } from "../../domain/browser-identity.js";
 import type { BrowserPageSessionPort, SessionProbePort } from "../../domain/browser-identity-ports.js";
 
@@ -50,30 +51,45 @@ export class ConfiguredDomSessionProbe implements SessionProbePort {
       // burns the budget.
       const deadline = Date.now() + (this.config.identityTimeoutMs ?? 8_000);
       const pollMs = Math.max(100, this.config.identityPollMs ?? 250);
-      let currentUrl = await session.currentUrl();
+      // A SPA navigates while we look at it, and CDP rejects evaluations whose execution context
+      // is torn down mid-flight ("Inspected target navigated or closed", "Execution context was
+      // destroyed"). Those are moments, not verdicts: within the bounded wait they are retried,
+      // and only a page that stays unreachable until the deadline is reported UNREACHABLE.
+      const transientNavigation = /navigated or closed|execution context was destroyed|cannot find context/i;
+      let lastTransient = "";
+      let currentUrl = "";
       for (;;) {
-        currentUrl = await session.currentUrl();
-        const normalized = currentUrl.toLocaleLowerCase("en-US");
-        if ((this.config.challengeUrlIncludes ?? []).some((part) => normalized.includes(part.toLocaleLowerCase("en-US")))) {
-          return { state: "CHALLENGE", currentUrl, note: "Challenge URL detected" };
+        try {
+          currentUrl = await session.currentUrl();
+          const normalized = currentUrl.toLocaleLowerCase("en-US");
+          if ((this.config.challengeUrlIncludes ?? []).some((part) => normalized.includes(part.toLocaleLowerCase("en-US")))) {
+            return { state: "CHALLENGE", currentUrl, note: "Challenge URL detected" };
+          }
+          if ((this.config.authUrlIncludes ?? []).some((part) => normalized.includes(part.toLocaleLowerCase("en-US")))) {
+            return { state: "AUTH_REQUIRED", currentUrl, note: "Authentication URL detected" };
+          }
+          if (this.config.challengeSelector) {
+            const challengeExists = await session.evaluate<boolean>(`Boolean(document.querySelector(${stringLiteral(this.config.challengeSelector)}))`);
+            if (challengeExists) return { state: "CHALLENGE", currentUrl, note: "Challenge marker detected" };
+          }
+          if (this.config.authSelector) {
+            const authExists = await session.evaluate<boolean>(`Boolean(document.querySelector(${stringLiteral(this.config.authSelector)}))`);
+            if (authExists) return { state: "AUTH_REQUIRED", currentUrl, note: "Authentication marker detected" };
+          }
+          const observedHandle = await session.evaluate<string | null>(expression);
+          if (observedHandle) return { state: "HEALTHY", currentUrl, observedHandle };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (!transientNavigation.test(message)) throw error;
+          lastTransient = message;
         }
-        if ((this.config.authUrlIncludes ?? []).some((part) => normalized.includes(part.toLocaleLowerCase("en-US")))) {
-          return { state: "AUTH_REQUIRED", currentUrl, note: "Authentication URL detected" };
-        }
-        if (this.config.challengeSelector) {
-          const challengeExists = await session.evaluate<boolean>(`Boolean(document.querySelector(${stringLiteral(this.config.challengeSelector)}))`);
-          if (challengeExists) return { state: "CHALLENGE", currentUrl, note: "Challenge marker detected" };
-        }
-        if (this.config.authSelector) {
-          const authExists = await session.evaluate<boolean>(`Boolean(document.querySelector(${stringLiteral(this.config.authSelector)}))`);
-          if (authExists) return { state: "AUTH_REQUIRED", currentUrl, note: "Authentication marker detected" };
-        }
-        const observedHandle = await session.evaluate<string | null>(expression);
-        if (observedHandle) return { state: "HEALTHY", currentUrl, observedHandle };
         if (Date.now() >= deadline) {
+          if (lastTransient) {
+            return { state: "UNREACHABLE", currentUrl, note: `Page stayed unreachable until the bounded-wait deadline: ${lastTransient}` };
+          }
           return { state: "UNKNOWN", currentUrl, note: `Identity selector not found within the bounded wait: ${this.config.identitySelector}` };
         }
-        await session.evaluate(`new Promise(resolve => setTimeout(resolve, ${pollMs}))`);
+        await sleep(pollMs);
       }
     } catch (error) {
       return {

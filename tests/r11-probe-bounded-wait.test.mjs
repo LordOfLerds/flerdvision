@@ -77,3 +77,49 @@ test("waiting never invents an identity that was not observed", async () => {
   const result = await probe.probe(page({ url: base.probeUrl, appearsAfterChecks: 10_000 }), {});
   assert.equal(result.observedHandle, undefined);
 });
+
+test("a navigation race mid-probe is retried, not reported as UNREACHABLE", async () => {
+  // A SPA tears down the execution context while navigating; CDP then rejects evaluations with
+  // "Inspected target navigated or closed". One such moment failed a whole qualification run.
+  let calls = 0;
+  const flaky = {
+    async navigate() {},
+    async currentUrl() {
+      calls += 1;
+      if (calls <= 2) throw new Error("Inspected target navigated or closed");
+      return "https://www.instagram.com/accounts/edit/";
+    },
+    async evaluate(expression) {
+      if (expression.startsWith("Boolean(")) return false;
+      return "/luca.erdkoenig/";
+    }
+  };
+  const probe = new ConfiguredDomSessionProbe({ ...base, identityTimeoutMs: 3000 });
+  const result = await probe.probe(flaky, {});
+  assert.equal(result.state, "HEALTHY");
+});
+
+test("a page that stays unreachable until the deadline is still reported UNREACHABLE", async () => {
+  const dead = {
+    async navigate() {},
+    async currentUrl() { throw new Error("Inspected target navigated or closed"); },
+    async evaluate() { throw new Error("Inspected target navigated or closed"); }
+  };
+  const probe = new ConfiguredDomSessionProbe({ ...base, identityTimeoutMs: 400 });
+  const result = await probe.probe(dead, {});
+  assert.equal(result.state, "UNREACHABLE");
+  assert.match(result.note, /bounded-wait deadline/);
+});
+
+test("a non-navigation failure still escapes immediately", async () => {
+  const broken = {
+    async navigate() {},
+    async currentUrl() { throw new Error("WebSocket is not open"); },
+    async evaluate() { return null; }
+  };
+  const probe = new ConfiguredDomSessionProbe({ ...base, identityTimeoutMs: 30_000 });
+  const started = Date.now();
+  const result = await probe.probe(broken, {});
+  assert.equal(result.state, "UNREACHABLE");
+  assert.ok(Date.now() - started < 3000, "an unknown failure must not burn the wait budget");
+});
