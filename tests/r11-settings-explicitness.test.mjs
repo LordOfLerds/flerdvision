@@ -68,3 +68,44 @@ test("a skipped absent setting still captures the surface as evidence", () => {
   assert.match(before, /-missing/);
   assert.match(before, /captureBoundary/);
 });
+
+// --- contract validator follows the same provenance rule ---
+
+import { normalizeAutonomousSurfaceContract } from "../dist/application/autonomous-surface-contract.js";
+
+const ENV = { browserFamily: "chromium", browserMajor: 140, language: "de-AT", timeZone: "Europe/Vienna", viewportWidth: 1280, viewportHeight: 900, deviceScaleFactor: 1, fingerprint: "env" };
+function step(stepKey) {
+  return { stepKey, label: stepKey, actionMode: stepKey === "FINAL_ACTION" ? "BLOCK_ACTION" : "OBSERVE_ACTION", locator: { kind: "text", value: stepKey, exact: true }, fallbackLocators: [], observations: 1 };
+}
+function contractWith(stepKeys) {
+  return { contractId: "surface:x", accountId: "acct", platform: "instagram", format: "reel", postingProfileId: "p", environment: ENV, steps: stepKeys.map(step), status: "RECORDED", createdAt: "2026-08-29T12:00:00.000Z" };
+}
+const BASE_PROFILE = { postingProfileId: "p", displayName: "P", enabled: true, platform: "instagram", format: "reel", commentsEnabled: true, shareToFeed: true, crosspostFacebook: false };
+
+test("the validator does not re-impose a defaulted setting the surface no longer offers", () => {
+  const profile = { ...BASE_PROFILE, explicitSettings: [] };
+  const normalized = normalizeAutonomousSurfaceContract(contractWith(["OPEN_CREATE", "UPLOAD_MEDIA", "CAPTION", "FINAL_ACTION"]), profile);
+  assert.equal(normalized.steps.at(-1).stepKey, "FINAL_ACTION");
+});
+
+test("an explicitly demanded setting still fails the contract when its step is missing", () => {
+  const profile = { ...BASE_PROFILE, explicitSettings: ["shareToFeed"] };
+  assert.throws(
+    () => normalizeAutonomousSurfaceContract(contractWith(["OPEN_CREATE", "UPLOAD_MEDIA", "CAPTION", "FINAL_ACTION"]), profile),
+    /missing required step SHARE_TO_FEED/
+  );
+});
+
+test("contracts for profiles without provenance stay fully strict", () => {
+  assert.throws(
+    () => normalizeAutonomousSurfaceContract(contractWith(["OPEN_CREATE", "UPLOAD_MEDIA", "CAPTION", "FINAL_ACTION"]), BASE_PROFILE),
+    /missing required step SHARE_TO_FEED/
+  );
+});
+
+test("a recorded but undemanded setting stays in the replayed contract", () => {
+  const profile = { ...BASE_PROFILE, explicitSettings: [] };
+  const normalized = normalizeAutonomousSurfaceContract(contractWith(["OPEN_CREATE", "UPLOAD_MEDIA", "CAPTION", "COMMENTS", "FINAL_ACTION"]), profile);
+  assert.ok(normalized.steps.some((item) => item.stepKey === "COMMENTS"), "an observed control must not silently vanish");
+  assert.equal(normalized.steps.at(-1).stepKey, "FINAL_ACTION", "the final action stays terminal");
+});
