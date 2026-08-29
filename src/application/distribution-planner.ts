@@ -139,7 +139,11 @@ export class DistributionPlanner {
         input.assets.filter((asset) =>
           asset.laneId === route.laneId &&
           asset.state === "READY" &&
-          (asset.scheduledBusinessDate === input.businessDate || carriedAssetIds.has(asset.assetId))
+          // An asset without a scheduledBusinessDate is unpinned: simple source topologies (a
+          // plain folder, no week/day naming) carry no date the interpreter could derive, and
+          // such content is meant for the earliest open slot. Only assets whose source metadata
+          // pinned them to a specific date stay date-exact.
+          (asset.scheduledBusinessDate === undefined || asset.scheduledBusinessDate === input.businessDate || carriedAssetIds.has(asset.assetId))
         ),
         input.policy.contentOrder
       );
