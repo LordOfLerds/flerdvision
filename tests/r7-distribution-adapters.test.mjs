@@ -18,6 +18,6 @@ test("runtime materializer adapter preserves counts and exposes blocked issues t
   const sink={recordIssues(plan,issues){seen.push([plan.planId,issues[0].reason]);}};
   const adapter=new RuntimeDistributionIntentMaterializerAdapter(inner,sink);
   const report=await adapter.ensureIntents({planId:"p",businessDate:"2026-08-27",generatedAt:"x",deliveries:[],gaps:[],backlog:[]},"2026-08-27T07:00:00Z");
-  assert.deepEqual(report,{created:2,existing:1,blocked:1});
+  assert.deepEqual(report,{created:2,existing:1,blocked:1,blockedReasons:["stale"]});
   assert.deepEqual(seen,[["p","stale"]]);
 });

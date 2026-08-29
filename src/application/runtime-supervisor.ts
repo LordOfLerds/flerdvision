@@ -63,7 +63,7 @@ export class RuntimeSupervisor {
       if(!source)sourceSafe=false;
       if(sourceSafe){
         plan=await run("PLAN",()=>this.ports.planner.ensureDailyPlan(businessDate,startedAt),(p)=>`${p.deliveries.length} deliveries · ${p.gaps.length} gaps · ${p.backlog.length} backlog`);
-        if(plan)await run("INTENTS",()=>this.ports.intents.ensureIntents(plan!,startedAt),(r)=>`${r.created} created · ${r.existing} existing · ${r.blocked} blocked`);
+        if(plan)await run("INTENTS",()=>this.ports.intents.ensureIntents(plan!,startedAt),(r)=>`${r.created} created · ${r.existing} existing · ${r.blocked} blocked${r.blockedReasons?.length?` · ${r.blockedReasons.join(" | ")}`:""}`);
         else { phases.push({phase:"INTENTS",status:"SKIPPED",summary:"DailyPlan unavailable"}); heartbeat(); }
       }else{
         phases.push({phase:"PLAN",status:"SKIPPED",summary:"Source scan failed; no new planning from untrusted source state"}); heartbeat();

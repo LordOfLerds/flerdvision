@@ -21,6 +21,9 @@ export class RuntimeDistributionIntentMaterializerAdapter implements RuntimeInte
   async ensureIntents(plan: DailyPlan, now: string): Promise<{ created: number; existing: number; blocked: number }> {
     const report: DistributionIntentMaterializationReport = this.inner.ensureIntents(plan, now);
     if (report.issues.length > 0) this.issueSink?.recordIssues(plan, report.issues, now);
-    return { created: report.created, existing: report.existing, blocked: report.blocked };
+    // A swallowed reason cost a live acceptance run its diagnosis: "1 blocked" with nothing else
+    // said. The phase summary carries the reasons from now on.
+    const blockedReasons = [...new Set(report.issues.map((issue) => issue.reason))].slice(0, 3);
+    return { created: report.created, existing: report.existing, blocked: report.blocked, ...(blockedReasons.length > 0 ? { blockedReasons } : {}) };
   }
 }
