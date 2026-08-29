@@ -76,6 +76,8 @@ export async function runHeadlessDemo(input: {
   headlessBrowser?: boolean;
   env?: Record<string, string | undefined>;
   onProgress?: (message: string) => void;
+  /** Settle between the two source observations readiness requires. */
+  stabilizeSettleMs?: number;
 }): Promise<HeadlessDemoReport> {
   if (!input.releaseSha.trim()) throw new Error("Headless demo requires an exact release SHA");
   const env = input.env ?? process.env;
@@ -114,11 +116,31 @@ export async function runHeadlessDemo(input: {
   const date = businessDate(startedAt, bootstrap.spec.workspace.timezone);
   const runtime = new WorkspaceDistributionRuntime({ runtimeRoot: bootstrap.runtimeRoot, workspaceId: bootstrap.spec.workspace.id, env, timeZone: bootstrap.spec.workspace.timezone, releaseSha: input.releaseSha });
   try {
-    const first = await runtime.supervisor(`${runId}:bootstrap`).runCycle(startedAt, date);
-    if (!first.phases.find((phase) => phase.phase === "SOURCE_SCAN" && phase.status === "PASS")) throw new Error("Source scan did not pass");
+    // An operator-initiated acceptance run must actually observe the source. runCycle uses the
+    // interval-gated poll, which silently returns zeros when it is not due yet and still reports
+    // SOURCE_SCAN:PASS -- so a second demo within the polling interval looked like an empty
+    // folder instead of a skipped scan.
+    let scan = await runtime.source.forceScan(startedAt, "MANUAL");
+    let scans = 1;
+    // Readiness deliberately requires two observations of the same bytes, so first-touch media is
+    // always STABILIZING after one scan. A second observation after a settle is the legitimate
+    // way to satisfy that rule; the ffprobe readability check remains the substantive gate.
+    if (scan.ready === 0 && scan.stabilizing > 0) {
+      await sleep(input.stabilizeSettleMs ?? 5_000);
+      scan = await runtime.source.forceScan(new Date().toISOString(), "MANUAL");
+      scans = 2;
+    }
+    const first = await runtime.supervisor(`${runId}:bootstrap`).runCycle(new Date().toISOString(), date);
     if (!first.phases.find((phase) => phase.phase === "PLAN" && phase.status === "PASS")) throw new Error("Planning did not pass");
-    stages.push({ stage: "INGEST_PLAN", status: "PASS", summary: first.phases.map((phase) => `${phase.phase}:${phase.status}`).join(" · ") });
-    input.onProgress?.("INGEST_PLAN PASS · source scanned and deterministic plan persisted");
+    const scanSummary = `${scans} forced scan(s) · observed=${scan.observed} ready=${scan.ready} stabilizing=${scan.stabilizing} blocked=${scan.blocked}`;
+    stages.push({ stage: "INGEST_PLAN", status: "PASS", summary: `${scanSummary} · ${first.phases.map((phase) => `${phase.phase}:${phase.status}`).join(" · ")}` });
+    input.onProgress?.(`INGEST_PLAN PASS · ${scanSummary}`);
+    if (scan.ready === 0) {
+      throw new Error(
+        `No source asset reached READY after ${scans} scan(s): observed=${scan.observed} stabilizing=${scan.stabilizing} blocked=${scan.blocked}. ` +
+        `Readiness needs two observations of identical bytes plus a readable media probe; a still-uploading or unreadable file stays out of the publish path on purpose.`
+      );
+    }
   } finally { runtime.close(); }
 
   const selectedAccountIds = new Set(selectedChannels.map(accountIdForChannel));
