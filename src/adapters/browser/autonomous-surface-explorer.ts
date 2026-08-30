@@ -311,7 +311,13 @@ export class AutonomousSurfaceExplorer {
     // An optional opening step navigates TOWARDS the upload surface; clicking it when the file
     // input is already on the page navigates away from it (TikTok's nav "Hochladen" leaves the
     // studio upload page, and the required upload step then found nothing at all).
-    const uploadReady = await this.session.evaluate<boolean>(`Boolean(document.querySelector('input[type="file"]'))`).catch(() => false);
+    // Bounded, because an instant check races the page's own load: a not-yet-rendered input
+    // read as "not the upload surface" and the opening click then navigated away from it.
+    let uploadReady = false;
+    for (const deadline = Date.now() + 8_000; Date.now() < deadline && !uploadReady; ) {
+      uploadReady = await this.session.evaluate<boolean>(`Boolean(document.querySelector('input[type="file"]'))`).catch(() => false);
+      if (!uploadReady) await sleep(500);
+    }
     for (const step of openingSteps(input.postingProfile)) {
       if (uploadReady && !step.required) {
         journal.push({ at: this.now(), stepKey: step.stepKey, action: step.action, outcome: "SKIPPED", detail: "upload surface already reached" });
