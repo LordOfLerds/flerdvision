@@ -478,3 +478,34 @@ test("the compiler equips instagram verification specs with the reels-tab deep c
   assert.match(compiler, /postListUrlTemplate: `\$\{profileUrl\(channel\)\}reels\/`/);
   assert.match(compiler, /postLinkSelector: 'a\[href\*="\/reel\/"\]'/);
 });
+
+test("the spec parser round-trips the deep-check fields instead of stripping them", async () => {
+  const { parseProfileVerificationSpecFile } = await import("../dist/adapters/verify/profile-spec-config.js");
+  const file = parseProfileVerificationSpecFile({
+    schemaVersion: 1,
+    specs: [{
+      specId: "s1", platform: "instagram", accountId: "acc", calibrationStatus: "CALIBRATED",
+      calibratedAt: "2026-08-30T14:55:00.000Z", calibratedBy: "test",
+      spec: {
+        platform: "instagram", bootstrapUrl: "https://www.instagram.com/",
+        profileUrlTemplate: "https://www.instagram.com/{handle}/",
+        profileReadyLocators: [{ kind: "css", value: "main" }],
+        postMatchLocators: [{ kind: "text", value: "{contentId}", exact: false }],
+        permalinkAttribute: "href",
+        postListUrlTemplate: "https://www.instagram.com/{handle}/reels/",
+        postLinkSelector: 'a[href*="/reel/"]',
+        postOpenLimit: 3
+      }
+    }]
+  });
+  assert.equal(file.specs[0].spec.postListUrlTemplate, "https://www.instagram.com/{handle}/reels/");
+  assert.equal(file.specs[0].spec.postLinkSelector, 'a[href*="/reel/"]');
+  assert.equal(file.specs[0].spec.postOpenLimit, 3);
+  assert.throws(() => parseProfileVerificationSpecFile({
+    schemaVersion: 1,
+    specs: [{ specId: "s2", platform: "instagram", calibrationStatus: "UNVERIFIED",
+      spec: { platform: "instagram", bootstrapUrl: "https://x.example/", profileUrlTemplate: "https://x.example/{handle}",
+        profileReadyLocators: [{ kind: "css", value: "main" }], postMatchLocators: [{ kind: "text", value: "x", exact: false }],
+        postListUrlTemplate: "https://x.example/list" } }]
+  }), /together/);
+});

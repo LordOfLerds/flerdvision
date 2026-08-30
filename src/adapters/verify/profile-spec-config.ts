@@ -35,11 +35,21 @@ function parseSpec(value:unknown,path:string,allowPlaceholder:boolean):ProfileVe
   if(typeof item.profileUrlTemplate!=="string"||!/^https:\/\//.test(item.profileUrlTemplate))throw new ProfileVerificationSpecConfigError(`${path}.profileUrlTemplate must be https`);
   if(!allowPlaceholder&&(item.profileUrlTemplate.includes("__CALIBRATE__")))throw new ProfileVerificationSpecConfigError(`${path}.profileUrlTemplate still contains calibration placeholder`);
   if(item.permalinkAttribute!==undefined&&(typeof item.permalinkAttribute!=="string"||!item.permalinkAttribute.trim()))throw new ProfileVerificationSpecConfigError(`${path}.permalinkAttribute must be non-empty`);
+  // Deep post-page verification (reels tab): the whitelist rebuild below silently dropped these
+  // on the calibration round-trip once already -- unknown-field stripping is right, forgetting
+  // to whitelist new contract fields is not.
+  if(item.postListUrlTemplate!==undefined&&(typeof item.postListUrlTemplate!=="string"||!/^https:\/\//.test(item.postListUrlTemplate)))throw new ProfileVerificationSpecConfigError(`${path}.postListUrlTemplate must be https`);
+  if(item.postLinkSelector!==undefined&&(typeof item.postLinkSelector!=="string"||!item.postLinkSelector.trim()))throw new ProfileVerificationSpecConfigError(`${path}.postLinkSelector must be non-empty`);
+  if((item.postListUrlTemplate===undefined)!==(item.postLinkSelector===undefined))throw new ProfileVerificationSpecConfigError(`${path} must set postListUrlTemplate and postLinkSelector together`);
+  if(item.postOpenLimit!==undefined&&(!Number.isInteger(item.postOpenLimit)||(item.postOpenLimit as number)<1||(item.postOpenLimit as number)>10))throw new ProfileVerificationSpecConfigError(`${path}.postOpenLimit must be an integer between 1 and 10`);
   return{
     platform:item.platform,bootstrapUrl:item.bootstrapUrl,profileUrlTemplate:item.profileUrlTemplate,
     profileReadyLocators:locators(item.profileReadyLocators,`${path}.profileReadyLocators`,allowPlaceholder),
     postMatchLocators:locators(item.postMatchLocators,`${path}.postMatchLocators`,allowPlaceholder),
-    ...(typeof item.permalinkAttribute==="string"?{permalinkAttribute:item.permalinkAttribute}:{})
+    ...(typeof item.permalinkAttribute==="string"?{permalinkAttribute:item.permalinkAttribute}:{}),
+    ...(typeof item.postListUrlTemplate==="string"?{postListUrlTemplate:item.postListUrlTemplate}:{}),
+    ...(typeof item.postLinkSelector==="string"?{postLinkSelector:item.postLinkSelector}:{}),
+    ...(typeof item.postOpenLimit==="number"?{postOpenLimit:item.postOpenLimit}:{})
   };
 }
 
