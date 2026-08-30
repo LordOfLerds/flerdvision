@@ -30,7 +30,8 @@ function semanticPlanId(plan: Omit<DailyPlan, "planId">): string {
     businessDate: plan.businessDate,
     deliveries: plan.deliveries,
     gaps: plan.gaps,
-    backlog: plan.backlog
+    backlog: plan.backlog,
+    ...(plan.configFingerprint ? { configFingerprint: plan.configFingerprint } : {})
   }))}`;
 }
 
@@ -81,7 +82,8 @@ export function reconcileDailyPlanWithCommitments(
     generatedAt: candidate.generatedAt,
     deliveries,
     gaps,
-    backlog
+    backlog,
+    ...(candidate.configFingerprint ? { configFingerprint: candidate.configFingerprint } : {})
   };
   return {
     plan: { ...withoutId, planId: semanticPlanId(withoutId) },

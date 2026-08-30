@@ -111,3 +111,19 @@ test("a committed asset is never re-planned even when slots are free", () => {
   });
   assert.equal(result.deliveries.length, 0);
 });
+
+test("identical plan content under a changed schedule yields a different plan identity", () => {
+  // Live failure: after slot-time changes the reconciled plan content (only preserved old
+  // deliveries) hashed to an existing planId recorded under the previous config, and the
+  // immutable plan provenance refused it -- every later PLAN phase of the day failed.
+  const base = {
+    businessDate: "2026-08-29", generatedAt: "2026-08-29T19:10:00.000Z",
+    assets: [], lanes: [lane], routes: [route],
+    policy: { contentOrder: "FILENAME_NUMERIC_PREFIX", lateArrival: "NEXT_AVAILABLE_SLOT", overflow: "BACKLOG_NEXT_DAY" }
+  };
+  const planA = new DistributionPlanner().plan({ ...base, catalog });
+  const catalogB = { ...catalog, schedulePolicies: { std: { ...schedule, slots: [{ key: "s1", localTime: "13:00" }, { key: "s2", localTime: "20:00" }] } } };
+  const planB = new DistributionPlanner().plan({ ...base, catalog: catalogB });
+  assert.notEqual(planA.planId, planB.planId);
+  assert.ok(planA.configFingerprint && planB.configFingerprint && planA.configFingerprint !== planB.configFingerprint);
+});

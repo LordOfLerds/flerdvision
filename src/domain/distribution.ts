@@ -242,6 +242,13 @@ export interface DailyPlan {
   deliveries: readonly PlannedDelivery[];
   gaps: readonly DailyPlanGap[];
   backlog: readonly BacklogItem[];
+  /**
+   * Hash over the planning-relevant configuration (routes + schedule policies). Part of the
+   * plan identity: identical content under a changed configuration is a different plan --
+   * without this, a same-day config change reproduced an old planId and the immutable plan
+   * provenance rightly refused it, failing every later PLAN phase of the day.
+   */
+  configFingerprint?: string;
 }
 
 export interface DeliveryAggregate {

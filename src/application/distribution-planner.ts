@@ -284,14 +284,16 @@ export class DistributionPlanner {
     const stableGaps = dedupeById(gaps, (item) => item.gapId).sort((a, b) => a.kind.localeCompare(b.kind) || (a.routeId ?? "").localeCompare(b.routeId ?? "") || (a.slotKey ?? "").localeCompare(b.slotKey ?? "") || (a.assetId ?? "").localeCompare(b.assetId ?? ""));
     const stableBacklog = dedupeById(backlogItems, (item) => item.backlogId).sort((a, b) => (a.carryToBusinessDate ?? "").localeCompare(b.carryToBusinessDate ?? "") || a.routeId.localeCompare(b.routeId) || a.assetId.localeCompare(b.assetId) || a.reason.localeCompare(b.reason));
 
-    const semanticPayload = JSON.stringify({ businessDate: input.businessDate, deliveries: acceptedDeliveries, gaps: stableGaps, backlog: stableBacklog });
+    const configFingerprint = sha(JSON.stringify({ routes: input.routes, schedules: input.catalog.schedulePolicies }));
+    const semanticPayload = JSON.stringify({ businessDate: input.businessDate, deliveries: acceptedDeliveries, gaps: stableGaps, backlog: stableBacklog, configFingerprint });
     return {
       planId: `daily-plan:${input.businessDate}:${sha(semanticPayload)}`,
       businessDate: input.businessDate,
       generatedAt: new Date(input.generatedAt).toISOString(),
       deliveries: acceptedDeliveries,
       gaps: stableGaps,
-      backlog: stableBacklog
+      backlog: stableBacklog,
+      configFingerprint
     };
   }
 }
