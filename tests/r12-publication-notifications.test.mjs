@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { publicationOutcomeMessage, notifyPublicationOutcome } from "../dist/application/publication-notifications.js";
+import { publicationOutcomeMessage, publicationWaveMessage, notifyPublicationOutcome, notifyPublicationOutcomes } from "../dist/application/publication-notifications.js";
 
 // Luca's operator channel: every post-boundary outcome reaches Telegram — VERIFIED with
 // permalink + verification screenshot, UNCERTAIN as an error naming the freeze. Delivery is
@@ -21,7 +21,7 @@ test("a verified outcome carries permalink, screenshot path and the bare handle"
     screenshotPath: "/evidence/post.png"
   }, "2026-08-30T20:00:00.000Z");
   assert.equal(message.severity, "INFO");
-  assert.match(message.subject, /Post verifiziert · lordoflerds/);
+  assert.match(message.subject, /Post verifiziert · \d{2}:\d{2} · lordoflerds · Instagram/);
   assert.equal(message.metadata.permalink, "https://www.instagram.com/lordoflerds/reel/x/");
   assert.equal(message.metadata.screenshotPath, "/evidence/post.png");
 });
@@ -70,10 +70,56 @@ test("the private-e2e verify path reports the outcome with permalink and screens
   assert.match(block, /outcome:passed\?"VERIFIED":"UNCERTAIN"/);
 });
 
-test("the autonomous due path reports outcomes through the same channel", () => {
+test("the autonomous due path reports bundled outcomes through the same channel", () => {
   const due = readFileSync(new URL("../src/adapters/runtime/authorized-due-execution.ts", import.meta.url).pathname, "utf8");
-  assert.match(due, /notifyOutcome\(claim\.record\.intent,attempt\.attemptId,"VERIFIED"/);
-  assert.match(due, /notifyOutcome\(claim\.record\.intent,attempt\.attemptId,"UNCERTAIN"/);
+  assert.match(due, /outcomes\.push\(this\.outcomeInput\(claim\.record\.intent,attempt\.attemptId,"VERIFIED"/);
+  assert.match(due, /outcomes\.push\(this\.outcomeInput\(claim\.record\.intent,attempt\.attemptId,"UNCERTAIN"/);
+  assert.match(due, /notifyPublicationOutcomes\(this\.store/);
   const runtime = readFileSync(new URL("../src/application/headless-autonomous-runtime.ts", import.meta.url).pathname, "utf8");
   assert.match(runtime, /notificationAdapters: \[\.\.\.\(telegramAdapterFromEnv\(env\)/);
+});
+
+test("a same-slot wave becomes one message naming every channel and platform", () => {
+  const second = { ...intent, intentId: "intent:i2", accountId: "account:tiktok:tiktok-lordoflerds", platform: "tiktok" };
+  const message = publicationWaveMessage([
+    { intent, runId: "r", outcome: "VERIFIED", permalink: "https://x/ig", timeZone: "Europe/Vienna" },
+    { intent: second, runId: "r", outcome: "VERIFIED", permalink: "https://x/tt", screenshotPath: "/e/tt.png", timeZone: "Europe/Vienna" }
+  ], "2026-08-31T12:00:00.000Z");
+  assert.match(message.subject, /\d{2}:\d{2}-Welle · 2 Posts verifiziert/);
+  assert.match(message.body, /lordoflerds · Instagram — https:\/\/x\/ig/);
+  assert.match(message.body, /lordoflerds · TikTok — https:\/\/x\/tt/);
+  assert.equal(message.metadata.screenshotPath, "/e/tt.png");
+  assert.equal(message.severity, "INFO");
+});
+
+test("a wave with a failure is an ERROR and marks the failing entry", () => {
+  const second = { ...intent, intentId: "intent:i2", platform: "tiktok", accountId: "account:tiktok:x" };
+  const message = publicationWaveMessage([
+    { intent, runId: "r", outcome: "VERIFIED", timeZone: "Europe/Vienna" },
+    { intent: second, runId: "r", outcome: "UNCERTAIN", timeZone: "Europe/Vienna" }
+  ], "2026-08-31T12:00:00.000Z");
+  assert.equal(message.severity, "ERROR");
+  assert.match(message.subject, /mit Problemen/);
+  assert.match(message.body, /🛑 x · TikTok/);
+});
+
+test("grouping sends singles as detailed messages and multi-slot groups as waves", async () => {
+  const enqueued = [];
+  const outbox = {
+    enqueueNotification(message, channelKeys) { enqueued.push(message); return channelKeys.map((key) => ({ notificationId: message.notificationId, channelKey: key, status: "PENDING", attempts: 0 })); },
+    listNotificationDeliveries() { return []; },
+    getNotification() { return null; },
+    markNotificationSent() {}, markNotificationFailed() {}
+  };
+  const adapter = { channelKey: "telegram", async send() { return {}; } };
+  const other = { ...intent, intentId: "intent:i2", scheduledFor: "2026-08-30T15:00:00.000Z" };
+  const third = { ...intent, intentId: "intent:i3" };
+  await notifyPublicationOutcomes(outbox, [adapter], [
+    { intent, runId: "r", outcome: "VERIFIED" },
+    { intent: third, runId: "r", outcome: "VERIFIED" },
+    { intent: other, runId: "r", outcome: "VERIFIED" }
+  ], "2026-08-31T12:00:00.000Z", { type: "system", id: "test" });
+  assert.equal(enqueued.length, 2);
+  const kinds = enqueued.map((m) => m.notificationId.split(":")[0]).sort();
+  assert.deepEqual(kinds, ["publication", "publication-wave"]);
 });

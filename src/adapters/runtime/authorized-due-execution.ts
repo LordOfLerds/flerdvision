@@ -1,6 +1,6 @@
 import { DurableFinalActionService } from "../../application/durable-final-action.js";
 import { DueWorkClaimer, MissedWindowGuard } from "../../application/scheduler.js";
-import { notifyPublicationOutcome } from "../../application/publication-notifications.js";
+import { notifyPublicationOutcomes, type PublicationOutcomeNotificationInput } from "../../application/publication-notifications.js";
 import type { NotificationOutboxPort, NotificationPort } from "../../domain/operations-ports.js";
 import type { Actor } from "../../domain/control-plane.js";
 import type { ControlPlaneStorePort } from "../../domain/control-plane-ports.js";
@@ -20,7 +20,7 @@ export interface AuthorizedDuePublisherPort {
 export type AuthorizedPublishContextProvider=(intent:PublicationIntent)=>PublishContext;
 type DueStore=ControlPlaneStorePort & PublishAttemptStorePort & VerificationStorePort & NotificationOutboxPort;
 
-export interface AuthorizedRuntimeDueExecutionOptions {releaseSha:string;ownerId:string;leaseTtlSeconds?:number;maxPerCycle?:number;clock?:()=>string;notificationAdapters?:readonly NotificationPort[];}
+export interface AuthorizedRuntimeDueExecutionOptions {releaseSha:string;ownerId:string;leaseTtlSeconds?:number;maxPerCycle?:number;clock?:()=>string;notificationAdapters?:readonly NotificationPort[];timeZone?:string;}
 
 /**
  * Fully implemented but intentionally NOT wired into WorkspaceDistributionRuntime while R0 is active.
@@ -56,6 +56,7 @@ export class AuthorizedRuntimeDueExecutionAdapter implements RuntimeDueExecution
   }
   async runDue(now:string){
     const startedAt=new Date(now).toISOString(),actor:Actor={type:"worker",id:this.options.ownerId};let claimed=0,prepared=0,verified=0,uncertain=0,blocked=this.missed.blockMissed(startedAt,actor).length;
+    const outcomes:PublicationOutcomeNotificationInput[]=[];
     for(let index=0;index<this.maxPerCycle;index++){
       // Allowlist-only eligibility: foreign accounts are another worker's work and must stay
       // SCHEDULED untouched. Misconfiguration (release mismatch, wrong mode) still claims and
@@ -68,8 +69,8 @@ export class AuthorizedRuntimeDueExecutionAdapter implements RuntimeDueExecution
         heartbeat();const attempt=await this.publisher.prepare.prepareClaimed(claim.record.intent.intentId,this.clock(),actor);attemptId=attempt.attemptId;prepared+=1;heartbeat();
         if(attempt.releaseSha!==this.options.releaseSha)throw new Error(`Prepared attempt release ${attempt.releaseSha} differs from worker release ${this.options.releaseSha}`);
         const context=this.context(claim.record.intent),final=await this.finalAction.execute(claim.record.intent.intentId,attempt.attemptId,context,actor);heartbeat();
-        if(final.kind==="uncertain"){uncertain+=1;await this.notifyOutcome(claim.record.intent,attempt.attemptId,"UNCERTAIN",actor);continue;}
-        try{const result=await this.publisher.reconciliation.reconcile(claim.record.intent.intentId,attempt.attemptId,actor);if(result.decision.outcome==="VERIFIED"){verified+=1;await this.notifyOutcome(claim.record.intent,attempt.attemptId,"VERIFIED",actor,result.publication?.permalink);}else if(result.decision.outcome==="UNCERTAIN"){uncertain+=1;await this.notifyOutcome(claim.record.intent,attempt.attemptId,"UNCERTAIN",actor);}}
+        if(final.kind==="uncertain"){uncertain+=1;outcomes.push(this.outcomeInput(claim.record.intent,attempt.attemptId,"UNCERTAIN"));continue;}
+        try{const result=await this.publisher.reconciliation.reconcile(claim.record.intent.intentId,attempt.attemptId,actor);if(result.decision.outcome==="VERIFIED"){verified+=1;outcomes.push(this.outcomeInput(claim.record.intent,attempt.attemptId,"VERIFIED",result.publication?.permalink));}else if(result.decision.outcome==="UNCERTAIN"){uncertain+=1;outcomes.push(this.outcomeInput(claim.record.intent,attempt.attemptId,"UNCERTAIN"));}}
         catch(error){const current=this.store.getIntent(claim.record.intent.intentId);if(current?.state==="PUBLISHING"||current?.state==="VERIFYING"){this.store.markAttemptUncertain(attempt.attemptId,this.clock(),actor,`runtime_verification_exception:${error instanceof Error?error.message:String(error)}`);uncertain+=1;}else throw error;}
       }catch(error){
         if(attemptId)await this.publisher.registry.close(attemptId).catch(()=>{});
@@ -81,13 +82,15 @@ export class AuthorizedRuntimeDueExecutionAdapter implements RuntimeDueExecution
         else throw error;
       }finally{this.store.releaseLease(claim.leaseResourceKey,claim.leaseOwnerId,this.clock(),actor);}
     }
+    // Wave bundling: one message per slot time instead of one ping per platform (operator
+    // requirement); single outcomes keep the detailed message.
+    await notifyPublicationOutcomes(this.store,this.options.notificationAdapters??[],outcomes,this.clock(),actor);
     return{claimed,prepared,verified,uncertain,blocked};
   }
 
   /** Operator channels hear every post-boundary outcome; a broken channel never breaks the worker. */
-  private async notifyOutcome(intent:PublicationIntent,attemptId:string,outcome:"VERIFIED"|"UNCERTAIN",actor:Actor,permalink?:string):Promise<void>{
-    const adapters=this.options.notificationAdapters??[];if(adapters.length===0)return;
+  private outcomeInput(intent:PublicationIntent,attemptId:string,outcome:"VERIFIED"|"UNCERTAIN",permalink?:string):PublicationOutcomeNotificationInput{
     const evidence=this.store.listVerificationEvidence(intent.intentId,attemptId).filter(item=>item.positive).at(-1);
-    await notifyPublicationOutcome(this.store,adapters,{intent,runId:`due:${this.options.ownerId}`,outcome,...(permalink?{permalink}:evidence?.locator?{permalink:evidence.locator}:{}),...(evidence?.artifactRef?{screenshotPath:evidence.artifactRef}:{})},this.clock(),actor);
+    return{intent,runId:`due:${this.options.ownerId}`,outcome,...(this.options.timeZone?{timeZone:this.options.timeZone}:{}),...(permalink?{permalink}:evidence?.locator?{permalink:evidence.locator}:{}),...(evidence?.artifactRef?{screenshotPath:evidence.artifactRef}:{})};
   }
 }
