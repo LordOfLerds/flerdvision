@@ -138,7 +138,7 @@ function composeAutonomousRuntime(options: HeadlessAutonomousRuntimeOptions): Au
       publisher,
       operationalGate,
       contextProvider,
-      { releaseSha: options.releaseSha, ownerId, maxPerCycle, notificationAdapters: [...(telegramAdapterFromEnv(env) ? [telegramAdapterFromEnv(env)!] : [])], timeZone: spec.workspace.timezone }
+      { releaseSha: options.releaseSha, ownerId, maxPerCycle, notificationAdapters: [...(telegramAdapterFromEnv(env) ? [telegramAdapterFromEnv(env)!] : [])], timeZone: spec.workspace.timezone, channelNames: Object.fromEntries(selected.map((channel) => [accountIdForChannel(channel), channel.name])) }
     );
     const supervisor = new RuntimeSupervisor({
       lease: base.lease,

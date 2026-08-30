@@ -11,6 +11,8 @@ export interface PublicationOutcomeNotificationInput {
   permalink?: string;
   screenshotPath?: string;
   timeZone?: string;
+  /** Spec display name of the channel (customer-facing); falls back to the bare handle. */
+  channelName?: string;
 }
 
 const PLATFORM_LABEL: Readonly<Record<string, string>> = { instagram: "Instagram", tiktok: "TikTok", youtube: "YouTube" };
@@ -34,7 +36,7 @@ function handleFrom(accountId: string): string {
 
 export function publicationOutcomeMessage(input: PublicationOutcomeNotificationInput, now: string): NotificationMessage {
   const verified = input.outcome === "VERIFIED";
-  const handle = handleFrom(input.intent.accountId);
+  const handle = input.channelName ?? handleFrom(input.intent.accountId);
   const timeZone = input.timeZone ?? "Europe/Vienna";
   // Operator requirement: every message names time, channel and platform up front.
   const slot = localTime(input.intent.scheduledFor, timeZone);
@@ -96,7 +98,7 @@ export function publicationWaveMessage(outcomes: readonly PublicationOutcomeNoti
   const lines = outcomes.map((item) => {
     const badge = item.outcome === "VERIFIED" ? "✅" : "🛑";
     const link = item.permalink ? ` — ${item.permalink}` : "";
-    return `${badge} ${handleFrom(item.intent.accountId)} · ${platformLabel(item.intent.platform)}${link}`;
+    return `${badge} ${item.channelName ?? handleFrom(item.intent.accountId)} · ${platformLabel(item.intent.platform)}${link}`;
   });
   const allVerified = outcomes.every((item) => item.outcome === "VERIFIED");
   const screenshot = outcomes.find((item) => item.screenshotPath)?.screenshotPath;

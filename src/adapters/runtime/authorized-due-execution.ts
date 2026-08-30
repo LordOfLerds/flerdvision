@@ -20,7 +20,7 @@ export interface AuthorizedDuePublisherPort {
 export type AuthorizedPublishContextProvider=(intent:PublicationIntent)=>PublishContext;
 type DueStore=ControlPlaneStorePort & PublishAttemptStorePort & VerificationStorePort & NotificationOutboxPort;
 
-export interface AuthorizedRuntimeDueExecutionOptions {releaseSha:string;ownerId:string;leaseTtlSeconds?:number;maxPerCycle?:number;clock?:()=>string;notificationAdapters?:readonly NotificationPort[];timeZone?:string;launchJitterMaxSeconds?:number;}
+export interface AuthorizedRuntimeDueExecutionOptions {releaseSha:string;ownerId:string;leaseTtlSeconds?:number;maxPerCycle?:number;clock?:()=>string;notificationAdapters?:readonly NotificationPort[];timeZone?:string;launchJitterMaxSeconds?:number;channelNames?:Readonly<Record<string,string>>;}
 
 /**
  * Fully implemented but intentionally NOT wired into WorkspaceDistributionRuntime while R0 is active.
@@ -91,6 +91,6 @@ export class AuthorizedRuntimeDueExecutionAdapter implements RuntimeDueExecution
   /** Operator channels hear every post-boundary outcome; a broken channel never breaks the worker. */
   private outcomeInput(intent:PublicationIntent,attemptId:string,outcome:"VERIFIED"|"UNCERTAIN",permalink?:string):PublicationOutcomeNotificationInput{
     const evidence=this.store.listVerificationEvidence(intent.intentId,attemptId).filter(item=>item.positive).at(-1);
-    return{intent,runId:`due:${this.options.ownerId}`,outcome,...(this.options.timeZone?{timeZone:this.options.timeZone}:{}),...(permalink?{permalink}:evidence?.locator?{permalink:evidence.locator}:{}),...(evidence?.artifactRef?{screenshotPath:evidence.artifactRef}:{})};
+    return{intent,runId:`due:${this.options.ownerId}`,outcome,...(this.options.timeZone?{timeZone:this.options.timeZone}:{}),...(this.options.channelNames?.[intent.accountId]?{channelName:this.options.channelNames[intent.accountId]!}:{}),...(permalink?{permalink}:evidence?.locator?{permalink:evidence.locator}:{}),...(evidence?.artifactRef?{screenshotPath:evidence.artifactRef}:{})};
   }
 }

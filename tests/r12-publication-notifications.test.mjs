@@ -123,3 +123,10 @@ test("grouping sends singles as detailed messages and multi-slot groups as waves
   const kinds = enqueued.map((m) => m.notificationId.split(":")[0]).sort();
   assert.deepEqual(kinds, ["publication", "publication-wave"]);
 });
+
+test("messages prefer the spec channel display name over the bare handle", () => {
+  const message = publicationOutcomeMessage({ intent, runId: "r", outcome: "VERIFIED", channelName: "LordOfLerds Instagram", timeZone: "Europe/Vienna" }, "2026-08-31T12:00:00.000Z");
+  assert.match(message.subject, /LordOfLerds Instagram · Instagram/);
+  const runtime = readFileSync(new URL("../src/application/headless-autonomous-runtime.ts", import.meta.url).pathname, "utf8");
+  assert.match(runtime, /channelNames: Object\.fromEntries\(selected\.map/);
+});
