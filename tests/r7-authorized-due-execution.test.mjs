@@ -13,3 +13,23 @@ function publisher(store){let clicks=0,closed=0;return{get clicks(){return click
 
 test("authorized dormant due worker follows PREPARING -> PUBLISHING -> VERIFYING -> VERIFIED",async()=>{const store=setup(),pub=publisher(store),now=clock();try{const worker=new AuthorizedRuntimeDueExecutionAdapter(store,pub,gate(),()=>({mode:"canary",allowFinalPublish:true,allowedAccountIds:new Set(["acct"]),releaseSha:"release-1"}),{releaseSha:"release-1",ownerId:"worker",clock:now,maxPerCycle:2});const report=await worker.runDue(target);assert.deepEqual(report,{claimed:1,prepared:1,verified:1,uncertain:0,blocked:0});assert.equal(store.getIntent("intent")?.state,"VERIFIED");assert.equal(pub.clicks,1);}finally{store.close();}});
 test("release mismatch blocks before irreversible final click",async()=>{const store=setup(),pub=publisher(store),now=clock();try{const worker=new AuthorizedRuntimeDueExecutionAdapter(store,pub,gate(),()=>({mode:"canary",allowFinalPublish:true,allowedAccountIds:new Set(["acct"]),releaseSha:"wrong-release"}),{releaseSha:"release-1",ownerId:"worker",clock:now,maxPerCycle:1});const report=await worker.runDue(target);assert.equal(report.blocked,1);assert.equal(pub.clicks,0);assert.equal(pub.closed,1);assert.equal(store.getIntent("intent")?.state,"BLOCKED");assert.equal(store.getPublishAttempt("attempt")?.irreversibleBoundaryEnteredAt,undefined);}finally{store.close();}});
+
+test("B1: a due intent outside the account allowlist is never claimed and stays SCHEDULED", async () => {
+  // Before this fix the worker claimed foreign due intents, ran the full browser prepare, and
+  // only then failed the allowlist -- burning the intent to BLOCKED for its rightful worker.
+  const store = setup();
+  try {
+    const worker = new AuthorizedRuntimeDueExecutionAdapter(
+      store,
+      { prepare: { async prepareClaimed() { throw new Error("must not prepare foreign work"); } },
+        finalAction: {}, reconciliation: {}, registry: { async close() {} } },
+      gate(),
+      () => ({ mode: "canary", allowFinalPublish: true, allowedAccountIds: new Set(["someone-else"]), releaseSha: "release-1" }),
+      { ownerId: "worker-1", releaseSha: "release-1", clock: clock() }
+    );
+    const report = await worker.runDue(target);
+    assert.equal(report.claimed, 0);
+    assert.equal(report.blocked, 0);
+    assert.equal(store.getIntent("intent")?.state, "SCHEDULED");
+  } finally { store.close(); }
+});

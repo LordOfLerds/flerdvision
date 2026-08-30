@@ -55,7 +55,12 @@ export class AuthorizedRuntimeDueExecutionAdapter implements RuntimeDueExecution
   async runDue(now:string){
     const startedAt=new Date(now).toISOString(),actor:Actor={type:"worker",id:this.options.ownerId};let claimed=0,prepared=0,verified=0,uncertain=0,blocked=this.missed.blockMissed(startedAt,actor).length;
     for(let index=0;index<this.maxPerCycle;index++){
-      const claim=this.claimer.claimNext(this.options.ownerId,this.clock(),this.leaseTtlSeconds);if(!claim)break;claimed+=1;let attemptId:string|undefined;
+      // Allowlist-only eligibility: foreign accounts are another worker's work and must stay
+      // SCHEDULED untouched. Misconfiguration (release mismatch, wrong mode) still claims and
+      // fails loudly on the existing path -- a broken worker should scream, not idle silently.
+      const claim=this.claimer.claimNext(this.options.ownerId,this.clock(),this.leaseTtlSeconds,(intent)=>{
+        try{return this.contextProvider(intent).allowedAccountIds.has(intent.accountId);}catch{return true;}
+      });if(!claim)break;claimed+=1;let attemptId:string|undefined;
       const heartbeat=()=>{const refreshed=this.store.heartbeatLease(claim.leaseResourceKey,claim.leaseOwnerId,this.clock(),this.leaseTtlSeconds,actor);if(!refreshed)throw new Error(`Lost publication lease ${claim.leaseResourceKey}`);};
       try{
         heartbeat();const attempt=await this.publisher.prepare.prepareClaimed(claim.record.intent.intentId,this.clock(),actor);attemptId=attempt.attemptId;prepared+=1;heartbeat();
