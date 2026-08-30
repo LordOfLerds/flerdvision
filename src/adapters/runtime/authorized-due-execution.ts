@@ -20,7 +20,7 @@ export interface AuthorizedDuePublisherPort {
 export type AuthorizedPublishContextProvider=(intent:PublicationIntent)=>PublishContext;
 type DueStore=ControlPlaneStorePort & PublishAttemptStorePort & VerificationStorePort & NotificationOutboxPort;
 
-export interface AuthorizedRuntimeDueExecutionOptions {releaseSha:string;ownerId:string;leaseTtlSeconds?:number;maxPerCycle?:number;clock?:()=>string;notificationAdapters?:readonly NotificationPort[];timeZone?:string;}
+export interface AuthorizedRuntimeDueExecutionOptions {releaseSha:string;ownerId:string;leaseTtlSeconds?:number;maxPerCycle?:number;clock?:()=>string;notificationAdapters?:readonly NotificationPort[];timeZone?:string;launchJitterMaxSeconds?:number;}
 
 /**
  * Fully implemented but intentionally NOT wired into WorkspaceDistributionRuntime while R0 is active.
@@ -63,7 +63,7 @@ export class AuthorizedRuntimeDueExecutionAdapter implements RuntimeDueExecution
       // fails loudly on the existing path -- a broken worker should scream, not idle silently.
       const claim=this.claimer.claimNext(this.options.ownerId,this.clock(),this.leaseTtlSeconds,(intent)=>{
         try{return this.contextProvider(intent).allowedAccountIds.has(intent.accountId);}catch{return true;}
-      });if(!claim)break;claimed+=1;let attemptId:string|undefined;
+      },this.options.launchJitterMaxSeconds??480);if(!claim)break;claimed+=1;let attemptId:string|undefined;
       const heartbeat=()=>{const refreshed=this.store.heartbeatLease(claim.leaseResourceKey,claim.leaseOwnerId,this.clock(),this.leaseTtlSeconds,actor);if(!refreshed)throw new Error(`Lost publication lease ${claim.leaseResourceKey}`);};
       try{
         heartbeat();const attempt=await this.publisher.prepare.prepareClaimed(claim.record.intent.intentId,this.clock(),actor);attemptId=attempt.attemptId;prepared+=1;heartbeat();

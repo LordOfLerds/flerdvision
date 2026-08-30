@@ -109,7 +109,8 @@ function tokenFor(label: string): string {
 }
 
 export class BrowserDomUiDriver {
-  constructor(private readonly session: BrowserPageSessionPort) {}
+  private pacing: import("./human-pacing.js").HumanPacing | undefined;
+  constructor(private readonly session: BrowserPageSessionPort, pacing?: import("./human-pacing.js").HumanPacing) { this.pacing = pacing; }
 
   async locate(locators: readonly UiLocator[], timeoutMs = 10_000, visibleOnly = true): Promise<LocatedTarget> {
     if (locators.length === 0) throw new UiTargetNotFoundError("No UI locators configured");
@@ -275,7 +276,16 @@ export class BrowserDomUiDriver {
         return el !== null && (document.activeElement === el || el.contains(document.activeElement));
       })()`);
       if (!focused) throw new UiActionExecutionError(`Editable target did not take focus: ${target.descriptor}`);
-      await this.session.insertText(value);
+      if (this.pacing) {
+        // Human typing: one trusted insertText per character with seeded per-character delays.
+        const delays = this.pacing.typingDelaysMs(value);
+        for (let index = 0; index < value.length; index += 1) {
+          await this.session.insertText(value[index]!);
+          await new Promise((resolveDelay) => setTimeout(resolveDelay, delays[index] ?? 80));
+        }
+      } else {
+        await this.session.insertText(value);
+      }
       const readback = await this.session.evaluate<string>(`(() => {
         const el = document.querySelector(${JSON.stringify(selector)});
         return el ? (el.textContent || '') : '';

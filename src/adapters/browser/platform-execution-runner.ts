@@ -5,6 +5,7 @@ import type { PrepareArtifactSinkPort } from "../../domain/platform-ui-ports.js"
 import type { UiLocator } from "../../domain/platform-ui.js";
 import { BrowserCalibrationRecorder } from "./calibration-recorder.js";
 import { BrowserDomUiDriver, UiActionExecutionError } from "./dom-ui-driver.js";
+import { humanPacing, type HumanPacing } from "./human-pacing.js";
 import { surfaceExecutionBootstrapUrl } from "./surface-bootstrap.js";
 
 export interface SafePlatformExecutionInput {
@@ -29,11 +30,13 @@ export class SafePlatformExecutionRunner {
   private readonly driver:BrowserDomUiDriver;
   private readonly recorder=new BrowserCalibrationRecorder();
   private readonly now:()=>string;
+  private pacing:HumanPacing|undefined;
   constructor(
     private readonly session:BrowserPageSessionPort,
     private readonly artifacts:PrepareArtifactSinkPort,
     now:()=>string=()=>new Date().toISOString()
   ){this.driver=new BrowserDomUiDriver(session);this.now=now;}
+  private pause():Promise<void>{const ms=this.pacing?.stepPauseMs()??0;return ms>0?new Promise((resolvePause)=>setTimeout(resolvePause,ms)):Promise.resolve();}
 
   private finalLocators(plan:PlatformExecutionPlan):readonly UiLocator[]{
     const final=plan.actions.at(-1);
@@ -119,9 +122,17 @@ export class SafePlatformExecutionRunner {
     const environment=await this.recorder.environment(this.session);
     if(environment.fingerprint!==plan.environmentFingerprint)throw new UiActionExecutionError(`Surface environment drift before execution: expected ${plan.environmentFingerprint}, observed ${environment.fingerprint}`);
     artifactRefs.push(...await this.artifacts.captureBoundary(this.session,plan.intent,identity,"surface-execution-bootstrap",this.now()));
+    // Human pacing, seeded per intent: fake sessions (no trusted input channel) keep the old
+    // instant behaviour so unit fixtures stay fast and exact.
+    const pacing=this.session.insertText?humanPacing(plan.intent.intentId):undefined;
+    if(pacing)this.pacing=pacing;
+    (this.driver as unknown as {pacing:HumanPacing|undefined}).pacing=pacing;
     for(const action of plan.actions){
       let detail:string;
+      await this.pause();
       if(action.operation==="FINAL_BOUNDARY"){
+        const breath=this.pacing;
+        if(breath)await new Promise((resolveBreath)=>setTimeout(resolveBreath,breath.preFinalPauseMs()));
         detail=(await this.driver.locate(action.locators,10_000,true)).descriptor;
         journal.push({stepKey:action.stepKey,operation:action.operation,outcome:"PASS",detail});
         artifactRefs.push(...await this.artifacts.captureBoundary(this.session,plan.intent,identity,"surface-execution-final-boundary",this.now()));

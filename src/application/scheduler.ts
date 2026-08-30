@@ -1,4 +1,5 @@
 import type { Instant, PublicationIntent } from "../domain/model.js";
+import { jitterSeconds } from "../adapters/browser/human-pacing.js";
 import type { Actor, ScheduleReservation, StoredPublicationIntent } from "../domain/control-plane.js";
 import type { PublicationIntentStorePort, ScheduleStorePort } from "../domain/control-plane-ports.js";
 import type { OperationalPublishGatePort } from "../domain/operations-ports.js";
@@ -52,9 +53,19 @@ export class DueWorkClaimer {
     private readonly operationalGate?: OperationalPublishGatePort
   ) {}
 
-  claimNext(ownerId: string, now: Instant, ttlSeconds: number, eligible?: (intent: PublicationIntent) => boolean): ClaimedWork | null {
+  claimNext(ownerId: string, now: Instant, ttlSeconds: number, eligible?: (intent: PublicationIntent) => boolean, jitterMaxSeconds = 0): ClaimedWork | null {
     const workerActor: Actor = { type: "worker", id: ownerId };
+    const nowMs = new Date(now).getTime();
     for (const reservation of this.store.listDueReservations(now)) {
+      // Human launch scatter (operator decision): dueness begins at windowStart, which posted
+      // machine-punctually up to 30 minutes early. The launch instant is target plus a
+      // deterministic per-intent offset, clamped two minutes before the window closes so the
+      // scatter can never turn into a missed window.
+      if (jitterMaxSeconds > 0) {
+        const offset = jitterSeconds(reservation.intentId, jitterMaxSeconds) * 1000;
+        const launchMs = Math.min(new Date(reservation.targetAt).getTime() + offset, new Date(reservation.windowEndAt).getTime() - 120_000);
+        if (nowMs < launchMs) continue;
+      }
       const candidate = this.store.getIntent(reservation.intentId);
       if (!candidate) continue;
       // A worker must never claim what it may not execute: claiming first and failing the
