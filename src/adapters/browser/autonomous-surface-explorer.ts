@@ -299,6 +299,13 @@ export class AutonomousSurfaceExplorer {
     const artifactRefs: string[] = [];
     const steps: SurfaceContractStep[] = [];
     await this.session.navigate(surfaceExecutionBootstrapUrl(input.postingProfile.platform));
+    // A fixed settle is a race against the app's own boot: TikTok Studio's document was still a
+    // 1.5 KB shell when exploration began, so nothing could be located at all. Wait until the
+    // surface actually rendered interactive content, bounded, then settle briefly.
+    for (let rendered = false, deadline = Date.now() + 25_000; !rendered && Date.now() < deadline; ) {
+      rendered = await this.session.evaluate<boolean>(`document.querySelectorAll('button, [role="button"], input, a[href]').length > 3`).catch(() => false);
+      if (!rendered) await sleep(500);
+    }
     await sleep(1500);
     artifactRefs.push(...await this.artifacts.captureBoundary(this.session, input.intent, input.identity, "autonomous-bootstrap", this.now()));
     const environment = await this.recorder.environment(this.session);

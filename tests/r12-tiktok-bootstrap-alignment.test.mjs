@@ -55,3 +55,11 @@ test("an optional opening step is skipped once the upload surface is already rea
   assert.match(source, /if \(uploadReady && !step\.required\)/);
   assert.match(source, /upload surface already reached/);
 });
+
+test("exploration waits for a rendered surface instead of a fixed settle", async () => {
+  const { readFileSync } = await import("node:fs");
+  const source = readFileSync(new URL("../src/adapters/browser/autonomous-surface-explorer.ts", import.meta.url).pathname, "utf8");
+  // TikTok Studio's document was still a 1.5 KB shell after the fixed 1.5 s settle.
+  assert.match(source, /Date\.now\(\) \+ 25_000/);
+  assert.match(source, /button, \[role="button"\], input, a\[href\]'\)\.length > 3/);
+});
