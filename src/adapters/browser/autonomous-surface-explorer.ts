@@ -10,6 +10,7 @@ import type { UiLocator } from "../../domain/platform-ui.js";
 import type { SemanticInteractiveElement, SemanticSurfaceSnapshot, SurfaceAgentPort, SurfaceAgentRequest } from "../../domain/surface-agent.js";
 import { BrowserCalibrationRecorder } from "./calibration-recorder.js";
 import { BrowserDomUiDriver, UiTargetNotFoundError } from "./dom-ui-driver.js";
+import { surfaceExecutionBootstrapUrl } from "./surface-bootstrap.js";
 
 export type AutonomousStepAction = "CLICK" | "SET_FILE" | "FILL_CAPTION" | "FILL_TITLE" | "FINAL_BOUNDARY";
 interface AutonomousStep {
@@ -34,11 +35,6 @@ export interface AutonomousSurfaceExplorationResult {
   journal: readonly AutonomousSurfaceJournalEntry[];
 }
 
-function bootstrapUrl(profile: PostingProfile): string {
-  if (profile.platform === "instagram") return "https://www.instagram.com/";
-  if (profile.platform === "tiktok") return "https://www.tiktok.com/upload";
-  return "https://studio.youtube.com/";
-}
 function locatorKey(locator: UiLocator): string { return JSON.stringify([locator.kind, locator.role ?? "", locator.value, locator.exact ?? false]); }
 function unique(locators: readonly UiLocator[]): readonly UiLocator[] {
   const seen = new Set<string>();
@@ -262,7 +258,7 @@ export class AutonomousSurfaceExplorer {
     const journal: AutonomousSurfaceJournalEntry[] = [];
     const artifactRefs: string[] = [];
     const steps: SurfaceContractStep[] = [];
-    await this.session.navigate(bootstrapUrl(input.postingProfile));
+    await this.session.navigate(surfaceExecutionBootstrapUrl(input.postingProfile.platform));
     await sleep(1500);
     artifactRefs.push(...await this.artifacts.captureBoundary(this.session, input.intent, input.identity, "autonomous-bootstrap", this.now()));
     const environment = await this.recorder.environment(this.session);
