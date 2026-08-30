@@ -66,6 +66,28 @@ function identitySelector(channel: WorkspaceChannelSpec): string {
   if (channel.platform === "tiktok") return `nav a[href*="/@${handle}"], a[data-e2e*="profile"][href*="/@${handle}"]`;
   return `a[href*="/@${handle}"], a[href*="/channel/"][aria-label*="${handle}"]`;
 }
+/**
+ * Cookies that exist exactly from the moment the platform authenticated the operator, and not
+ * a second earlier. While none of them is present the browser belongs to the operator alone:
+ * no navigation, no probing, nothing (see the loop below).
+ *
+ * instagram/tiktok both use a first-party "sessionid" cookie.
+ *
+ * youtube: Studio is a Google property, so a signed-in session on studio.youtube.com carries the
+ * Google account cookies scoped to .youtube.com. SAPISID (plus the __Secure-1PAPISID /
+ * __Secure-3PAPISID twins Google is migrating toward) and the HttpOnly __Secure-1PSID session id
+ * are set only for an authenticated Google account; a logged-out visit sets only visitor cookies
+ * (VISITOR_INFO1_LIVE, YSC, CONSENT and friends). LOGIN_INFO is deliberately NOT a candidate: it
+ * can survive logout. Any candidate cookie proves only that SOME account is signed in -- which
+ * account it is stays the identity probe's decision afterwards.
+ *
+ * Unknown platforms return an empty list and fall back to the legacy URL guard, fail-closed.
+ */
+function sessionCookieNames(platform: WorkspaceChannelSpec["platform"]): readonly string[] {
+  if (platform === "instagram" || platform === "tiktok") return ["sessionid"];
+  if (platform === "youtube") return ["SAPISID", "__Secure-1PAPISID", "__Secure-3PAPISID", "__Secure-1PSID"];
+  return [];
+}
 function probeConfig(channel: WorkspaceChannelSpec, navigate: boolean): ConfiguredDomSessionProbeConfig {
   return {
     probeUrl: identityUrl(channel),
@@ -125,20 +147,20 @@ export async function ensureHeadlessLogin(input: {
     const timeoutMs = input.timeoutMs ?? 15 * 60_000;
     // The URL allowlist alone proved insufficient: Instagram's code-entry pages live on paths
     // the list does not know (auth_platform and friends), so the probe navigated the operator
-    // away mid-2FA every few seconds. The platform's own session cookie is the honest signal --
-    // it exists exactly from the moment authentication succeeded. Until it does, the browser is
+    // away mid-2FA every few seconds. The platform's own session cookies are the honest signal --
+    // they exist exactly from the moment authentication succeeded. Until one does, the browser is
     // the operator's alone: no navigation, no probing, nothing.
-    const sessionCookie = channel.platform === "instagram" || channel.platform === "tiktok" ? "sessionid" : null;
+    const sessionCookies = sessionCookieNames(channel.platform);
     while (Date.now() - started < timeoutMs) {
       const checkedAt = new Date().toISOString();
-      if (sessionCookie) {
+      if (sessionCookies.length > 0) {
         const authenticated = await session.page.cookies(bootstrapUrl(channel))
-          .then((cookies) => cookies.some((cookie) => cookie.name === sessionCookie && cookie.value.length > 0))
+          .then((cookies) => cookies.some((cookie) => sessionCookies.includes(cookie.name) && cookie.value.length > 0))
           .catch(() => false);
         if (!authenticated) {
           if (lastState !== "AWAITING_LOGIN") {
             lastState = "AWAITING_LOGIN";
-            input.onProgress?.(`Login state ${channel.key}: waiting for the operator to finish signing in (no ${sessionCookie} cookie yet; the browser will not be touched)`);
+            input.onProgress?.(`Login state ${channel.key}: waiting for the operator to finish signing in (no ${sessionCookies.join("/")} cookie yet; the browser will not be touched)`);
           }
           session.heartbeat(checkedAt);
           await sleep(input.pollMs ?? 2000);
