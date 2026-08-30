@@ -138,14 +138,41 @@ function bootstrapUrl(channel: WorkspaceChannelSpec): string {
   if (channel.platform === "tiktok") return "https://www.tiktok.com/";
   return "https://studio.youtube.com/";
 }
-function preservedCalibratedEntry(path: string, collection: "probes" | "specs", accountId: string, platform: string): Record<string, unknown> | undefined {
+function preservedCalibratedEntry(path: string, collection: "probes" | "specs", accountId: string, platform: string, freshPayload?: unknown): Record<string, unknown> | undefined {
   const current = readObject(path)?.[collection];
   if (!Array.isArray(current)) return undefined;
-  return current.find((entry) => {
-    if (!entry || typeof entry !== "object") return false;
-    const item = entry as Record<string, unknown>;
+  const entry = current.find((candidate) => {
+    if (!candidate || typeof candidate !== "object") return false;
+    const item = candidate as Record<string, unknown>;
     return item.accountId === accountId && item.platform === platform && item.calibrationStatus === "CALIBRATED";
   }) as Record<string, unknown> | undefined;
+  if (!entry) return undefined;
+  // Preserving calibration must not preserve an outdated contract: when the compiler template
+  // for the payload changed (a live gap -- the reels-tab deep check never reached a calibrated
+  // spec), the fresh template wins as UNVERIFIED and the next qualification recalibrates it.
+  if (freshPayload !== undefined) {
+    const payloadKey = collection === "specs" ? "spec" : "config";
+    if (!semanticEqual(entry[payloadKey], freshPayload)) return undefined;
+  }
+  return entry;
+}
+
+function verificationSpecTemplate(channel: WorkspaceChannelSpec): Record<string, unknown> {
+  return {
+    platform: channel.platform,
+    bootstrapUrl: bootstrapUrl(channel),
+    profileUrlTemplate: profileUrl(channel),
+    profileReadyLocators: [{ kind: "css", value: "main, [role=\"main\"]" }],
+    postMatchLocators: [{ kind: "text", value: "{contentId}", exact: false }],
+    permalinkAttribute: "href",
+    // Instagram's profile grid renders no captions, and reels without share-to-feed only
+    // exist under the reels tab: the marker is only readable on the opened post page.
+    ...(channel.platform === "instagram" ? {
+      postListUrlTemplate: `${profileUrl(channel)}reels/`,
+      postLinkSelector: 'a[href*="/reel/"]',
+      postOpenLimit: 3
+    } : {})
+  };
 }
 
 export interface WorkspaceCompileReport {
@@ -288,28 +315,15 @@ export class WorkspaceSpecCompiler {
     const verificationPath = resolve(this.configDir, "profile-verification.json");
     const specs = spec.channels.map((channel) => {
       const accountId = accountIdForChannel(channel);
-      const preserved = preservedCalibratedEntry(verificationPath, "specs", accountId, channel.platform);
+      const freshSpec = verificationSpecTemplate(channel);
+      const preserved = preservedCalibratedEntry(verificationPath, "specs", accountId, channel.platform, freshSpec);
       if (preserved) return preserved;
       return {
         specId: `headless-profile-${channel.key}`,
         platform: channel.platform,
         accountId,
         calibrationStatus: "UNVERIFIED",
-        spec: {
-          platform: channel.platform,
-          bootstrapUrl: bootstrapUrl(channel),
-          profileUrlTemplate: profileUrl(channel),
-          profileReadyLocators: [{ kind: "css", value: "main, [role=\"main\"]" }],
-          postMatchLocators: [{ kind: "text", value: "{contentId}", exact: false }],
-          permalinkAttribute: "href",
-          // Instagram's profile grid renders no captions, and reels without share-to-feed only
-          // exist under the reels tab: the marker is only readable on the opened post page.
-          ...(channel.platform === "instagram" ? {
-            postListUrlTemplate: `${profileUrl(channel)}reels/`,
-            postLinkSelector: 'a[href*="/reel/"]',
-            postOpenLimit: 3
-          } : {})
-        }
+        spec: freshSpec
       };
     });
     atomicJson(verificationPath, { schemaVersion: 1, specs });

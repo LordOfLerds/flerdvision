@@ -509,3 +509,14 @@ test("the spec parser round-trips the deep-check fields instead of stripping the
         postListUrlTemplate: "https://x.example/list" } }]
   }), /together/);
 });
+
+test("a calibrated spec whose template moved on is re-emitted fresh instead of preserved stale", () => {
+  const compiler = readFileSync(new URL("../src/application/workspace-spec-compiler.ts", import.meta.url).pathname, "utf8");
+  // The live gap: preservedCalibratedEntry returned the stale calibrated entry verbatim, so the
+  // reels-tab deep check never reached a calibrated verification spec through any bootstrap.
+  assert.match(compiler, /preservedCalibratedEntry\(verificationPath, "specs", accountId, channel\.platform, freshSpec\)/);
+  const idx = compiler.indexOf("function preservedCalibratedEntry");
+  const block = compiler.slice(idx, idx + 1200);
+  assert.match(block, /semanticEqual\(entry\[payloadKey\], freshPayload\)/);
+  assert.match(block, /return undefined/);
+});
