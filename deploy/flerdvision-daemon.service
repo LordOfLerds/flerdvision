@@ -1,0 +1,54 @@
+# Flerdvision — autonomer Posting-Daemon (Canary-Modus).
+#
+# ExecStart ruft dist/cli/flerdvision.js direkt mit node auf (kein `npm run`, das wuerde bei jedem
+# Start neu bauen); dist/ wird von deploy/update-release.sh via `npm test` (enthaelt build) erzeugt.
+#
+# Der Daemon verweigert den Start hart, solange nicht ALLE drei Freigaben vorliegen
+# (src/cli/flerdvision.ts, authorizedMode):
+#   1. ALLOW_FINAL_PUBLISH=true in /etc/flerdvision/flerdvision.env,
+#   2. --confirm AUTONOMOUS_FINAL_PUBLISH (hier fest verdrahtet),
+#   3. mindestens ein --channel (aus $FLERDVISION_DAEMON_CHANNEL_ARGS in flerdvision.env).
+# Diese Unit wird NICHT beim Installieren enabled. Enable + ALLOW_FINAL_PUBLISH=true ist die
+# explizite Canary-Autorisierung nach der Qualifikationsleiter aus docs/23 (erst PREPARE_ONLY,
+# dann ggf. private E2E, dann EIN run-once-Canary, erst danach Daemon). --mode production ist
+# hier bewusst nicht vorgesehen; dafuer ist eine eigene, spaetere Freigabe noetig.
+#
+# Der Daemon laeuft headless (kein --show-browser) und braucht kein Display. DISPLAY=:99 ist nur
+# fuer einen bewussten Debug-Umbau gesetzt; wer unter dieser Unit wirklich headful fahren will,
+# muss zusaetzlich PrivateTmp=false setzen (X11-Socket liegt in /tmp/.X11-unix).
+
+[Unit]
+Description=Flerdvision autonomous posting daemon (canary)
+Wants=network-online.target
+After=network-online.target flerdvision-xvfb.service
+StartLimitIntervalSec=600
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=flerdvision
+Group=flerdvision
+WorkingDirectory=/opt/flerdvision/app
+EnvironmentFile=/etc/flerdvision/flerdvision.env
+EnvironmentFile=/etc/flerdvision/release.env
+Environment=NODE_ENV=production
+Environment=DISPLAY=:99
+# Chromium/fontconfig-Caches raus aus $HOME (ProtectHome=true) und rein in den Runtime-Root.
+Environment=XDG_CACHE_HOME=/var/lib/flerdvision/cache
+ExecStart=/usr/bin/node /opt/flerdvision/app/dist/cli/flerdvision.js daemon --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH --interval 60 $FLERDVISION_DAEMON_CHANNEL_ARGS
+Restart=on-failure
+RestartSec=30
+TimeoutStopSec=45
+KillSignal=SIGTERM
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/flerdvision
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
