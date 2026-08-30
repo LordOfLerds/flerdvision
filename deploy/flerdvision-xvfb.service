@@ -1,0 +1,29 @@
+# Flerdvision — virtuelles Display fuer headful Browser-Schritte (Login, PREPARE_ONLY-Qualifikation).
+#
+# `npm run flerdvision -- login` oeffnet den Browser IMMER headful (src/application/headless-login.ts,
+# openForOperator(... headless: false)), und `demo` laeuft ohne --headless ebenfalls headful
+# (src/cli/flerdvision.ts: headlessBrowser nur bei --headless). Auf einem VPS ohne Monitor braucht
+# das ein X-Display; Xvfb :99 stellt es dauerhaft und billig bereit. Der Daemon selbst laeuft
+# headless (--headless=new) und braucht dieses Display nicht zwingend.
+#
+# WICHTIG: KEIN PrivateTmp — der X11-Unix-Socket liegt in /tmp/.X11-unix und muss fuer
+# x11vnc/novnc-session.sh und die Operator-Shell sichtbar sein.
+#
+# Installation: siehe docs/24-VPS-DEPLOYMENT.md.
+
+[Unit]
+Description=Flerdvision virtual X display (Xvfb :99)
+After=network.target
+
+[Service]
+Type=simple
+User=flerdvision
+Group=flerdvision
+ExecStart=/usr/bin/Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
