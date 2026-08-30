@@ -1,5 +1,7 @@
 import { DurableFinalActionService } from "../../application/durable-final-action.js";
 import { DueWorkClaimer, MissedWindowGuard } from "../../application/scheduler.js";
+import { notifyPublicationOutcome } from "../../application/publication-notifications.js";
+import type { NotificationOutboxPort, NotificationPort } from "../../domain/operations-ports.js";
 import type { Actor } from "../../domain/control-plane.js";
 import type { ControlPlaneStorePort } from "../../domain/control-plane-ports.js";
 import type { PublicationIntent } from "../../domain/model.js";
@@ -16,9 +18,9 @@ export interface AuthorizedDuePublisherPort {
   registry:{close(attemptId:string):Promise<void>};
 }
 export type AuthorizedPublishContextProvider=(intent:PublicationIntent)=>PublishContext;
-type DueStore=ControlPlaneStorePort & PublishAttemptStorePort & VerificationStorePort;
+type DueStore=ControlPlaneStorePort & PublishAttemptStorePort & VerificationStorePort & NotificationOutboxPort;
 
-export interface AuthorizedRuntimeDueExecutionOptions {releaseSha:string;ownerId:string;leaseTtlSeconds?:number;maxPerCycle?:number;clock?:()=>string;}
+export interface AuthorizedRuntimeDueExecutionOptions {releaseSha:string;ownerId:string;leaseTtlSeconds?:number;maxPerCycle?:number;clock?:()=>string;notificationAdapters?:readonly NotificationPort[];}
 
 /**
  * Fully implemented but intentionally NOT wired into WorkspaceDistributionRuntime while R0 is active.
@@ -66,8 +68,8 @@ export class AuthorizedRuntimeDueExecutionAdapter implements RuntimeDueExecution
         heartbeat();const attempt=await this.publisher.prepare.prepareClaimed(claim.record.intent.intentId,this.clock(),actor);attemptId=attempt.attemptId;prepared+=1;heartbeat();
         if(attempt.releaseSha!==this.options.releaseSha)throw new Error(`Prepared attempt release ${attempt.releaseSha} differs from worker release ${this.options.releaseSha}`);
         const context=this.context(claim.record.intent),final=await this.finalAction.execute(claim.record.intent.intentId,attempt.attemptId,context,actor);heartbeat();
-        if(final.kind==="uncertain"){uncertain+=1;continue;}
-        try{const result=await this.publisher.reconciliation.reconcile(claim.record.intent.intentId,attempt.attemptId,actor);if(result.decision.outcome==="VERIFIED")verified+=1;else if(result.decision.outcome==="UNCERTAIN")uncertain+=1;}
+        if(final.kind==="uncertain"){uncertain+=1;await this.notifyOutcome(claim.record.intent,attempt.attemptId,"UNCERTAIN",actor);continue;}
+        try{const result=await this.publisher.reconciliation.reconcile(claim.record.intent.intentId,attempt.attemptId,actor);if(result.decision.outcome==="VERIFIED"){verified+=1;await this.notifyOutcome(claim.record.intent,attempt.attemptId,"VERIFIED",actor,result.publication?.permalink);}else if(result.decision.outcome==="UNCERTAIN"){uncertain+=1;await this.notifyOutcome(claim.record.intent,attempt.attemptId,"UNCERTAIN",actor);}}
         catch(error){const current=this.store.getIntent(claim.record.intent.intentId);if(current?.state==="PUBLISHING"||current?.state==="VERIFYING"){this.store.markAttemptUncertain(attempt.attemptId,this.clock(),actor,`runtime_verification_exception:${error instanceof Error?error.message:String(error)}`);uncertain+=1;}else throw error;}
       }catch(error){
         if(attemptId)await this.publisher.registry.close(attemptId).catch(()=>{});
@@ -80,5 +82,12 @@ export class AuthorizedRuntimeDueExecutionAdapter implements RuntimeDueExecution
       }finally{this.store.releaseLease(claim.leaseResourceKey,claim.leaseOwnerId,this.clock(),actor);}
     }
     return{claimed,prepared,verified,uncertain,blocked};
+  }
+
+  /** Operator channels hear every post-boundary outcome; a broken channel never breaks the worker. */
+  private async notifyOutcome(intent:PublicationIntent,attemptId:string,outcome:"VERIFIED"|"UNCERTAIN",actor:Actor,permalink?:string):Promise<void>{
+    const adapters=this.options.notificationAdapters??[];if(adapters.length===0)return;
+    const evidence=this.store.listVerificationEvidence(intent.intentId,attemptId).filter(item=>item.positive).at(-1);
+    await notifyPublicationOutcome(this.store,adapters,{intent,runId:`due:${this.options.ownerId}`,outcome,...(permalink?{permalink}:evidence?.locator?{permalink:evidence.locator}:{}),...(evidence?.artifactRef?{screenshotPath:evidence.artifactRef}:{})},this.clock(),actor);
   }
 }

@@ -8,6 +8,7 @@ import type { PublishContext } from "../domain/ports.js";
 import type { RouteTestEvidenceRecord } from "../domain/route-test-ports.js";
 import { SqliteRouteTestEvidenceStore } from "../adapters/distribution/sqlite-route-test-evidence.js";
 import { AuthorizedRuntimeDueExecutionAdapter } from "../adapters/runtime/authorized-due-execution.js";
+import { telegramAdapterFromEnv } from "../adapters/notify/telegram.js";
 import { WorkspaceDistributionRuntime } from "../adapters/runtime/workspace-distribution-runtime.js";
 import { WorkspaceSurfacePublisher } from "../adapters/runtime/workspace-surface-publisher.js";
 
@@ -119,7 +120,7 @@ function composeAutonomousRuntime(options: HeadlessAutonomousRuntimeOptions): Au
       publisher,
       operationalGate,
       contextProvider,
-      { releaseSha: options.releaseSha, ownerId, maxPerCycle }
+      { releaseSha: options.releaseSha, ownerId, maxPerCycle, notificationAdapters: [...(telegramAdapterFromEnv(env) ? [telegramAdapterFromEnv(env)!] : [])] }
     );
     const supervisor = new RuntimeSupervisor({
       lease: base.lease,

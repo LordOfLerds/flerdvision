@@ -69,3 +69,11 @@ test("the private-e2e verify path reports the outcome with permalink and screens
   assert.match(block, /screenshotPath:evidence\.artifactRef/);
   assert.match(block, /outcome:passed\?"VERIFIED":"UNCERTAIN"/);
 });
+
+test("the autonomous due path reports outcomes through the same channel", () => {
+  const due = readFileSync(new URL("../src/adapters/runtime/authorized-due-execution.ts", import.meta.url).pathname, "utf8");
+  assert.match(due, /notifyOutcome\(claim\.record\.intent,attempt\.attemptId,"VERIFIED"/);
+  assert.match(due, /notifyOutcome\(claim\.record\.intent,attempt\.attemptId,"UNCERTAIN"/);
+  const runtime = readFileSync(new URL("../src/application/headless-autonomous-runtime.ts", import.meta.url).pathname, "utf8");
+  assert.match(runtime, /notificationAdapters: \[\.\.\.\(telegramAdapterFromEnv\(env\)/);
+});
