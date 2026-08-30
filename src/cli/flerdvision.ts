@@ -166,6 +166,16 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
+  // A bare "fetch failed" cost a live acceptance window twice: undici hides the socket-level
+  // cause (ENOTFOUND, ECONNRESET, proxy, TLS) one level down. Print the whole cause chain.
+  let current: unknown = error;
+  const lines: string[] = [];
+  while (current) {
+    const err = current instanceof Error ? current : new Error(String(current));
+    const code = (current as { code?: string }).code;
+    lines.push(`${lines.length === 0 ? "" : "  caused by: "}${code ? `[${code}] ` : ""}${err.message}`);
+    current = (current as { cause?: unknown }).cause;
+  }
+  console.error(lines.join("\n"));
   process.exitCode = 1;
 });

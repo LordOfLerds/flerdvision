@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { SqliteControlPlaneStore } from "../dist/adapters/storage/sqlite.js";
 
 // Live acceptance failure: the very first real private-E2E run died on
@@ -71,4 +72,12 @@ test("details recorded as an object round-trips into the identity comparison", (
   const second = store.recordE2EGateResult({ ...gate, details: { approvedFollowers: 0 } }, actor);
   assert.equal(second.gateResultId, "e2e-gate:g3");
   assert.throws(() => store.recordE2EGateResult({ ...gate, details: { approvedFollowers: 1 } }, actor), /conflicts/);
+});
+
+test("the CLI prints the full error cause chain, not only the top message", () => {
+  const cli = readFileSync(new URL("../src/cli/flerdvision.ts", import.meta.url).pathname, "utf8");
+  const idx = cli.indexOf("main().catch");
+  const block = cli.slice(idx);
+  assert.match(block, /caused by/);
+  assert.match(block, /\.cause/);
 });
