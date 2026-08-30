@@ -189,7 +189,19 @@ export class ChromiumCdpRuntimeAdapter implements BrowserRuntimePort {
           let stableUrl = "";
           let stableCount = 0;
           while (Date.now() < deadline) {
-            const snapshot = await this.evaluate<{ href: string; ready: string }>(`({ href: location.href, ready: document.readyState })`);
+            let snapshot: { href: string; ready: string };
+            try {
+              snapshot = await this.evaluate<{ href: string; ready: string }>(`({ href: location.href, ready: document.readyState })`);
+            } catch (error) {
+              // A redirect chain destroys the execution context mid-poll -- the normal case for
+              // YouTube Studio, which bounced the whole login run with "Inspected target
+              // navigated or closed". Redirecting is what we are waiting for; keep waiting until
+              // the deadline. Non-navigation failures still escape immediately.
+              const message = error instanceof Error ? error.message : String(error);
+              if (!/navigated or closed|execution context was destroyed|cannot find context/i.test(message)) throw error;
+              await sleep(120);
+              continue;
+            }
             const isDocumentReady = snapshot.ready === "complete" || snapshot.ready === "interactive";
             const targetAllowsBlank = url === "about:blank";
             const hasReachedUsableDocument = targetAllowsBlank

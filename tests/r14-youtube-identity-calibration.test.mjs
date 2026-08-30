@@ -51,3 +51,11 @@ test("the compiler and login agree on the calibrated youtube probe", () => {
     assert.match(source, /https:\/\/www\.youtube\.com\/@\$\{/);
   }
 });
+
+test("the navigation settle loop survives redirect chains that destroy the context", () => {
+  const cdp = readFileSync(new URL("../src/adapters/browser/chromium-cdp.ts", import.meta.url).pathname, "utf8");
+  const idx = cdp.indexOf("Navigation did not settle within");
+  const block = cdp.slice(Math.max(0, idx - 1600), idx);
+  assert.match(block, /navigated or closed\|execution context was destroyed\|cannot find context/);
+  assert.match(block, /if \(!\/navigated or closed[^)]*\.test\(message\)\) throw error;/);
+});
