@@ -122,9 +122,19 @@ export class DeclarativeProfileVerificationCollector implements VerificationEvid
         await driver.locate(ready, this.options.profileReadyTimeoutMs ?? 10_000, true).catch(() => {});
         const selectorJson = JSON.stringify(this.spec.postLinkSelector);
         const limit = Math.max(1, Math.min(this.spec.postOpenLimit ?? 3, 10));
-        const hrefs = await session.evaluate<readonly string[]>(
-          `(() => Array.from(document.querySelectorAll(${selectorJson})).map((a) => a.getAttribute("href")).filter(Boolean).slice(0, ${limit}))()`
-        ).catch(() => [] as const);
+        // The grid mounts lazily after the header renders (live capture: header with "1 Beitrag"
+        // visible, zero anchors in the DOM at first read). Poll briefly and nudge the page so
+        // lazy tiles mount; read-only, bounded.
+        let hrefs: readonly string[] = [];
+        const linkDeadline = Date.now() + (this.options.profileReadyTimeoutMs ?? 10_000);
+        for (;;) {
+          hrefs = await session.evaluate<readonly string[]>(
+            `(() => Array.from(document.querySelectorAll(${selectorJson})).map((a) => a.getAttribute("href")).filter(Boolean).slice(0, ${limit}))()`
+          ).catch(() => [] as const);
+          if (hrefs.length > 0 || Date.now() >= linkDeadline) break;
+          await session.evaluate(`window.scrollBy(0, 600); true`).catch(() => {});
+          await new Promise((resolvePoll) => setTimeout(resolvePoll, 600));
+        }
         const listArtifacts = await this.artifacts.capture(session, intent, identity, attempt, "profile-verification-list", this.now());
         for (const href of hrefs) {
           const postUrl = new URL(href, listUrl).toString();
