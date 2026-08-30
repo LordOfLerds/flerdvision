@@ -33,7 +33,8 @@ test("the calibration debt is marked at the selector", () => {
 });
 
 test("the TikTok login gate waits on the platform sessionid cookie", () => {
-  assert.match(source, /channel\.platform === "instagram" \|\| channel\.platform === "tiktok" \? "sessionid" : null/);
+  // Refactored into sessionCookieNames() by the youtube slice; semantics pinned, not the shape.
+  assert.match(source, /if \(platform === "instagram" \|\| platform === "tiktok"\) return \["sessionid"\];/);
 });
 
 test("TikTok auth and challenge URL classification stays configured", () => {
