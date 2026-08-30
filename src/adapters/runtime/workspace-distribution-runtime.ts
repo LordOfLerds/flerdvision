@@ -32,6 +32,7 @@ import { ConfiguredSourceLaneInterpreterFactory } from "../ingress/source-lane-i
 import { GoogleDriveRestReadClient } from "../ingress/google-drive.js";
 import { workspaceDriveAccessTokenProvider } from "../ingress/google-drive/workspace-drive-token.js";
 import { WebhookNotificationAdapter } from "../notify/webhook.js";
+import { telegramAdapterFromEnv } from "../notify/telegram.js";
 import { WorkspaceMediaMaterializer } from "../publish/workspace-media-materializer.js";
 import { VerifiedMediaCacheMaterializer } from "../publish/verified-media-cache.js";
 import { PersistedDistributionPlannerAdapter, RuntimeDistributionSourceScanAdapter } from "../../application/runtime-source-planner-adapters.js";
@@ -112,7 +113,9 @@ export class WorkspaceDistributionRuntime {
 
     const webhookUrl=env.FLERDVISION_NOTIFICATION_WEBHOOK_URL,webhookChannelKey=env.FLERDVISION_NOTIFICATION_WEBHOOK_CHANNEL_KEY??"current-bot";
     const webhook=webhookUrl?new WebhookNotificationAdapter({channelKey:webhookChannelKey,url:webhookUrl,...(env.FLERDVISION_NOTIFICATION_WEBHOOK_TOKEN?{bearerToken:env.FLERDVISION_NOTIFICATION_WEBHOOK_TOKEN}:{})}):undefined;
-    const notificationChannelKeys=options.notificationChannelKeys??(webhook?[webhook.channelKey]:[]),notificationDispatcher=webhook?new NotificationDispatcher(this.control,[webhook]):undefined;
+    const telegram=telegramAdapterFromEnv(env);
+    const notificationAdapters=[...(webhook?[webhook]:[]),...(telegram?[telegram]:[])];
+    const notificationChannelKeys=options.notificationChannelKeys??notificationAdapters.map((adapter)=>adapter.channelKey),notificationDispatcher=notificationAdapters.length>0?new NotificationDispatcher(this.control,notificationAdapters):undefined;
     this.operations=new W6RuntimeOperationsAdapter(this.control,notificationChannelKeys,options.timeZone??"Europe/Vienna",{distributionConfig:this.config,distributionRuntime:this.state,...(options.uiBaseUrl?{uiBaseUrl:options.uiBaseUrl}:{}),...(notificationDispatcher?{notificationDispatcher}:{})});
   }
 

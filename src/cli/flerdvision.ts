@@ -48,7 +48,7 @@ function authorizedMode(argv: readonly string[]): "canary" | "production" {
   return mode;
 }
 function usage(): never {
-  console.error(`Flerdvision headless commands:\n\n  npm run flerdvision -- bootstrap [--spec <flerdvision.json>]\n  npm run flerdvision -- drive-auth [--spec <flerdvision.json>]\n  npm run flerdvision -- login --channel <channel-key>\n  npm run flerdvision -- doctor [--release-sha <sha>]\n  npm run flerdvision -- demo [--channel <key>] [--private-publish] [--force-login] [--headless]\n  npm run flerdvision -- verify --run-id <id> [--release-sha <sha>]\n  npm run flerdvision -- cleanup --run-id <id> --confirm PRIVATE_E2E_TEST_POST_DELETED --note <evidence>\n  npm run flerdvision -- run-once --channel <key> --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH\n  npm run flerdvision -- daemon --channel <key> --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH [--interval 60]\n\nSet FLERDVISION_SPEC once to avoid repeating --spec. The default product path has no setup/calibration UI. A social login browser opens only when human login or 2FA is needed. Final publishing additionally requires ALLOW_FINAL_PUBLISH=true.`);
+  console.error(`Flerdvision headless commands:\n\n  npm run flerdvision -- bootstrap [--spec <flerdvision.json>]\n  npm run flerdvision -- drive-auth [--spec <flerdvision.json>]\n  npm run flerdvision -- login --channel <channel-key>\n  npm run flerdvision -- doctor [--release-sha <sha>]\n  npm run flerdvision -- demo [--channel <key>] [--private-publish] [--force-login] [--headless]\n  npm run flerdvision -- notify-test\n  npm run flerdvision -- verify --run-id <id> [--release-sha <sha>]\n  npm run flerdvision -- cleanup --run-id <id> --confirm PRIVATE_E2E_TEST_POST_DELETED --note <evidence>\n  npm run flerdvision -- run-once --channel <key> --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH\n  npm run flerdvision -- daemon --channel <key> --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH [--interval 60]\n\nSet FLERDVISION_SPEC once to avoid repeating --spec. The default product path has no setup/calibration UI. A social login browser opens only when human login or 2FA is needed. Final publishing additionally requires ALLOW_FINAL_PUBLISH=true.`);
   process.exitCode = 2;
   throw new Error("invalid arguments");
 }
@@ -108,6 +108,25 @@ async function main(): Promise<void> {
       onProgress: (message) => console.error(message)
     });
     console.log(JSON.stringify(report, null, 2));
+    return;
+  }
+  if (command === "notify-test") {
+    // Sends one test notification through the configured Telegram channel so the operator can
+    // prove the bot wiring end to end before any real event depends on it.
+    const { telegramAdapterFromEnv } = await import("../adapters/notify/telegram.js");
+    const adapter = telegramAdapterFromEnv(process.env);
+    if (!adapter) throw new Error("Telegram ist nicht konfiguriert: FLERDVISION_TELEGRAM_BOT_TOKEN und FLERDVISION_TELEGRAM_CHAT_ID setzen (private Env-Datei)");
+    const receipt = await adapter.send({
+      notificationId: `notify-test:${Date.now().toString(36)}`,
+      dedupeKey: `notify-test:${Date.now().toString(36)}`,
+      kind: "OPERATOR_TEST",
+      severity: "INFO",
+      createdAt: new Date().toISOString(),
+      subject: "Flerdvision Testnachricht",
+      body: "Der Telegram-Kanal ist verbunden. Ab jetzt melden sich Posts, Plan und Störungen hier.",
+      metadata: {}
+    } as never);
+    console.log(`Telegram OK${receipt.externalMessageId ? ` · message_id ${receipt.externalMessageId}` : ""}`);
     return;
   }
   if (command === "verify") {
