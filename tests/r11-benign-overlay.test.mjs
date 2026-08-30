@@ -61,3 +61,15 @@ test("the final action step itself gains no dismissal", () => {
   const tail = source.slice(finalIndex, finalIndex + 700);
   assert.doesNotMatch(tail, /dismissBenignOverlay/);
 });
+
+test("draft discard confirms only exact discard labels and shares no final vocabulary", async () => {
+  const { DISCARD_CONFIRM_LABELS } = await import("../dist/adapters/browser/autonomous-surface-explorer.js");
+  for (const label of DISCARD_CONFIRM_LABELS) {
+    for (const word of ["Teilen", "Share", "Post", "Posten", "Publish", "Veröffentlichen", "Weiter", "Next"]) {
+      assert.notEqual(label.toLocaleLowerCase("en-US"), word.toLocaleLowerCase("en-US"));
+    }
+  }
+  const qual = readFileSync(new URL("../src/application/autonomous-surface-qualification.ts", import.meta.url).pathname, "utf8");
+  assert.match(qual, /await discardPreparedDraft\(session\)\.catch/);
+  assert.match(qual, /await discardPreparedDraft\(replaySession\)\.catch/);
+});

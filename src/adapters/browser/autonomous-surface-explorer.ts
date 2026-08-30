@@ -353,3 +353,32 @@ export class AutonomousSurfaceExplorer {
     };
   }
 }
+
+/**
+ * Best-effort draft hygiene after a PREPARE_ONLY pass (operator decision: qualification must
+ * not leave create-dialog drafts on the account). Clicks the dialog close control, then
+ * confirms ONLY an exact discard label inside a confirmation dialog. Never runs where a final
+ * action could be hit: discard labels and final labels share no vocabulary, both clicks go
+ * through the guarded trusted-click path, and any failure is swallowed -- hygiene, not safety.
+ */
+export const DISCARD_CONFIRM_LABELS = ["Verwerfen", "Discard", "Delete draft", "Entwurf verwerfen"] as const;
+
+export async function discardPreparedDraft(session: BrowserPageSessionPort, journal?: AutonomousSurfaceJournalEntry[]): Promise<boolean> {
+  const driver = new BrowserDomUiDriver(session);
+  try {
+    await driver.click([
+      { kind: "role", value: "Schließen" },
+      { kind: "role", value: "Close" },
+      { kind: "css", value: '[role="dialog"] svg[aria-label="Schließen"]' },
+      { kind: "css", value: '[role="dialog"] svg[aria-label="Close"]' }
+    ], 4_000, []);
+  } catch { return false; }
+  try {
+    const descriptor = await driver.click(DISCARD_CONFIRM_LABELS.map((label) => ({ kind: "role" as const, value: label })), 5_000, []);
+    journal?.push({ at: new Date().toISOString(), stepKey: "DISCARD_DRAFT", action: "CLICK", outcome: "PASS", detail: descriptor });
+    return true;
+  } catch {
+    journal?.push({ at: new Date().toISOString(), stepKey: "DISCARD_DRAFT", action: "CLICK", outcome: "SKIPPED", detail: "no discard confirmation appeared" });
+    return false;
+  }
+}

@@ -14,7 +14,7 @@ import type { RouteTestEvidenceKey, RouteTestEvidenceRecord } from "../domain/ro
 import { ChromiumCdpRuntimeAdapter } from "../adapters/browser/chromium-cdp.js";
 import { ConfiguredDomSessionProbe } from "../adapters/browser/configured-dom-probe.js";
 import { commandSurfaceAgentFromEnv } from "../adapters/browser/command-surface-agent.js";
-import { AutonomousSurfaceExplorer } from "../adapters/browser/autonomous-surface-explorer.js";
+import { AutonomousSurfaceExplorer, discardPreparedDraft } from "../adapters/browser/autonomous-surface-explorer.js";
 import { AutonomousSurfaceSettings } from "../adapters/browser/autonomous-surface-settings.js";
 import { LocalPrepareArtifactSink } from "../adapters/browser/prepare-artifacts.js";
 import { SafePlatformExecutionRunner } from "../adapters/browser/platform-execution-runner.js";
@@ -225,7 +225,7 @@ export class AutonomousRouteQualifier {
         recordedContract = this.surfaces.recordContract(settings.contract, isoAt(at, 3));
         allArtifacts.push(...explored.artifactRefs, ...settings.artifactRefs);
       } finally {
-        if (session) await session.close().catch(() => {});
+        if (session) { await discardPreparedDraft(session).catch(() => {}); await session.close().catch(() => {}); }
         lock.release();
       }
       if (!recordedContract) throw new Error("Autonomous surface discovery did not produce a durable contract");
@@ -262,7 +262,7 @@ export class AutonomousRouteQualifier {
           this.record(routeId, "PREPARE_ONLY", replayAt, `Autonomous prepare-only replay ${index + 1}/3 reached final boundary without publishing`, evidence.artifactRefs, recordedContract.contract.contractId);
           replayArtifacts.push(...evidence.artifactRefs);
         } finally {
-          if (replaySession) await replaySession.close().catch(() => {});
+          if (replaySession) { await discardPreparedDraft(replaySession).catch(() => {}); await replaySession.close().catch(() => {}); }
           replayLock.release();
         }
       }
