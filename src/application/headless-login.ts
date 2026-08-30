@@ -39,6 +39,8 @@ function bootstrapUrl(channel: WorkspaceChannelSpec): string {
  */
 function identityUrl(channel: WorkspaceChannelSpec): string {
   if (channel.platform === "instagram") return "https://www.instagram.com/accounts/edit/";
+  // Live-calibrated: Studio root renders no handle; the own-channel page does (and scopes by it).
+  if (channel.platform === "youtube") return `https://www.youtube.com/@${channel.handle.replace(/["\\]/g, "")}`;
   return bootstrapUrl(channel);
 }
 function identitySelector(channel: WorkspaceChannelSpec): string {
@@ -64,7 +66,9 @@ function identitySelector(channel: WorkspaceChannelSpec): string {
   // sessionid cookie gate below additionally keeps the browser untouched until authentication
   // actually happened. Calibrate against the live surface during the first TikTok acceptance.
   if (channel.platform === "tiktok") return `nav a[href*="/@${handle}"], a[data-e2e*="profile"][href*="/@${handle}"]`;
-  return `a[href*="/@${handle}"], a[href*="/channel/"][aria-label*="${handle}"]`;
+  // Live-calibrated 2026-08-31 against the real own-channel page: the handle renders as the
+  // single yt-content-metadata-view-model span. Ownership is proven separately below.
+  return "yt-content-metadata-view-model span span";
 }
 /**
  * Cookies that exist exactly from the moment the platform authenticated the operator, and not
@@ -92,7 +96,11 @@ function probeConfig(channel: WorkspaceChannelSpec, navigate: boolean): Configur
   return {
     probeUrl: identityUrl(channel),
     identitySelector: identitySelector(channel),
-    identityAttribute: "href",
+    // YouTube reads the handle as text; the other platforms carry it in the anchor href.
+    ...(channel.platform === "youtube" ? {} : { identityAttribute: "href" }),
+    // The own-channel page shows the handle to every visitor; only the owner sees the Studio
+    // link, so ownership is what proves THIS session is the account.
+    ...(channel.platform === "youtube" ? { ownerProofSelector: 'a[href^="https://studio.youtube.com/channel/"]' } : {}),
     authUrlIncludes: channel.platform === "instagram" ? ["/accounts/login"] : channel.platform === "tiktok" ? ["/login"] : ["accounts.google.com"],
     challengeUrlIncludes: channel.platform === "instagram" ? ["/challenge/"] : channel.platform === "tiktok" ? ["/verify"] : [],
     settleMs: 1000,

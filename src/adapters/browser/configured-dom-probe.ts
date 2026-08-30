@@ -10,6 +10,13 @@ export interface ConfiguredDomSessionProbeConfig {
   challengeUrlIncludes?: readonly string[];
   authSelector?: string;
   challengeSelector?: string;
+  /**
+   * Additional element that must exist for HEALTHY: proof that THIS session owns the scoped
+   * page. On YouTube the own-channel page renders the handle for every visitor, so the handle
+   * alone proves nothing about the logged-in account; the owner-only Studio link does. Without
+   * it a logged-out (or foreign-account) page would read the right handle and pass.
+   */
+  ownerProofSelector?: string;
   settleMs?: number;
   navigate?: boolean;
   /**
@@ -77,7 +84,17 @@ export class ConfiguredDomSessionProbe implements SessionProbePort {
             if (authExists) return { state: "AUTH_REQUIRED", currentUrl, note: "Authentication marker detected" };
           }
           const observedHandle = await session.evaluate<string | null>(expression);
-          if (observedHandle) return { state: "HEALTHY", currentUrl, observedHandle };
+          if (observedHandle) {
+            if (this.config.ownerProofSelector) {
+              const owned = await session.evaluate<boolean>(`Boolean(document.querySelector(${stringLiteral(this.config.ownerProofSelector)}))`);
+              if (!owned) {
+                if (Date.now() >= deadline) return { state: "UNKNOWN", currentUrl, note: `Identity marker present but session ownership was not proven: ${this.config.ownerProofSelector}` };
+                await sleep(pollMs);
+                continue;
+              }
+            }
+            return { state: "HEALTHY", currentUrl, observedHandle };
+          }
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           if (!transientNavigation.test(message)) throw error;

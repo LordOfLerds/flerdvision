@@ -126,7 +126,15 @@ function sourceProbeSelector(channel: WorkspaceChannelSpec): string {
   const handle = channel.handle.replace(/["\\]/g, "");
   if (channel.platform === "instagram") return `nav a[href="/${handle}/"], [role="navigation"] a[href="/${handle}/"], a[aria-label*="Profile"][href="/${handle}/"]`;
   if (channel.platform === "tiktok") return `nav a[href*="/@${handle}"], a[data-e2e*="profile"][href*="/@${handle}"]`;
-  return `a[href*="/@${handle}"], a[href*="/channel/"][aria-label*="${handle}"]`;
+  // Live-calibrated against the real own-channel page (2026-08-31): the handle renders as the
+  // single yt-content-metadata-view-model span; Studio root carries no handle at all. Ownership
+  // is proven separately by the owner-only Studio link (ownerProofSelector) -- the handle text
+  // alone is visible to any visitor.
+  return "yt-content-metadata-view-model span span";
+}
+function probeUrl(channel: WorkspaceChannelSpec): string {
+  if (channel.platform === "youtube") return `https://www.youtube.com/@${channel.handle.replace(/["\\]/g, "")}`;
+  return bootstrapUrl(channel);
 }
 function profileUrl(channel: WorkspaceChannelSpec): string {
   if (channel.platform === "instagram") return "https://www.instagram.com/{handle}/";
@@ -300,9 +308,10 @@ export class WorkspaceSpecCompiler {
         accountId,
         calibrationStatus: "UNVERIFIED",
         config: {
-          probeUrl: bootstrapUrl(channel),
+          probeUrl: probeUrl(channel),
           identitySelector: sourceProbeSelector(channel),
-          identityAttribute: "href",
+          ...(channel.platform === "youtube" ? {} : { identityAttribute: "href" }),
+          ...(channel.platform === "youtube" ? { ownerProofSelector: 'a[href^="https://studio.youtube.com/channel/"]' } : {}),
           authUrlIncludes: channel.platform === "instagram" ? ["/accounts/login"] : channel.platform === "tiktok" ? ["/login"] : ["accounts.google.com"],
           challengeUrlIncludes: channel.platform === "instagram" ? ["/challenge/"] : channel.platform === "tiktok" ? ["/verify"] : [],
           settleMs: 1500,

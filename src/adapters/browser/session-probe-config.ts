@@ -38,13 +38,14 @@ function configFromUnknown(value:unknown,path:string,calibrated:boolean):Configu
   const authUrlIncludes=optionalStrings(item.authUrlIncludes,`${path}.authUrlIncludes`);
   const challengeUrlIncludes=optionalStrings(item.challengeUrlIncludes,`${path}.challengeUrlIncludes`);
   const authSelector=optionalString(item.authSelector,`${path}.authSelector`);
+  const ownerProofSelector=optionalString(item.ownerProofSelector,`${path}.ownerProofSelector`);
   const challengeSelector=optionalString(item.challengeSelector,`${path}.challengeSelector`);
   const settleMs=item.settleMs===undefined?undefined:Number(item.settleMs);
   if(settleMs!==undefined&&(!Number.isInteger(settleMs)||settleMs<0||settleMs>30000))throw new SessionProbeConfigError(`${path}.settleMs must be an integer from 0 to 30000`);
   if(item.navigate!==undefined&&typeof item.navigate!=="boolean")throw new SessionProbeConfigError(`${path}.navigate must be boolean`);
   const navigate=item.navigate as boolean|undefined;
   if(calibrated){
-    const values=[item.probeUrl,item.identitySelector,identityAttribute,authSelector,challengeSelector,...(authUrlIncludes??[]),...(challengeUrlIncludes??[])];
+    const values=[item.probeUrl,item.identitySelector,identityAttribute,authSelector,ownerProofSelector,challengeSelector,...(authUrlIncludes??[]),...(challengeUrlIncludes??[])];
     if(values.some(hasPlaceholder))throw new SessionProbeConfigError(`${path} still contains calibration placeholder`);
   }
   return{
@@ -54,6 +55,7 @@ function configFromUnknown(value:unknown,path:string,calibrated:boolean):Configu
     ...(authUrlIncludes?{authUrlIncludes}:{}),
     ...(challengeUrlIncludes?{challengeUrlIncludes}:{}),
     ...(authSelector?{authSelector}:{}),
+    ...(ownerProofSelector?{ownerProofSelector}:{}),
     ...(challengeSelector?{challengeSelector}:{}),
     ...(settleMs!==undefined?{settleMs}:{}),
     ...(navigate!==undefined?{navigate}:{}),
