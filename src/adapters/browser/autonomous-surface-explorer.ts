@@ -110,6 +110,21 @@ function nextLocators(): readonly UiLocator[] { return unique([...named("button"
  */
 export const BENIGN_OVERLAY_CONFIRM_LABELS = ["OK", "Verstanden", "Got it", "Jetzt nicht", "Not now"] as const;
 export const OVERLAY_DISMISS_FORBIDDEN_WORDS = ["Weiter", "Next", "Continue", "Fortfahren", "Teilen", "Share", "Post", "Posten", "Publish", "Veröffentlichen"] as const;
+/**
+ * Cookie-consent banners (TikTok shows one on every fresh profile) are handled by the same
+ * narrow mechanism, with one difference: the DECLINE variant is preferred and the only accepted
+ * choice -- accept-all vocabulary ("Alle erlauben", "Accept all") is deliberately absent from
+ * every allowlist, so the flow can never consent to non-essential cookies on the operator's
+ * behalf. When a decline button is present it wins over the generic confirm labels.
+ *
+ * TIKTOK-LIVE-CALIBRATION: TikTok has historically rendered its banner as a
+ * <tiktok-cookie-banner> custom element with a shadow root rather than a [role=dialog]. The
+ * scan below therefore also inspects that host's shadow DOM. The exact live structure (labels,
+ * shadow vs. light DOM, whether the banner intercepts clicks at all) is unverified until the
+ * first live TikTok snapshot; a banner this scan cannot match stays put and the flow fails
+ * closed on the next occluded required click, with boundary evidence.
+ */
+export const COOKIE_CONSENT_DECLINE_LABELS = ["Alle ablehnen", "Decline all", "Reject all", "Decline optional cookies", "Optionale Cookies ablehnen"] as const;
 
 function finalLocators(profile: PostingProfile): readonly UiLocator[] {
   if (profile.platform === "instagram") return unique([...named("button", ["Share", "Teilen", "Publish", "Veröffentlichen"]), ...text(["Share", "Teilen"])]);
@@ -173,30 +188,40 @@ export class AutonomousSurfaceExplorer {
   /** Returns true when a benign overlay was dismissed with a trusted click. */
   private async dismissBenignOverlay(journal: AutonomousSurfaceJournalEntry[]): Promise<boolean> {
     const allow = JSON.stringify(BENIGN_OVERLAY_CONFIRM_LABELS);
+    const decline = JSON.stringify(COOKIE_CONSENT_DECLINE_LABELS);
     const forbid = JSON.stringify(OVERLAY_DISMISS_FORBIDDEN_WORDS.map((word) => word.toLocaleLowerCase("en-US")));
-    const marker = `flerdvision-overlay-${Date.now().toString(36)}`;
     const center = await this.session.evaluate<{ x: number; y: number; title: string } | null>(`(() => {
       const allow = new Set(${allow});
+      const decline = new Set(${decline});
       const forbid = ${forbid};
       const normalize = (value) => (value || "").replace(/\s+/g, " ").trim();
-      for (const dialog of document.querySelectorAll('[role="dialog"]')) {
-        const text = normalize(dialog.textContent).toLocaleLowerCase("en-US");
+      const containers = [...document.querySelectorAll('[role="dialog"]')];
+      const cookieHost = document.querySelector('tiktok-cookie-banner');
+      if (cookieHost) containers.push(cookieHost);
+      for (const container of containers) {
+        const scope = container.shadowRoot ?? container;
+        const text = normalize(scope.textContent || container.textContent).toLocaleLowerCase("en-US");
         if (forbid.some((word) => text.includes(word.toLocaleLowerCase("en-US")))) continue;
-        if (dialog.querySelector('input[type="file"], textarea, [contenteditable="true"]')) continue;
-        const buttons = [...dialog.querySelectorAll('button, [role="button"]')];
-        const confirm = buttons.find((el) => allow.has(normalize(el.getAttribute("aria-label") || el.textContent)));
+        if (scope.querySelector('input[type="file"], textarea, [contenteditable="true"]')) continue;
+        const buttons = [...scope.querySelectorAll('button, [role="button"]')];
+        const name = (el) => normalize(el.getAttribute("aria-label") || el.textContent);
+        const confirm = buttons.find((el) => decline.has(name(el))) ?? buttons.find((el) => allow.has(name(el)));
         if (!confirm) continue;
         confirm.setAttribute("data-flerdvision-overlay", ${JSON.stringify("m")});
         confirm.scrollIntoView({ block: "center", inline: "center" });
         const rect = confirm.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) continue;
-        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, title: normalize(dialog.textContent).slice(0, 80) };
+        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, title: normalize(scope.textContent || container.textContent).slice(0, 80) };
       }
       return null;
     })()`);
     if (!center) return false;
     if (this.session.clickAt) await this.session.clickAt(center.x, center.y);
-    else await this.session.evaluate(`(() => { const el = document.querySelector('[data-flerdvision-overlay]'); if (el) el.click(); })()`);
+    else await this.session.evaluate(`(() => {
+      const host = document.querySelector('tiktok-cookie-banner');
+      const el = document.querySelector('[data-flerdvision-overlay]') || (host && host.shadowRoot && host.shadowRoot.querySelector('[data-flerdvision-overlay]'));
+      if (el) el.click();
+    })()`);
     journal.push({ at: this.now(), stepKey: "DISMISS_OVERLAY", action: "CLICK", outcome: "PASS", detail: `Dismissed benign overlay: ${center.title}` });
     return true;
   }
