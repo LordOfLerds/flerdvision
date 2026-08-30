@@ -2197,10 +2197,27 @@ export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressSt
       const existingRow = this.db.prepare("SELECT * FROM social_accounts WHERE account_id = ?").get(account.accountId) as SocialAccountRow | undefined;
       if (existingRow) {
         const existing = socialAccountFromRow(existingRow);
-        if (!sameSocialAccount(existing.account, normalized)) {
-          throw new SocialAccountConflictError(`Social account ${account.accountId} already exists with different configuration`);
+        if (sameSocialAccount(existing.account, normalized)) return { created: false, record: existing };
+        // A handle rename on an existing key is a legitimate operator change (the account was
+        // renamed, or the operator repointed the channel) -- refusing it forever was the
+        // multi-account B12 finding. Platform is identity, though: a key must never migrate to
+        // another platform. The rename is journaled and re-verification is mandatory anyway,
+        // since the identity guard compares the newly expected handle against a live probe.
+        if (existing.account.platform !== normalized.platform) {
+          throw new SocialAccountConflictError(`Social account ${account.accountId} cannot change platform from ${existing.account.platform} to ${normalized.platform}`);
         }
-        return { created: false, record: existing };
+        const renamedAt = asIso(now);
+        this.db.prepare("UPDATE social_accounts SET creator_id = ?, expected_handle = ?, enabled = ?, updated_at = ? WHERE account_id = ?")
+          .run(normalized.creatorId ?? null, normalized.expectedHandle, normalized.enabled ? 1 : 0, renamedAt, account.accountId);
+        this.appendEvent({
+          aggregateType: "social_account",
+          aggregateId: account.accountId,
+          eventType: "social_account.reconfigured",
+          occurredAt: renamedAt,
+          actor,
+          payload: { fromHandle: existing.account.expectedHandle, toHandle: normalized.expectedHandle, fromEnabled: existing.account.enabled, toEnabled: normalized.enabled }
+        });
+        return { created: false, record: this.getSocialAccount(account.accountId)! };
       }
       const timestamp = asIso(now);
       this.db.prepare(`
@@ -2250,10 +2267,25 @@ export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressSt
       const existingRow = this.db.prepare("SELECT * FROM browser_identities WHERE identity_id = ?").get(identity.identityId) as BrowserIdentityRow | undefined;
       if (existingRow) {
         const existing = browserIdentityFromRow(existingRow);
-        if (!sameBrowserIdentity(existing.identity, normalized)) {
+        if (sameBrowserIdentity(existing.identity, normalized)) return { created: false, record: existing };
+        // The account's handle may be renamed by the operator (see registerSocialAccount); the
+        // identity must follow, or the two would disagree forever. Account binding and profile
+        // key stay immutable: a profile holds real cookies and must never silently change owner.
+        if (existing.identity.accountId !== normalized.accountId || existing.identity.profileKey !== normalized.profileKey || existing.identity.platform !== normalized.platform) {
           throw new BrowserIdentityConflictError(`Browser identity ${identity.identityId} already exists with different configuration`);
         }
-        return { created: false, record: existing };
+        const renamedAt = asIso(now);
+        this.db.prepare("UPDATE browser_identities SET expected_handle = ?, enabled = ?, updated_at = ? WHERE identity_id = ?")
+          .run(normalized.expectedHandle, normalized.enabled ? 1 : 0, renamedAt, identity.identityId);
+        this.appendEvent({
+          aggregateType: "browser_identity",
+          aggregateId: identity.identityId,
+          eventType: "browser_identity.reconfigured",
+          occurredAt: renamedAt,
+          actor,
+          payload: { fromHandle: existing.identity.expectedHandle, toHandle: normalized.expectedHandle }
+        });
+        return { created: false, record: this.getBrowserIdentity(identity.identityId)! };
       }
       const profileOwner = this.db.prepare("SELECT * FROM browser_identities WHERE profile_key = ?").get(normalized.profileKey) as BrowserIdentityRow | undefined;
       if (profileOwner) throw new BrowserIdentityConflictError(`Browser profile ${normalized.profileKey} already belongs to ${profileOwner.identity_id}`);
