@@ -290,6 +290,39 @@ export class ChromiumCdpRuntimeAdapter implements BrowserRuntimePort {
           const accepted = await this.evaluate<boolean>(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); return Boolean(el && el.files && el.files.length > 0); })()`).catch(() => false);
           if (!accepted) throw new FileInputRejectedError(`File input did not accept the file for selector: ${selector}`);
         },
+        async setInputFilesInPage(selector: string, filePath: string): Promise<void> {
+          // TikTok ignores DOM.setFileInputFiles entirely (verified: no error, zero files, no
+          // upload) but accepts the page's own DataTransfer path, which is what a human drop
+          // does. The payload is streamed in chunks: a real video must never have to fit into a
+          // single protocol message.
+          const bytes = readFileSync(filePath);
+          const base64 = bytes.toString("base64");
+          const limitBytes = 256 * 1024 * 1024;
+          if (bytes.length > limitBytes) throw new Error(`File is too large for in-page upload: ${bytes.length} bytes`);
+          const name = filePath.split("/").at(-1) ?? "upload.mp4";
+          const chunkSize = 512 * 1024;
+          await this.evaluate("(() => { window.__flerdvisionUpload = []; return true; })()");
+          for (let offset = 0; offset < base64.length; offset += chunkSize) {
+            const chunk = base64.slice(offset, offset + chunkSize);
+            await this.evaluate(`(() => { window.__flerdvisionUpload.push(${JSON.stringify(chunk)}); return true; })()`);
+          }
+          const accepted = await this.evaluate<boolean>(`(() => {
+            const chunks = window.__flerdvisionUpload || [];
+            delete window.__flerdvisionUpload;
+            const binary = atob(chunks.join(""));
+            const bytes = new Uint8Array(binary.length);
+            for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+            const file = new File([bytes], ${JSON.stringify(name)}, { type: "video/mp4" });
+            const input = document.querySelector(${JSON.stringify(selector)});
+            if (!input) return false;
+            const transfer = new DataTransfer();
+            transfer.items.add(file);
+            input.files = transfer.files;
+            input.dispatchEvent(new Event("change", { bubbles: true }));
+            return input.files.length > 0;
+          })()`);
+          if (!accepted) throw new Error(`In-page file handover was rejected for selector: ${selector}`);
+        },
         async setInputFilesViaChooser(filePaths: readonly string[], openChooser: () => Promise<void>, timeoutMs: number): Promise<void> {
           if (filePaths.length === 0) throw new Error("setInputFilesViaChooser requires at least one file");
           await page.send("Page.setInterceptFileChooserDialog", { enabled: true });

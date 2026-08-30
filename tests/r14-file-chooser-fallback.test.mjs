@@ -31,8 +31,9 @@ test("the chooser flow arms interception before the click and always disarms", (
 
 test("the fallback only triggers on an explicit refusal and needs a real capability", () => {
   const idx = driver.indexOf("async setFile(");
-  const block = driver.slice(idx, idx + 1400);
-  assert.match(block, /if \(!\(error instanceof FileInputRejectedError\) \|\| !this\.session\.setInputFilesViaChooser\) throw error;/);
+  const block = driver.slice(idx, idx + 2400);
+  assert.match(block, /if \(!\(error instanceof FileInputRejectedError\)\) throw error;/);
+  assert.match(block, /if \(!this\.session\.setInputFilesViaChooser\) throw error;/);
   assert.match(block, /setInputFilesViaChooser\(\[filePath\]/);
 });
 
@@ -42,4 +43,18 @@ test("chooser openers name upload controls only, never flow or publish controls"
   for (const forbidden of ["Teilen", "Share", "Posten", "Publish", "Veröffentlichen", "Weiter", "Next"]) {
     assert.ok(!block.includes(`value: "${forbidden}"`), `${forbidden} must never open a chooser`);
   }
+});
+
+test("the in-page DataTransfer handover is tried before the chooser and streams in chunks", () => {
+  const idx = driver.indexOf("async setFile(");
+  const block = driver.slice(idx, idx + 2400);
+  const inPage = block.indexOf("setInputFilesInPage");
+  const chooser = block.indexOf("setInputFilesViaChooser([filePath]");
+  assert.ok(inPage > 0 && inPage < chooser, "the proven path must be tried first");
+  const impl = cdp.indexOf("async setInputFilesInPage");
+  const implBlock = cdp.slice(impl, impl + 2600);
+  assert.match(implBlock, /chunkSize = 512 \* 1024/);
+  assert.match(implBlock, /new DataTransfer\(\)/);
+  assert.match(implBlock, /input\.files\.length > 0/);
+  assert.match(implBlock, /too large for in-page upload/);
 });

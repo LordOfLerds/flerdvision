@@ -56,6 +56,12 @@ export interface BrowserPageSessionPort {
    */
   setInputFilesViaChooser?(filePaths: readonly string[], openChooser: () => Promise<void>, timeoutMs: number): Promise<void>;
   /**
+   * Hands the file to the page through its own DataTransfer API (the drop path every uploader
+   * supports), for surfaces that ignore a protocol-set file input. Streams in chunks so a real
+   * video never has to fit into one protocol message.
+   */
+  setInputFilesInPage?(selector: string, filePath: string): Promise<void>;
+  /**
    * Insert text through the browser's input pipeline into the focused element. Optional like
    * clickAt; needed because state-owning editors (Instagram's caption is a Lexical editor)
    * ignore synthetic textContent writes exactly as the platform ignores synthetic clicks.

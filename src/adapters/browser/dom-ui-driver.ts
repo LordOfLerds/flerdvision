@@ -337,7 +337,19 @@ export class BrowserDomUiDriver {
       // never starts. Fall back to the platform's own chooser: arm interception, click the
       // visible upload control with a trusted click, attach the file to the node the page
       // nominates. Without a chooser capability or opener the original failure stands.
-      if (!(error instanceof FileInputRejectedError) || !this.session.setInputFilesViaChooser) throw error;
+      if (!(error instanceof FileInputRejectedError)) throw error;
+      // Proven order from live evidence: the page's own DataTransfer path is what TikTok honours
+      // (the chooser handshake completes there and still uploads nothing), so it comes first;
+      // the chooser stays as a second fallback for surfaces that behave the other way round.
+      if (this.session.setInputFilesInPage) {
+        try {
+          await this.session.setInputFilesInPage(selector, filePath);
+          return target.descriptor;
+        } catch (inPageError) {
+          if (!this.session.setInputFilesViaChooser) throw inPageError;
+        }
+      }
+      if (!this.session.setInputFilesViaChooser) throw error;
       await this.session.setInputFilesViaChooser([filePath], async () => { await this.click(BrowserDomUiDriver.FILE_CHOOSER_OPENERS, 8_000, []); }, timeoutMs ?? 30_000);
       return target.descriptor;
     }
