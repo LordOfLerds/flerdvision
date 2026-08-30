@@ -9,6 +9,9 @@ import type { RouteTestEvidenceRecord } from "../domain/route-test-ports.js";
 import { SqliteRouteTestEvidenceStore } from "../adapters/distribution/sqlite-route-test-evidence.js";
 import { AuthorizedRuntimeDueExecutionAdapter } from "../adapters/runtime/authorized-due-execution.js";
 import { telegramAdapterFromEnv } from "../adapters/notify/telegram.js";
+import { TelegramOperatorService } from "./telegram-operator-runtime.js";
+import { SqliteOperatorStateStore } from "../adapters/storage/sqlite-operator-state.js";
+import { inspectHeadlessWorkspace } from "./headless-status.js";
 import { WorkspaceDistributionRuntime } from "../adapters/runtime/workspace-distribution-runtime.js";
 import { WorkspaceSurfacePublisher } from "../adapters/runtime/workspace-surface-publisher.js";
 
@@ -77,6 +80,8 @@ interface AutonomousComposition {
   supervisor: RuntimeSupervisor;
   timeZone: string;
   allowedAccountIds: ReadonlySet<string>;
+  operator?: TelegramOperatorService;
+  operatorState?: SqliteOperatorStateStore;
 }
 
 function composeAutonomousRuntime(options: HeadlessAutonomousRuntimeOptions): AutonomousComposition {
@@ -110,7 +115,20 @@ function composeAutonomousRuntime(options: HeadlessAutonomousRuntimeOptions): Au
       ownerId,
       headless: options.headless ?? true
     });
-    const operationalGate = new KillSwitchGate(base.control);
+    // The operator layer (Telegram) is optional and read-mostly: when configured it also owns
+    // the composite publish gate so /pause is respected by the due worker without burning
+    // intents. Without credentials the plain kill-switch gate stands alone as before.
+    const operatorState = new SqliteOperatorStateStore(base.layout.databasePath);
+    const operator = TelegramOperatorService.fromEnv({
+      env,
+      channels: selected.map((channel) => ({ key: channel.key, name: channel.name, platform: channel.platform, accountId: accountIdForChannel(channel) })),
+      control: base.control,
+      state: base.state,
+      operatorState,
+      doctor: () => inspectHeadlessWorkspace({ specPath: options.specPath, releaseSha: options.releaseSha, env }),
+      timeZone: spec.workspace.timezone
+    });
+    const operationalGate = operator ? operator.publishGate() : new KillSwitchGate(base.control);
     const contextProvider = (intent: PublicationIntent): PublishContext => {
       if (!allowedAccountIds.has(intent.accountId)) throw new Error(`Intent ${intent.intentId} is outside the autonomous channel allowlist`);
       return { mode: options.mode, allowFinalPublish: true, allowedAccountIds, releaseSha: options.releaseSha };
@@ -133,7 +151,7 @@ function composeAutonomousRuntime(options: HeadlessAutonomousRuntimeOptions): Au
       operations: base.operations,
       reports: base.reports
     }, ownerId);
-    return { base, publisher, supervisor, timeZone: spec.workspace.timezone, allowedAccountIds };
+    return { base, publisher, supervisor, timeZone: spec.workspace.timezone, allowedAccountIds, ...(operator ? { operator } : {}), operatorState };
   } catch (error) {
     if (publisher) void publisher.close().catch(() => {});
     base.close();
@@ -155,6 +173,8 @@ export class HeadlessAutonomousRuntime {
   private readonly timeZone: string;
   readonly allowedAccountIds: ReadonlySet<string>;
   private readonly releaseSha: string;
+  private readonly operator?: TelegramOperatorService;
+  private readonly operatorState?: SqliteOperatorStateStore;
 
   constructor(options: HeadlessAutonomousRuntimeOptions) {
     const composition = composeAutonomousRuntime(options);
@@ -164,16 +184,24 @@ export class HeadlessAutonomousRuntime {
     this.timeZone = composition.timeZone;
     this.allowedAccountIds = composition.allowedAccountIds;
     this.releaseSha = options.releaseSha;
+    if (composition.operator) this.operator = composition.operator;
+    if (composition.operatorState) this.operatorState = composition.operatorState;
   }
 
   async runOnce(now = new Date().toISOString()): Promise<RuntimeCycleReport> {
     assertExactReleaseQualification(this.base, this.allowedAccountIds, this.releaseSha);
-    return await this.supervisor.runCycle(new Date(now).toISOString(), businessDate(now, this.timeZone));
+    const report = await this.supervisor.runCycle(new Date(now).toISOString(), businessDate(now, this.timeZone));
+    // Checklist edits, reports and session alarms ride each cycle; the service contains its own
+    // Telegram failures and must never break the publishing cycle it narrates.
+    await this.operator?.tick().catch(() => {});
+    return report;
   }
 
   async runDaemon(input: { intervalSeconds?: number; signal?: { aborted: boolean }; onCycle?: (report: RuntimeCycleReport) => void }): Promise<void> {
     const interval = input.intervalSeconds ?? 60;
     if (!Number.isInteger(interval) || interval < 15 || interval > 3600) throw new Error("Daemon interval must be an integer from 15 to 3600 seconds");
+    const loopSignal = input.signal ?? { aborted: false };
+    if (this.operator) void this.operator.runCommandLoop(loopSignal).catch(() => {});
     while (!input.signal?.aborted) {
       const report = await this.runOnce();
       input.onCycle?.(report);
@@ -184,6 +212,7 @@ export class HeadlessAutonomousRuntime {
 
   async close(): Promise<void> {
     await this.publisher.close();
+    this.operatorState?.close();
     this.base.close();
   }
 }

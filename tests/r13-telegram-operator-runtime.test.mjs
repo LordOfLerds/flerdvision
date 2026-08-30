@@ -107,3 +107,13 @@ test("publishGate combines kill switches with pauses for the due worker", async 
     assert.equal(f.control.listKillSwitches(true)[0].scopeType, "GLOBAL");
   } finally { f.close(); }
 });
+
+test("the autonomous runtime composes the operator layer and its composite gate", async () => {
+  const { readFileSync } = await import("node:fs");
+  const runtime = readFileSync(new URL("../src/application/headless-autonomous-runtime.ts", import.meta.url).pathname, "utf8");
+  assert.match(runtime, /TelegramOperatorService\.fromEnv\(/);
+  assert.match(runtime, /operator \? operator\.publishGate\(\) : new KillSwitchGate\(base\.control\)/);
+  assert.match(runtime, /await this\.operator\?\.tick\(\)\.catch\(\(\) => \{\}\)/);
+  assert.match(runtime, /void this\.operator\.runCommandLoop\(loopSignal\)/);
+  assert.match(runtime, /this\.operatorState\?\.close\(\)/);
+});
