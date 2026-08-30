@@ -318,3 +318,10 @@ test("real Chromium DOM probe classifies exact identity and auth marker without 
     rmSync(runtimePaths.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 });
+
+test("the launch suppresses the automation signal that blocks Google sign-in", () => {
+  // Live: Google refused the human login with "this browser may not be secure" because the CDP
+  // launch exposed navigator.webdriver. The profile stays a normal persistent human login.
+  const args = buildChromiumArgs("/tmp/profile", { headless: false });
+  assert.ok(args.includes("--disable-blink-features=AutomationControlled"));
+});

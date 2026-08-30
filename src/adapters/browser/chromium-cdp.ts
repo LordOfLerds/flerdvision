@@ -131,6 +131,10 @@ export function buildChromiumArgs(profileDirectory: string, options: BrowserRunt
     "--disable-sync",
     "--no-pings",
     "--password-store=basic",
+    // Google's sign-in blocks browsers it flags as automated ("this browser may not be secure").
+    // This switch removes the navigator.webdriver signal the CDP launch would otherwise expose;
+    // it changes no other behaviour and the persistent human-login profile stays a normal login.
+    "--disable-blink-features=AutomationControlled",
     "--disable-features=Translate",
     ...extraArgs
   ];
