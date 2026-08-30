@@ -81,3 +81,12 @@ test("the CLI prints the full error cause chain, not only the top message", () =
   assert.match(block, /caused by/);
   assert.match(block, /\.cause/);
 });
+
+test("the CLI exposes a read-only verify entry for frozen post-boundary states", () => {
+  const cli = readFileSync(new URL("../src/cli/flerdvision.ts", import.meta.url).pathname, "utf8");
+  const idx = cli.indexOf('command === "verify"');
+  assert.ok(idx > 0, "verify command missing");
+  const block = cli.slice(idx, idx + 1200);
+  assert.match(block, /commands\.verify\(required\(argv, "--run-id"\)/);
+  assert.doesNotMatch(block, /invokeFinal|private-publish|permit/i);
+});

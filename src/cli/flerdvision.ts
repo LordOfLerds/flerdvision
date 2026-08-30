@@ -48,7 +48,7 @@ function authorizedMode(argv: readonly string[]): "canary" | "production" {
   return mode;
 }
 function usage(): never {
-  console.error(`Flerdvision headless commands:\n\n  npm run flerdvision -- bootstrap [--spec <flerdvision.json>]\n  npm run flerdvision -- drive-auth [--spec <flerdvision.json>]\n  npm run flerdvision -- login --channel <channel-key>\n  npm run flerdvision -- doctor [--release-sha <sha>]\n  npm run flerdvision -- demo [--channel <key>] [--private-publish] [--force-login] [--headless]\n  npm run flerdvision -- cleanup --run-id <id> --confirm PRIVATE_E2E_TEST_POST_DELETED --note <evidence>\n  npm run flerdvision -- run-once --channel <key> --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH\n  npm run flerdvision -- daemon --channel <key> --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH [--interval 60]\n\nSet FLERDVISION_SPEC once to avoid repeating --spec. The default product path has no setup/calibration UI. A social login browser opens only when human login or 2FA is needed. Final publishing additionally requires ALLOW_FINAL_PUBLISH=true.`);
+  console.error(`Flerdvision headless commands:\n\n  npm run flerdvision -- bootstrap [--spec <flerdvision.json>]\n  npm run flerdvision -- drive-auth [--spec <flerdvision.json>]\n  npm run flerdvision -- login --channel <channel-key>\n  npm run flerdvision -- doctor [--release-sha <sha>]\n  npm run flerdvision -- demo [--channel <key>] [--private-publish] [--force-login] [--headless]\n  npm run flerdvision -- verify --run-id <id> [--release-sha <sha>]\n  npm run flerdvision -- cleanup --run-id <id> --confirm PRIVATE_E2E_TEST_POST_DELETED --note <evidence>\n  npm run flerdvision -- run-once --channel <key> --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH\n  npm run flerdvision -- daemon --channel <key> --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH [--interval 60]\n\nSet FLERDVISION_SPEC once to avoid repeating --spec. The default product path has no setup/calibration UI. A social login browser opens only when human login or 2FA is needed. Final publishing additionally requires ALLOW_FINAL_PUBLISH=true.`);
   process.exitCode = 2;
   throw new Error("invalid arguments");
 }
@@ -108,6 +108,26 @@ async function main(): Promise<void> {
       onProgress: (message) => console.error(message)
     });
     console.log(JSON.stringify(report, null, 2));
+    return;
+  }
+  if (command === "verify") {
+    // Read-only reconciliation of an existing private-E2E run. PUBLISH_UNCERTAIN froze exactly
+    // as designed after the first live click; the platform completed the share late, and this
+    // is the authoritative path that resolves the frozen state from real surface evidence.
+    // It repeats safely and never invokes any publish action.
+    const spec = loadWorkspaceSpecFile(specPath);
+    const sha = releaseSha(argv);
+    const commands = new WorkspacePrivateE2ECommands({
+      runtimeRoot: spec.workspace.runtimeRoot,
+      workspaceId: spec.workspace.id,
+      releaseSha: sha,
+      allowedAccountIds: new Set(spec.channels.map(accountIdForChannel)),
+      operatorId: "headless-verify"
+    });
+    try {
+      const summary = await commands.verify(required(argv, "--run-id"), new Date().toISOString());
+      console.log(summary);
+    } finally { await commands.close(); }
     return;
   }
   if (command === "cleanup") {
