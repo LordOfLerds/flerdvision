@@ -18,9 +18,30 @@ interface CdpEnvelope {
   error?: { message?: string };
 }
 
+/** The page refused a protocol-set file; callers may fall back to the file-chooser flow. */
+export class FileInputRejectedError extends Error {}
+
 class CdpClient {
   private nextId = 1;
   private readonly pending = new Map<number, { resolve: (value: Record<string, unknown>) => void; reject: (error: Error) => void }>();
+  private readonly eventWaiters = new Map<string, Array<{ resolve: (params: Record<string, unknown>) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>>();
+
+  /** Waits for one CDP event. Needed for protocol flows that are event-driven, e.g. the file chooser. */
+  waitForEvent(method: string, timeoutMs: number): Promise<Record<string, unknown>> {
+    return new Promise((resolve, reject) => {
+      const waiters = this.eventWaiters.get(method) ?? [];
+      const entry = {
+        resolve,
+        reject,
+        timer: setTimeout(() => {
+          this.eventWaiters.set(method, (this.eventWaiters.get(method) ?? []).filter((item) => item !== entry));
+          reject(new Error(`Timed out waiting for CDP event ${method} after ${timeoutMs} ms`));
+        }, timeoutMs)
+      };
+      waiters.push(entry);
+      this.eventWaiters.set(method, waiters);
+    });
+  }
 
   private constructor(private readonly socket: WebSocket) {
     socket.addEventListener("message", (event) => {
@@ -30,7 +51,16 @@ class CdpClient {
       } catch {
         return;
       }
-      if (typeof envelope.id !== "number") return;
+      if (typeof envelope.id !== "number") {
+        const method = (envelope as { method?: string }).method;
+        if (!method) return;
+        const waiters = this.eventWaiters.get(method);
+        if (!waiters?.length) return;
+        this.eventWaiters.delete(method);
+        const params = ((envelope as { params?: Record<string, unknown> }).params) ?? {};
+        for (const waiter of waiters) { clearTimeout(waiter.timer); waiter.resolve(params); }
+        return;
+      }
       const pending = this.pending.get(envelope.id);
       if (!pending) return;
       this.pending.delete(envelope.id);
@@ -43,6 +73,8 @@ class CdpClient {
     socket.addEventListener("close", () => {
       for (const request of this.pending.values()) request.reject(new Error("Chrome DevTools Protocol socket closed"));
       this.pending.clear();
+      for (const waiters of this.eventWaiters.values()) for (const waiter of waiters) { clearTimeout(waiter.timer); waiter.reject(new Error("Chrome DevTools Protocol socket closed")); }
+      this.eventWaiters.clear();
     });
   }
 
@@ -252,6 +284,26 @@ export class ChromiumCdpRuntimeAdapter implements BrowserRuntimePort {
           const nodeId = Number(query.nodeId ?? 0);
           if (!Number.isInteger(nodeId) || nodeId <= 0) throw new Error(`File input not found for selector: ${selector}`);
           await page.send("DOM.setFileInputFiles", { nodeId, files: [...filePaths] });
+          // Verified readback: TikTok's upload input accepted the protocol call without error and
+          // still held zero files, so the page waited forever for an upload that never began.
+          // Silent success is the one outcome an irreversible-adjacent step may never report.
+          const accepted = await this.evaluate<boolean>(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); return Boolean(el && el.files && el.files.length > 0); })()`).catch(() => false);
+          if (!accepted) throw new FileInputRejectedError(`File input did not accept the file for selector: ${selector}`);
+        },
+        async setInputFilesViaChooser(filePaths: readonly string[], openChooser: () => Promise<void>, timeoutMs: number): Promise<void> {
+          if (filePaths.length === 0) throw new Error("setInputFilesViaChooser requires at least one file");
+          await page.send("Page.setInterceptFileChooserDialog", { enabled: true });
+          try {
+            // Arm the waiter before the click: the event can arrive before the click resolves.
+            const opened = page.waitForEvent("Page.fileChooserOpened", timeoutMs);
+            await openChooser();
+            const params = await opened;
+            const backendNodeId = Number(params.backendNodeId ?? 0);
+            if (!Number.isInteger(backendNodeId) || backendNodeId <= 0) throw new Error("File chooser did not name a backing node");
+            await page.send("DOM.setFileInputFiles", { backendNodeId, files: [...filePaths] });
+          } finally {
+            await page.send("Page.setInterceptFileChooserDialog", { enabled: false }).catch(() => {});
+          }
         },
         async captureScreenshot(filePath: string): Promise<void> {
           const result = await page.send("Page.captureScreenshot", { format: "png", fromSurface: true });

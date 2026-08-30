@@ -1,0 +1,45 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+// Live 2026-08-31: TikTok's hidden upload input accepted DOM.setFileInputFiles without error and
+// still held zero files, so the page waited forever for an upload that never began. Silent
+// success is the one outcome a step this close to publishing may never report, so the write is
+// read back and, when the page refuses it, the platform's own file chooser is used instead.
+
+const cdp = readFileSync(new URL("../src/adapters/browser/chromium-cdp.ts", import.meta.url).pathname, "utf8");
+const driver = readFileSync(new URL("../src/adapters/browser/dom-ui-driver.ts", import.meta.url).pathname, "utf8");
+
+test("the protocol file write is proven by readback, not assumed", () => {
+  const idx = cdp.indexOf("DOM.setFileInputFiles");
+  const block = cdp.slice(idx, idx + 900);
+  assert.match(block, /el\.files && el\.files\.length > 0/);
+  assert.match(block, /throw new FileInputRejectedError/);
+});
+
+test("the chooser flow arms interception before the click and always disarms", () => {
+  const idx = cdp.indexOf("async setInputFilesViaChooser");
+  const block = cdp.slice(idx, idx + 1200);
+  const arm = block.indexOf('Page.setInterceptFileChooserDialog", { enabled: true }');
+  const wait = block.indexOf('waitForEvent("Page.fileChooserOpened"');
+  const click = block.indexOf("await openChooser()");
+  const disarm = block.indexOf('enabled: false');
+  assert.ok(arm > 0 && arm < wait && wait < click, "the waiter must be armed before the click");
+  assert.ok(disarm > click, "interception must be released in a finally");
+  assert.match(block, /finally \{/);
+});
+
+test("the fallback only triggers on an explicit refusal and needs a real capability", () => {
+  const idx = driver.indexOf("async setFile(");
+  const block = driver.slice(idx, idx + 1400);
+  assert.match(block, /if \(!\(error instanceof FileInputRejectedError\) \|\| !this\.session\.setInputFilesViaChooser\) throw error;/);
+  assert.match(block, /setInputFilesViaChooser\(\[filePath\]/);
+});
+
+test("chooser openers name upload controls only, never flow or publish controls", () => {
+  const idx = driver.indexOf("FILE_CHOOSER_OPENERS");
+  const block = driver.slice(idx, idx + 700);
+  for (const forbidden of ["Teilen", "Share", "Posten", "Publish", "Veröffentlichen", "Weiter", "Next"]) {
+    assert.ok(!block.includes(`value: "${forbidden}"`), `${forbidden} must never open a chooser`);
+  }
+});

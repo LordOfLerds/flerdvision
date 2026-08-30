@@ -50,6 +50,12 @@ export interface BrowserPageSessionPort {
    */
   setViewport?(viewport: { width: number; height: number; deviceScaleFactor: number }): Promise<void>;
   /**
+   * Supplies a file through the platform's own file-chooser flow: interception is armed, the
+   * caller's trusted click opens the chooser, and the file is attached to the node the page
+   * itself nominated. Needed where writing the hidden input directly is ignored.
+   */
+  setInputFilesViaChooser?(filePaths: readonly string[], openChooser: () => Promise<void>, timeoutMs: number): Promise<void>;
+  /**
    * Insert text through the browser's input pipeline into the focused element. Optional like
    * clickAt; needed because state-owning editors (Instagram's caption is a Lexical editor)
    * ignore synthetic textContent writes exactly as the platform ignores synthetic clicks.

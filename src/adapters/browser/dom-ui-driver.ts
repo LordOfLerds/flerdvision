@@ -1,5 +1,6 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import type { BrowserPageSessionPort } from "../../domain/browser-identity-ports.js";
+import { FileInputRejectedError } from "./chromium-cdp.js";
 import type { UiActionSpec, UiLocator } from "../../domain/platform-ui.js";
 
 export class UiTargetNotFoundError extends Error {}
@@ -317,11 +318,29 @@ export class BrowserDomUiDriver {
     return target.descriptor;
   }
 
+  /** Visible controls that open a platform's own file chooser; used only as a fallback. */
+  private static readonly FILE_CHOOSER_OPENERS: readonly UiLocator[] = [
+    { kind: "role", value: "Video auswählen" }, { kind: "role", value: "Select video" },
+    { kind: "role", value: "Vom Computer auswählen" }, { kind: "role", value: "Select from computer" },
+    { kind: "role", value: "Dateien auswählen" }, { kind: "role", value: "Select files" },
+    { kind: "role", value: "Hochladen" }, { kind: "role", value: "Upload" }
+  ];
+
   async setFile(locators: readonly UiLocator[], filePath: string, timeoutMs?: number): Promise<string> {
     const target = await this.locate(locators, timeoutMs ?? 10_000, false);
     const selector = `[data-flerdvision-node=${JSON.stringify(target.token)}]`;
-    await this.session.setInputFiles(selector, [filePath]);
-    return target.descriptor;
+    try {
+      await this.session.setInputFiles(selector, [filePath]);
+      return target.descriptor;
+    } catch (error) {
+      // TikTok accepts the protocol write without error and keeps zero files, so the upload
+      // never starts. Fall back to the platform's own chooser: arm interception, click the
+      // visible upload control with a trusted click, attach the file to the node the page
+      // nominates. Without a chooser capability or opener the original failure stands.
+      if (!(error instanceof FileInputRejectedError) || !this.session.setInputFilesViaChooser) throw error;
+      await this.session.setInputFilesViaChooser([filePath], async () => { await this.click(BrowserDomUiDriver.FILE_CHOOSER_OPENERS, 8_000, []); }, timeoutMs ?? 30_000);
+      return target.descriptor;
+    }
   }
 
   async attribute(locators: readonly UiLocator[], attributeName: string, timeoutMs?: number): Promise<string | null> {
