@@ -44,3 +44,13 @@ test("explorer and runner agree on every platform by construction", () => {
     assert.ok(surfaceExecutionBootstrapUrl(platform).startsWith("https://"));
   }
 });
+
+test("an optional opening step is skipped once the upload surface is already reached", async () => {
+  const { readFileSync } = await import("node:fs");
+  const source = readFileSync(new URL("../src/adapters/browser/autonomous-surface-explorer.ts", import.meta.url).pathname, "utf8");
+  // TikTok's nav "Hochladen" navigates AWAY from the studio upload page; the required upload
+  // step then found no file input at all.
+  assert.match(source, /const uploadReady = await this\.session\.evaluate<boolean>/);
+  assert.match(source, /if \(uploadReady && !step\.required\)/);
+  assert.match(source, /upload surface already reached/);
+});
