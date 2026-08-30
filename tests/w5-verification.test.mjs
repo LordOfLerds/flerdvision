@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -377,4 +377,104 @@ test("reconciliation repairs intent state if publication record survived but fin
     assert.equal(store.getIntent("intent:test").state, "VERIFIED");
     assert.equal(store.listVerifiedPublications().length, 1);
   } finally { store.close(); }
+});
+
+// --- post-page deep verification: Instagram's grid renders no captions, and a reel without
+// share-to-feed exists only under the reels tab. The live acceptance sat at UNCERTAIN with a
+// success receipt on file because the marker is only readable on the opened post page.
+
+async function postListCollectorFixture({ profileHtml, listHtml, postHtml }) {
+  const dir = mkdtempSync(join(tmpdir(), "flerdvision-w5-postlist-"));
+  const profiles = join(dir, "profiles");
+  const evidenceRoot = join(dir, "evidence");
+  const store = setupStore();
+  store.enterIrreversibleBoundary("attempt:test:1", "2026-08-26T16:01:00Z", actor);
+  store.markAttemptUncertain("attempt:test:1", "2026-08-26T16:01:01Z", actor, "fixture");
+  const base = new ChromiumCdpRuntimeAdapter({ profilesRoot: profiles });
+  const runtime = {
+    async launch(identity, options) {
+      const page = await base.launch(identity, options);
+      return {
+        identityId: page.identityId,
+        profileDirectory: page.profileDirectory,
+        async navigate(url) {
+          let html = profileHtml;
+          if (url.includes("/reels/")) html = listHtml;
+          else if (url.includes("/reel/")) html = postHtml[url] ?? `<main id="profile-ready">leer</main>`;
+          await page.navigate("about:blank");
+          await page.evaluate(`document.body.innerHTML = ${JSON.stringify(html)}; history.replaceState({}, '', '#page')`);
+        },
+        currentUrl: () => page.currentUrl(),
+        evaluate: (expression) => page.evaluate(expression),
+        setInputFiles: (selector, paths) => page.setInputFiles(selector, paths),
+        captureScreenshot: (path) => page.captureScreenshot(path),
+        setCookie: (url, name, value, expires) => page.setCookie(url, name, value, expires),
+        cookies: (url) => page.cookies(url),
+        close: () => page.close()
+      };
+    }
+  };
+  const collector = new DeclarativeProfileVerificationCollector(
+    store,
+    runtime,
+    new FileBrowserProfileLockAdapter(new BrowserProfileDirectoryResolver(profiles)),
+    { async probe() { return { state: "HEALTHY", observedHandle: "test_handle", currentUrl: "about:blank" }; } },
+    new LocalVerificationArtifactSink(evidenceRoot),
+    {
+      platform: "instagram",
+      bootstrapUrl: "about:blank",
+      profileUrlTemplate: "https://example.invalid/{handle}",
+      profileReadyLocators: [{ kind: "css", value: "#profile-ready" }],
+      postMatchLocators: [{ kind: "css", value: "[data-intent='{intentId}']" }],
+      permalinkAttribute: "href",
+      postListUrlTemplate: "https://example.invalid/{handle}/reels/",
+      postLinkSelector: "a.post-link",
+      postOpenLimit: 3
+    },
+    { ownerId: "w5-postlist-test", headless: true, profileReadyTimeoutMs: 300, matchTimeoutMs: 200, now: () => "2026-08-26T16:04:00Z" }
+  );
+  return { dir, store, collector };
+}
+
+test("the marker on an opened post page yields permalink evidence when the profile page is blind", async () => {
+  const fixture = await postListCollectorFixture({
+    profileHtml: `<main id="profile-ready">grid ohne captions</main>`,
+    listHtml: `<main id="profile-ready"><a class="post-link" href="/test_handle/reel/abc/">1</a><a class="post-link" href="/test_handle/reel/def/">2</a></main>`,
+    postHtml: {
+      "https://example.invalid/test_handle/reel/abc/": `<main id="profile-ready">anderer beitrag</main>`,
+      "https://example.invalid/test_handle/reel/def/": `<main id="profile-ready"><div data-intent="intent:test">caption mit marker</div></main>`
+    }
+  });
+  try {
+    const attempt = fixture.store.getPublishAttempt("attempt:test:1");
+    const intent = fixture.store.getIntent("intent:test").intent;
+    const items = await fixture.collector.collect(intent, attempt);
+    assert.equal(items.length, 1);
+    assert.equal(items[0].kind, "profile_permalink");
+    assert.equal(items[0].positive, true);
+    assert.equal(items[0].locator, "https://example.invalid/test_handle/reel/def/");
+    assert.ok(items[0].artifactRef);
+  } finally { rmSync(fixture.dir, { recursive: true, force: true }); }
+});
+
+test("no marker anywhere stays a negative check naming how many post pages were opened", async () => {
+  const fixture = await postListCollectorFixture({
+    profileHtml: `<main id="profile-ready">grid</main>`,
+    listHtml: `<main id="profile-ready"><a class="post-link" href="/test_handle/reel/abc/">1</a><a class="post-link" href="/test_handle/reel/def/">2</a></main>`,
+    postHtml: {}
+  });
+  try {
+    const attempt = fixture.store.getPublishAttempt("attempt:test:1");
+    const intent = fixture.store.getIntent("intent:test").intent;
+    const items = await fixture.collector.collect(intent, attempt);
+    assert.equal(items.length, 1);
+    assert.equal(items[0].positive, false);
+    assert.match(items[0].note, /2 opened post page/);
+  } finally { rmSync(fixture.dir, { recursive: true, force: true }); }
+});
+
+test("the compiler equips instagram verification specs with the reels-tab deep check", () => {
+  const compiler = readFileSync(new URL("../src/application/workspace-spec-compiler.ts", import.meta.url).pathname, "utf8");
+  assert.match(compiler, /postListUrlTemplate: `\$\{profileUrl\(channel\)\}reels\/`/);
+  assert.match(compiler, /postLinkSelector: 'a\[href\*="\/reel\/"\]'/);
 });

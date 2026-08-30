@@ -12,6 +12,17 @@ export interface ProfileVerificationSpec {
   profileReadyLocators: readonly UiLocator[];
   postMatchLocators: readonly UiLocator[];
   permalinkAttribute?: string;
+  /**
+   * Optional deep verification for surfaces whose profile page never renders captions:
+   * Instagram's grid shows thumbnails only, and a reel without share-to-feed lives solely
+   * under the reels tab -- a text match on the profile page is structurally blind there.
+   * When set, the collector opens the list page, takes the newest links matching
+   * postLinkSelector, opens each (up to postOpenLimit) and matches the marker on the post
+   * page itself, where the caption text actually renders.
+   */
+  postListUrlTemplate?: string;
+  postLinkSelector?: string;
+  postOpenLimit?: number;
 }
 
 export interface DeclarativeProfileVerificationCollectorOptions {
@@ -102,6 +113,47 @@ export class DeclarativeProfileVerificationCollector implements VerificationEvid
           positive: true,
           ...(href ? { locator: href } : {}),
           ...(artifactRef ? { artifactRef } : {})
+        }];
+      }
+
+      if (this.spec.postListUrlTemplate && this.spec.postLinkSelector) {
+        const listUrl = template(this.spec.postListUrlTemplate, intent, identity.expectedHandle);
+        await session.navigate(listUrl);
+        await driver.locate(ready, this.options.profileReadyTimeoutMs ?? 10_000, true).catch(() => {});
+        const selectorJson = JSON.stringify(this.spec.postLinkSelector);
+        const limit = Math.max(1, Math.min(this.spec.postOpenLimit ?? 3, 10));
+        const hrefs = await session.evaluate<readonly string[]>(
+          `(() => Array.from(document.querySelectorAll(${selectorJson})).map((a) => a.getAttribute("href")).filter(Boolean).slice(0, ${limit}))()`
+        ).catch(() => [] as const);
+        const listArtifacts = await this.artifacts.capture(session, intent, identity, attempt, "profile-verification-list", this.now());
+        for (const href of hrefs) {
+          const postUrl = new URL(href, listUrl).toString();
+          await session.navigate(postUrl);
+          const postSeen = await driver.isPresent(match, this.options.matchTimeoutMs ?? 3_000, true);
+          const postObservedAt = this.now();
+          const postArtifacts = await this.artifacts.capture(session, intent, identity, attempt, "profile-verification-post", postObservedAt);
+          if (postSeen) {
+            return [{
+              evidenceId: evidenceId("post-permalink", intent.intentId, attempt.attemptId, postObservedAt),
+              intentId: intent.intentId,
+              attemptId: attempt.attemptId,
+              kind: "profile_permalink",
+              observedAt: postObservedAt,
+              positive: true,
+              locator: postUrl,
+              ...(postArtifacts[0] ? { artifactRef: postArtifacts[0] } : {})
+            }];
+          }
+        }
+        return [{
+          evidenceId: evidenceId("profile-negative", intent.intentId, attempt.attemptId, this.now()),
+          intentId: intent.intentId,
+          attemptId: attempt.attemptId,
+          kind: "negative_profile_check",
+          observedAt: this.now(),
+          positive: false,
+          ...(listArtifacts[0] ? { artifactRef: listArtifacts[0] } : {}),
+          note: `configured publication match was absent on the profile page and on ${hrefs.length} opened post page(s)`
         }];
       }
 

@@ -301,7 +301,14 @@ export class WorkspaceSpecCompiler {
           profileUrlTemplate: profileUrl(channel),
           profileReadyLocators: [{ kind: "css", value: "main, [role=\"main\"]" }],
           postMatchLocators: [{ kind: "text", value: "{contentId}", exact: false }],
-          permalinkAttribute: "href"
+          permalinkAttribute: "href",
+          // Instagram's profile grid renders no captions, and reels without share-to-feed only
+          // exist under the reels tab: the marker is only readable on the opened post page.
+          ...(channel.platform === "instagram" ? {
+            postListUrlTemplate: `${profileUrl(channel)}reels/`,
+            postLinkSelector: 'a[href*="/reel/"]',
+            postOpenLimit: 3
+          } : {})
         }
       };
     });
