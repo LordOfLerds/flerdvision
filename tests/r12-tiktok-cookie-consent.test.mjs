@@ -73,3 +73,17 @@ test("the shadow-DOM fallback click cannot escape the marked element", () => {
 test("the live-calibration debt on the banner structure is marked", () => {
   assert.match(source, /TIKTOK-LIVE-CALIBRATION/);
 });
+
+test("a leftover-draft restore prompt is discarded, never continued", async () => {
+  const { DRAFT_RESTORE_MARKERS, DISCARD_CONFIRM_LABELS, OVERLAY_DISMISS_FORBIDDEN_WORDS } = await import("../dist/adapters/browser/autonomous-surface-explorer.js");
+  // Live 2026-08-31: TikTok silently refuses new uploads while "…wurde nicht gespeichert" is up.
+  assert.ok(DRAFT_RESTORE_MARKERS.some((m) => "ein video, das du bearbeitet hast, wurde nicht gespeichert.".includes(m)));
+  // Continuing the old draft would post the wrong media: only discard labels may be clicked, and
+  // none of them is flow/publish vocabulary.
+  for (const label of DISCARD_CONFIRM_LABELS) {
+    assert.ok(!OVERLAY_DISMISS_FORBIDDEN_WORDS.some((w) => w.toLocaleLowerCase("en-US") === label.toLocaleLowerCase("en-US")));
+  }
+  const source = readFileSync(new URL("../src/adapters/browser/autonomous-surface-explorer.ts", import.meta.url).pathname, "utf8");
+  assert.match(source, /await dismissDraftRestore\(this\.session, journal\)/);
+  assert.match(source, /platform === "tiktok" \? 90_000 : 2500/);
+});

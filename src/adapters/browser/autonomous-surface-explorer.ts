@@ -292,6 +292,7 @@ export class AutonomousSurfaceExplorer {
     // create control before anything has been clicked at all. The post-upload dismissal cannot
     // help there; the TikTok-readiness review flagged exactly this wiring gap.
     await this.dismissBenignOverlay(journal);
+    await dismissDraftRestore(this.session, journal);
     for (const step of openingSteps(input.postingProfile)) {
       const result = await this.executeStep(step, input.intent, input, artifactRefs, journal);
       if (result) steps.push({ stepKey: step.stepKey, label: step.label, actionMode: "OBSERVE_ACTION", locator: result.locator, fallbackLocators: result.fallbacks, observations: 1 });
@@ -314,7 +315,11 @@ export class AutonomousSurfaceExplorer {
     // The first upload on a fresh profile summons the one-shot info overlay right here.
     await this.dismissBenignOverlay(journal);
     let fieldLocators = await this.locatorsFor(fieldAction, input.intent);
-    let fieldSelected = await this.workingLocator(fieldLocators, true, 2500);
+    // TikTok has no continue-chain: the editor (and with it the caption) appears only once the
+    // upload finished processing, which takes far longer than the short probe used for surfaces
+    // that reach the caption through NEXT clicks.
+    const firstFieldWaitMs = input.postingProfile.platform === "tiktok" ? 90_000 : 2500;
+    let fieldSelected = await this.workingLocator(fieldLocators, true, firstFieldWaitMs);
     for (let nextIndex = 1; !fieldSelected && nextIndex <= 3; nextIndex += 1) {
       await this.dismissBenignOverlay(journal);
       const next: AutonomousStep = { stepKey: `NEXT_${nextIndex}`, label: `Continue ${nextIndex}`, action: "CLICK", required: true, locators: nextLocators(), timeoutMs: 45_000 };
@@ -362,6 +367,31 @@ export class AutonomousSurfaceExplorer {
  * through the guarded trusted-click path, and any failure is swallowed -- hygiene, not safety.
  */
 export const DISCARD_CONFIRM_LABELS = ["Verwerfen", "Discard", "Delete draft", "Entwurf verwerfen"] as const;
+
+/** Text that identifies a leftover-draft restore prompt (TikTok shows one after any aborted run). */
+export const DRAFT_RESTORE_MARKERS = ["wurde nicht gespeichert", "not saved", "unsaved", "entwurf wiederherstellen", "restore draft"] as const;
+
+/**
+ * Dismisses a leftover-draft restore prompt by discarding the draft. Narrow by construction:
+ * the page must actually show the restore wording, and only an exact discard label is clicked.
+ * The generic benign-overlay dismissal cannot do this -- the prompt also offers "Weiter", which
+ * is forbidden vocabulary there for good reason. Discarding a stale draft never publishes.
+ * Live evidence 2026-08-31: TikTok's upload page silently refuses new uploads while this prompt
+ * is up, which stalled the whole qualification at the caption step.
+ */
+export async function dismissDraftRestore(session: BrowserPageSessionPort, journal?: AutonomousSurfaceJournalEntry[]): Promise<boolean> {
+  const markers = JSON.stringify(DRAFT_RESTORE_MARKERS);
+  const present = await session.evaluate<boolean>(`(() => { const text = (document.body && document.body.innerText || "").toLocaleLowerCase("en-US"); return ${markers}.some((marker) => text.includes(marker)); })()`).catch(() => false);
+  if (!present) return false;
+  try {
+    const descriptor = await new BrowserDomUiDriver(session).click(DISCARD_CONFIRM_LABELS.map((label) => ({ kind: "role" as const, value: label })), 6_000, []);
+    journal?.push({ at: new Date().toISOString(), stepKey: "DISCARD_STALE_DRAFT", action: "CLICK", outcome: "PASS", detail: descriptor });
+    return true;
+  } catch {
+    journal?.push({ at: new Date().toISOString(), stepKey: "DISCARD_STALE_DRAFT", action: "CLICK", outcome: "SKIPPED", detail: "restore prompt present but no exact discard control" });
+    return false;
+  }
+}
 
 export async function discardPreparedDraft(session: BrowserPageSessionPort, journal?: AutonomousSurfaceJournalEntry[]): Promise<boolean> {
   const driver = new BrowserDomUiDriver(session);
