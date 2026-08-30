@@ -42,6 +42,7 @@ export class PersistedDistributionPlannerAdapter implements RuntimePlannerPort {
         .filter((item)=>item.carryToBusinessDate===businessDate)
     );
     const assets = this.runtime.listAssets().map((record)=>record.asset);
+    const committedDeliveries = this.commitments?.listCommitted(businessDate) ?? [];
     const candidate = this.planner.plan({
       businessDate,
       generatedAt: new Date(now).toISOString(),
@@ -50,10 +51,11 @@ export class PersistedDistributionPlannerAdapter implements RuntimePlannerPort {
       routes: stored.config.routes,
       catalog,
       policy: stored.planningPolicy,
-      ...(carryIn.length>0?{carryInBacklog:carryIn}:{})
+      ...(carryIn.length>0?{carryInBacklog:carryIn}:{}),
+      ...(committedDeliveries.length>0?{committed:{slotKeys:committedDeliveries.map((item)=>item.delivery.slotKey),assetIds:committedDeliveries.map((item)=>item.delivery.assetId)}}:{})
     });
     const plan = this.commitments
-      ? reconcileDailyPlanWithCommitments(candidate, this.commitments.listCommitted(businessDate)).plan
+      ? reconcileDailyPlanWithCommitments(candidate, committedDeliveries).plan
       : candidate;
     return this.runtime.putDailyPlan(plan,now).record.plan;
   }

@@ -101,6 +101,13 @@ export interface DailyPlannerInput {
   policy: DistributionPlanningPolicy;
   /** Explicit carry-over from earlier DailyPlans. Nothing is inferred from old files alone. */
   carryInBacklog?: readonly BacklogItem[];
+  /**
+   * Slots and assets already bound by committed deliveries of the same business date. Without
+   * this the planner assigned fresh content onto occupied slots and the commitment reconcile
+   * suppressed it afterwards -- same-day replans could never place new material while any
+   * committed delivery existed (live finding during the canary preparation).
+   */
+  committed?: { slotKeys?: readonly string[]; assetIds?: readonly string[] };
 }
 
 export class DistributionPlanner {
@@ -135,9 +142,12 @@ export class DistributionPlanner {
           .filter((item) => item.routeId === route.routeId && item.carryToBusinessDate === input.businessDate)
           .map((item) => item.assetId)
       );
+      const committedSlotKeys = new Set(input.committed?.slotKeys ?? []);
+      const committedAssetIds = new Set(input.committed?.assetIds ?? []);
       const routeAssets = sortAssets(
         input.assets.filter((asset) =>
           asset.laneId === route.laneId &&
+          !committedAssetIds.has(asset.assetId) &&
           asset.state === "READY" &&
           // An asset without a scheduledBusinessDate is unpinned: simple source topologies (a
           // plain folder, no week/day naming) carry no date the interpreter could derive, and
@@ -150,6 +160,7 @@ export class DistributionPlanner {
 
       let assetIndex = 0;
       for (const slot of schedule.slots) {
+        if (committedSlotKeys.has(slot.key)) continue;
         const targetAt = instantForLocalDateTime(input.businessDate, slot.localTime, schedule.timeZone);
         const windowStartAt = addMinutes(targetAt, -schedule.windowMinutes);
         const windowEndAt = addMinutes(targetAt, schedule.windowMinutes);

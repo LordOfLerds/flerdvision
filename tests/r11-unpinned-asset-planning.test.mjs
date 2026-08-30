@@ -83,3 +83,31 @@ test("an unpinned asset ready after a slot window closes flows to the next slot"
   assert.equal(result.deliveries.length, 1);
   assert.equal(result.deliveries[0].slotKey, "s2");
 });
+
+// --- committed occupancy: same-day replans must place NEW material on free slots ---
+
+test("fresh content lands on the free slot when earlier deliveries pin the others", () => {
+  const result = new DistributionPlanner().plan({
+    businessDate: "2026-08-29",
+    generatedAt: "2026-08-29T19:10:00.000Z",
+    assets: [asset(3, { readyAt: "2026-08-29T08:00:00.000Z" })],
+    lanes: [lane], routes: [route], catalog,
+    policy: { contentOrder: "FILENAME_NUMERIC_PREFIX", lateArrival: "NEXT_AVAILABLE_SLOT", overflow: "BACKLOG_NEXT_DAY" },
+    committed: { slotKeys: ["s1"], assetIds: ["asset:1"] }
+  });
+  assert.equal(result.deliveries.length, 1);
+  assert.equal(result.deliveries[0].assetId, "asset:3");
+  assert.equal(result.deliveries[0].slotKey, "s2", "the committed s1 must be skipped, not fought over");
+});
+
+test("a committed asset is never re-planned even when slots are free", () => {
+  const result = new DistributionPlanner().plan({
+    businessDate: "2026-08-29",
+    generatedAt: "2026-08-29T19:10:00.000Z",
+    assets: [asset(1, { readyAt: "2026-08-29T08:00:00.000Z" })],
+    lanes: [lane], routes: [route], catalog,
+    policy: { contentOrder: "FILENAME_NUMERIC_PREFIX", lateArrival: "NEXT_AVAILABLE_SLOT", overflow: "BACKLOG_NEXT_DAY" },
+    committed: { assetIds: ["asset:1"] }
+  });
+  assert.equal(result.deliveries.length, 0);
+});
