@@ -169,7 +169,7 @@ function verificationSpecTemplate(channel: WorkspaceChannelSpec): Record<string,
     // exist under the reels tab: the marker is only readable on the opened post page.
     ...(channel.platform === "instagram" ? {
       postListUrlTemplate: `${profileUrl(channel)}reels/`,
-      postLinkSelector: 'a[href*="/reel/"]',
+      postLinkSelector: 'a[href*="/reel/"], a[href*="/p/"]',
       postOpenLimit: 3
     } : {})
   };

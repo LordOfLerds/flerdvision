@@ -476,7 +476,7 @@ test("no marker anywhere stays a negative check naming how many post pages were 
 test("the compiler equips instagram verification specs with the reels-tab deep check", () => {
   const compiler = readFileSync(new URL("../src/application/workspace-spec-compiler.ts", import.meta.url).pathname, "utf8");
   assert.match(compiler, /postListUrlTemplate: `\$\{profileUrl\(channel\)\}reels\/`/);
-  assert.match(compiler, /postLinkSelector: 'a\[href\*="\/reel\/"\]'/);
+  assert.match(compiler, /postLinkSelector: 'a\[href\*="\/reel\/"\], a\[href\*="\/p\/"\]'/);
 });
 
 test("the spec parser round-trips the deep-check fields instead of stripping them", async () => {
