@@ -58,3 +58,23 @@ test("the in-page DataTransfer handover is tried before the chooser and streams 
   assert.match(implBlock, /input\.files\.length > 0/);
   assert.match(implBlock, /too large for in-page upload/);
 });
+
+test("an optional upload probe that fails leaves the flow to the required attempt", () => {
+  const explorer = readFileSync(new URL("../src/adapters/browser/autonomous-surface-explorer.ts", import.meta.url).pathname, "utf8");
+  const idx = explorer.indexOf('else if (step.action === "SET_FILE")');
+  const block = explorer.slice(idx, idx + 900);
+  assert.match(block, /if \(step\.required\) throw error;/);
+  assert.match(block, /outcome: "SKIPPED"/);
+});
+
+test("the chooser handshake keeps a timeout floor independent of the caller's probe budget", () => {
+  const idx = driver.indexOf("setInputFilesViaChooser([filePath]");
+  const block = driver.slice(idx - 300, idx + 300);
+  assert.match(block, /Math\.max\(timeoutMs \?\? 0, 20_000\)/);
+});
+
+test("the in-page handover survives a re-render that drops the marker attribute", () => {
+  const idx = cdp.indexOf("async setInputFilesInPage");
+  const block = cdp.slice(idx, idx + 2600);
+  assert.match(block, /\|\| document\.querySelector\('input\[type="file"\]'\)/);
+});

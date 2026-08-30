@@ -254,7 +254,19 @@ export class AutonomousSurfaceExplorer {
         return null;
       }
     }
-    else if (step.action === "SET_FILE") await this.driver.setFile([selected], input.mediaPath, step.timeoutMs ?? 60_000);
+    else if (step.action === "SET_FILE") {
+      try {
+        await this.driver.setFile([selected], input.mediaPath, step.timeoutMs ?? 60_000);
+      } catch (error) {
+        // The upload is attempted first as an optional probe (some surfaces expose the input
+        // only after a reveal click). A failing probe must leave the flow to the required
+        // attempt that follows, not end the run.
+        if (step.required) throw error;
+        const message = error instanceof Error ? error.message : String(error);
+        journal.push({ at: this.now(), stepKey: step.stepKey, action: step.action, outcome: "SKIPPED", locator: selected, detail: message });
+        return null;
+      }
+    }
     else if (step.action === "FILL_CAPTION") {
       if (input.caption === undefined) throw new Error("Caption payload is missing");
       await this.driver.fill([selected], input.caption, step.timeoutMs ?? 12_000);

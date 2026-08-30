@@ -313,7 +313,9 @@ export class ChromiumCdpRuntimeAdapter implements BrowserRuntimePort {
             const bytes = new Uint8Array(binary.length);
             for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
             const file = new File([bytes], ${JSON.stringify(name)}, { type: "video/mp4" });
-            const input = document.querySelector(${JSON.stringify(selector)});
+            // The marker attribute can be dropped by the app's own re-render between locating the
+            // input and handing over the bytes; the file input itself is what matters here.
+            const input = document.querySelector(${JSON.stringify(selector)}) || document.querySelector('input[type="file"]');
             if (!input) return false;
             const transfer = new DataTransfer();
             transfer.items.add(file);

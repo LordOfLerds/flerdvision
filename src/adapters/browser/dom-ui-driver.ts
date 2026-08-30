@@ -350,7 +350,9 @@ export class BrowserDomUiDriver {
         }
       }
       if (!this.session.setInputFilesViaChooser) throw error;
-      await this.session.setInputFilesViaChooser([filePath], async () => { await this.click(BrowserDomUiDriver.FILE_CHOOSER_OPENERS, 8_000, []); }, timeoutMs ?? 30_000);
+      // The caller's budget may be a short probe (the optional first upload attempt uses 2.5 s);
+      // a chooser handshake needs room of its own.
+      await this.session.setInputFilesViaChooser([filePath], async () => { await this.click(BrowserDomUiDriver.FILE_CHOOSER_OPENERS, 8_000, []); }, Math.max(timeoutMs ?? 0, 20_000));
       return target.descriptor;
     }
   }
