@@ -221,6 +221,9 @@ export class ChromiumCdpRuntimeAdapter implements BrowserRuntimePort {
           await page.send("Input.dispatchMouseEvent", { ...base, type: "mousePressed" });
           await page.send("Input.dispatchMouseEvent", { ...base, type: "mouseReleased" });
         },
+        async setViewport(viewport: { width: number; height: number; deviceScaleFactor: number }): Promise<void> {
+          await page.send("Emulation.setDeviceMetricsOverride", { width: viewport.width, height: viewport.height, deviceScaleFactor: viewport.deviceScaleFactor, mobile: false });
+        },
         async insertText(text: string): Promise<void> {
           await page.send("Input.insertText", { text });
         },

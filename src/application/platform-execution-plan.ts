@@ -33,7 +33,7 @@ function planFromContract(context:DistributionPostingContext,contract:PlatformSu
   const actions=contract.steps.map(step=>actionFor(step,context));
   if(actions.at(-1)?.operation!=="FINAL_BOUNDARY")throw new Error("Surface contract must terminate at FINAL_BOUNDARY");
   if(actions.slice(0,-1).some(item=>item.operation==="FINAL_BOUNDARY"))throw new Error("FINAL_BOUNDARY may appear only once at the end");
-  return{intent:context.intent,provenance:context.provenance,postingProfile:context.postingProfile,surfaceContractId:contract.contractId,environmentFingerprint:contract.environment.fingerprint,actions};
+  return{intent:context.intent,provenance:context.provenance,postingProfile:context.postingProfile,surfaceContractId:contract.contractId,environmentFingerprint:contract.environment.fingerprint,environment:contract.environment,actions};
 }
 
 /** Production/runtime execution accepts only a fully qualified surface contract. */

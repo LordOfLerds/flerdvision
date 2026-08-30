@@ -112,6 +112,12 @@ export class SafePlatformExecutionRunner {
     if(identity.accountId!==plan.intent.accountId||identity.platform!==plan.intent.platform)throw new UiActionExecutionError("Execution identity does not match plan account/platform");
     const finalLocators=this.finalLocators(plan),artifactRefs:string[]=[],journal:SafeExecutionJournalEntry[]=[];
     await this.session.navigate(bootstrapUrl(plan.intent.platform));
+    // The fingerprint pins layout-affecting metrics (viewport, scale) alongside language, time
+    // zone and browser major. Window size and target display are not deterministic across
+    // launches (the live prepare leg drifted against its own qualification minutes earlier), so
+    // the executor establishes the contract's recorded metrics via emulation before judging.
+    // Language/timezone/browser drift still fails: those cannot and must not be emulated away.
+    if(plan.environment&&this.session.setViewport)await this.session.setViewport({width:plan.environment.viewportWidth,height:plan.environment.viewportHeight,deviceScaleFactor:plan.environment.deviceScaleFactor});
     const environment=await this.recorder.environment(this.session);
     if(environment.fingerprint!==plan.environmentFingerprint)throw new UiActionExecutionError(`Surface environment drift before execution: expected ${plan.environmentFingerprint}, observed ${environment.fingerprint}`);
     artifactRefs.push(...await this.artifacts.captureBoundary(this.session,plan.intent,identity,"surface-execution-bootstrap",this.now()));

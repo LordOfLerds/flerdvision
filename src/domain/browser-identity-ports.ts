@@ -44,6 +44,12 @@ export interface BrowserPageSessionPort {
    */
   clickAt?(x: number, y: number): Promise<void>;
   /**
+   * Pin the page to exact viewport metrics (width/height/deviceScaleFactor) via emulation.
+   * Layout-affecting metrics are part of the surface-contract fingerprint; establishing them
+   * makes execution deterministic across window restores and displays. Optional for fakes.
+   */
+  setViewport?(viewport: { width: number; height: number; deviceScaleFactor: number }): Promise<void>;
+  /**
    * Insert text through the browser's input pipeline into the focused element. Optional like
    * clickAt; needed because state-owning editors (Instagram's caption is a Lexical editor)
    * ignore synthetic textContent writes exactly as the platform ignores synthetic clicks.
