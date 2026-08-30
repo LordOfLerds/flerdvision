@@ -119,13 +119,13 @@ async function main(): Promise<void> {
     const receipt = await adapter.send({
       notificationId: `notify-test:${Date.now().toString(36)}`,
       dedupeKey: `notify-test:${Date.now().toString(36)}`,
-      kind: "OPERATOR_TEST",
+      kind: "SYSTEM",
       severity: "INFO",
       createdAt: new Date().toISOString(),
       subject: "Flerdvision Testnachricht",
       body: "Der Telegram-Kanal ist verbunden. Ab jetzt melden sich Posts, Plan und Störungen hier.",
       metadata: {}
-    } as never);
+    });
     console.log(`Telegram OK${receipt.externalMessageId ? ` · message_id ${receipt.externalMessageId}` : ""}`);
     return;
   }
