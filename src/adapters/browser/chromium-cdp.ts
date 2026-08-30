@@ -330,9 +330,15 @@ export class ChromiumCdpRuntimeAdapter implements BrowserRuntimePort {
           await page.send("Page.setInterceptFileChooserDialog", { enabled: true });
           try {
             // Arm the waiter before the click: the event can arrive before the click resolves.
+            // Its rejection must never go unobserved -- when the click itself failed, the armed
+            // waiter later rejected with nobody listening and took the whole process down with
+            // an unhandled rejection that named the wrong mechanism.
             const opened = page.waitForEvent("Page.fileChooserOpened", timeoutMs);
+            const observed = opened.catch((error: unknown) => ({ __failed: error instanceof Error ? error : new Error(String(error)) }));
             await openChooser();
-            const params = await opened;
+            const result = await observed;
+            if ("__failed" in result) throw (result as { __failed: Error }).__failed;
+            const params = result as Record<string, unknown>;
             const backendNodeId = Number(params.backendNodeId ?? 0);
             if (!Number.isInteger(backendNodeId) || backendNodeId <= 0) throw new Error("File chooser did not name a backing node");
             await page.send("DOM.setFileInputFiles", { backendNodeId, files: [...filePaths] });

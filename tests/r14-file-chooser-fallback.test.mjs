@@ -19,7 +19,7 @@ test("the protocol file write is proven by readback, not assumed", () => {
 
 test("the chooser flow arms interception before the click and always disarms", () => {
   const idx = cdp.indexOf("async setInputFilesViaChooser");
-  const block = cdp.slice(idx, idx + 1200);
+  const block = cdp.slice(idx, idx + 2000);
   const arm = block.indexOf('Page.setInterceptFileChooserDialog", { enabled: true }');
   const wait = block.indexOf('waitForEvent("Page.fileChooserOpened"');
   const click = block.indexOf("await openChooser()");
@@ -77,4 +77,13 @@ test("the in-page handover survives a re-render that drops the marker attribute"
   const idx = cdp.indexOf("async setInputFilesInPage");
   const block = cdp.slice(idx, idx + 2600);
   assert.match(block, /\|\| document\.querySelector\('input\[type="file"\]'\)/);
+});
+
+test("the armed chooser waiter can never reject unobserved", () => {
+  // A failing opener click left the waiter unawaited; its later rejection crashed the process
+  // with a message that pointed at the wrong mechanism entirely.
+  const idx = cdp.indexOf("async setInputFilesViaChooser");
+  const block = cdp.slice(idx, idx + 1600);
+  assert.match(block, /opened\.catch\(/);
+  assert.match(block, /__failed/);
 });
