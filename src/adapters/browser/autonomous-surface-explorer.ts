@@ -90,6 +90,9 @@ function captionLocators(): readonly UiLocator[] {
     { kind: "role", role: "textbox", value: "caption", exact: false },
     { kind: "label", value: "Caption", exact: false },
     { kind: "label", value: "Bildunterschrift", exact: false },
+    // TikTok live evidence 2026-08-31: the caption is a DraftJS surface with no accessible name
+    // and role="combobox"; only its stable editor class identifies it.
+    { kind: "css", value: "div.public-DraftEditor-content[contenteditable=\"true\"]" },
     { kind: "css", value: "textarea[aria-label*=\"caption\" i]" },
     { kind: "css", value: "div[contenteditable=\"true\"][data-e2e*=\"caption\"]" }
   ]);

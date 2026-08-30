@@ -338,6 +338,7 @@ export class BrowserDomUiDriver {
       // visible upload control with a trusted click, attach the file to the node the page
       // nominates. Without a chooser capability or opener the original failure stands.
       if (!(error instanceof FileInputRejectedError)) throw error;
+      let inPageFailure: string | undefined;
       // Proven order from live evidence: the page's own DataTransfer path is what TikTok honours
       // (the chooser handshake completes there and still uploads nothing), so it comes first;
       // the chooser stays as a second fallback for surfaces that behave the other way round.
@@ -346,13 +347,22 @@ export class BrowserDomUiDriver {
           await this.session.setInputFilesInPage(selector, filePath);
           return target.descriptor;
         } catch (inPageError) {
-          if (!this.session.setInputFilesViaChooser) throw inPageError;
+          // Keep the reason: a swallowed handover failure left only an unrelated chooser timeout
+          // in the evidence, which pointed the investigation at the wrong mechanism entirely.
+          const reason = inPageError instanceof Error ? inPageError.message : String(inPageError);
+          if (!this.session.setInputFilesViaChooser) throw new UiActionExecutionError(`In-page file handover failed: ${reason}`);
+          inPageFailure = reason;
         }
       }
       if (!this.session.setInputFilesViaChooser) throw error;
       // The caller's budget may be a short probe (the optional first upload attempt uses 2.5 s);
       // a chooser handshake needs room of its own.
-      await this.session.setInputFilesViaChooser([filePath], async () => { await this.click(BrowserDomUiDriver.FILE_CHOOSER_OPENERS, 8_000, []); }, Math.max(timeoutMs ?? 0, 20_000));
+      try {
+        await this.session.setInputFilesViaChooser([filePath], async () => { await this.click(BrowserDomUiDriver.FILE_CHOOSER_OPENERS, 8_000, []); }, Math.max(timeoutMs ?? 0, 20_000));
+      } catch (chooserError) {
+        const chooserReason = chooserError instanceof Error ? chooserError.message : String(chooserError);
+        throw new UiActionExecutionError(`Every file handover failed. protocol: rejected by the page${inPageFailure ? ` · in-page: ${inPageFailure}` : ""} · chooser: ${chooserReason}`);
+      }
       return target.descriptor;
     }
   }
