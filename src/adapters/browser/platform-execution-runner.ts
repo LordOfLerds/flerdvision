@@ -5,6 +5,7 @@ import type { PrepareArtifactSinkPort } from "../../domain/platform-ui-ports.js"
 import type { UiLocator } from "../../domain/platform-ui.js";
 import { BrowserCalibrationRecorder } from "./calibration-recorder.js";
 import { BrowserDomUiDriver, UiActionExecutionError } from "./dom-ui-driver.js";
+import { surfaceExecutionBootstrapUrl } from "./surface-bootstrap.js";
 
 export interface SafePlatformExecutionInput {
   mediaPath:string;
@@ -20,11 +21,6 @@ export interface SafePlatformExecutionResult {
   journal:readonly SafeExecutionJournalEntry[];
 }
 
-function bootstrapUrl(platform:PlatformExecutionPlan["intent"]["platform"]):string{
-  if(platform==="instagram")return"https://www.instagram.com/";
-  if(platform==="tiktok")return"https://www.tiktok.com/";
-  return"https://studio.youtube.com/";
-}
 function normalized(value:unknown):string{return String(value??"").trim().toLocaleLowerCase("en-US").replace(/[_-]+/g," ").replace(/\s+/g," ");}
 function selectorFor(token:string):string{return`[data-flerdvision-node=${JSON.stringify(token)}]`;}
 
@@ -111,7 +107,9 @@ export class SafePlatformExecutionRunner {
   async execute(plan:PlatformExecutionPlan,identity:BrowserIdentity,input:SafePlatformExecutionInput):Promise<SafePlatformExecutionResult>{
     if(identity.accountId!==plan.intent.accountId||identity.platform!==plan.intent.platform)throw new UiActionExecutionError("Execution identity does not match plan account/platform");
     const finalLocators=this.finalLocators(plan),artifactRefs:string[]=[],journal:SafeExecutionJournalEntry[]=[];
-    await this.session.navigate(bootstrapUrl(plan.intent.platform));
+    // The replay must start on the exact page the exploration recorded its contract from; see
+    // surfaceExecutionBootstrapUrl for why a divergent bootstrap can never replay on TikTok.
+    await this.session.navigate(surfaceExecutionBootstrapUrl(plan.intent.platform));
     // The fingerprint pins layout-affecting metrics (viewport, scale) alongside language, time
     // zone and browser major. Window size and target display are not deterministic across
     // launches (the live prepare leg drifted against its own qualification minutes earlier), so

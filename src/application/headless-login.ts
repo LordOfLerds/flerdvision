@@ -45,6 +45,24 @@ function identitySelector(channel: WorkspaceChannelSpec): string {
   const handle = channel.handle.replace(/["\\]/g, "");
   // Scoped by identityUrl above; a nav ancestor is no longer part of Instagram's markup.
   if (channel.platform === "instagram") return `a[href="/${handle}/"]`;
+  // TIKTOK-LIVE-CALIBRATION: this probe is UNVERIFIED against the live TikTok DOM and shares
+  // the two defect classes the Instagram probe was repaired for.
+  //
+  // 1. Not fully self-scoped: identityUrl for TikTok is the root feed. A bare a[href*="/@handle"]
+  //    would match the author link of any of the account's videos surfacing in the feed while a
+  //    DIFFERENT account is logged in, so the selector keeps its structural guards (nav ancestor,
+  //    or a data-e2e attribute containing "profile") -- never weaken it to an unscoped anchor.
+  //    The sound fix mirrors Instagram: probe a page that exists only for the authenticated
+  //    account and shows its own handle. Which TikTok page that is (settings, TikTok Studio, the
+  //    upload shell) must be decided from a live snapshot, not guessed here.
+  // 2. Possibly dead: whether TikTok's desktop shell still renders a <nav> ancestor or a
+  //    data-e2e*="profile" attribute on the own-profile link is unknown until a live snapshot
+  //    exists -- exactly how Instagram's nav ancestor silently died.
+  //
+  // Both failure modes are fail-closed today: a selector that matches nothing yields
+  // UNKNOWN/AUTH_REQUIRED, never HEALTHY, and the login loop times out instead of passing. The
+  // sessionid cookie gate below additionally keeps the browser untouched until authentication
+  // actually happened. Calibrate against the live surface during the first TikTok acceptance.
   if (channel.platform === "tiktok") return `nav a[href*="/@${handle}"], a[data-e2e*="profile"][href*="/@${handle}"]`;
   return `a[href*="/@${handle}"], a[href*="/channel/"][aria-label*="${handle}"]`;
 }
