@@ -11,7 +11,7 @@ const source = readFileSync(new URL("../src/adapters/browser/autonomous-surface-
 
 test("the control is also found by the setting it currently shows", () => {
   const idx = source.indexOf("function visibilityControlLocators");
-  const block = source.slice(idx, idx + 1400);
+  const block = source.slice(idx, idx + 2200);
   assert.match(block, /const currentValues = \[/);
   assert.match(block, /"Alle"/);
   assert.match(block, /role\("combobox", currentValues\)/);
@@ -19,7 +19,7 @@ test("the control is also found by the setting it currently shows", () => {
 
 test("every value the option labels can select is also a recognizable current value", () => {
   const idx = source.indexOf("function visibilityControlLocators");
-  const values = source.slice(idx, idx + 1400);
+  const values = source.slice(idx, idx + 2200);
   for (const label of ["Everyone", "Alle", "Only you", "Nur du", "Private", "Privat", "Unlisted"]) {
     assert.ok(values.includes(`"${label}"`), `${label} must be recognizable as a current value`);
   }
