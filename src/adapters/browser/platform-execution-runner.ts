@@ -6,6 +6,7 @@ import type { UiLocator } from "../../domain/platform-ui.js";
 import { BrowserCalibrationRecorder } from "./calibration-recorder.js";
 import { BrowserDomUiDriver, UiActionExecutionError } from "./dom-ui-driver.js";
 import { humanPacing, type HumanPacing } from "./human-pacing.js";
+import { visibilityLabels } from "./autonomous-surface-settings.js";
 import { surfaceExecutionBootstrapUrl } from "./surface-bootstrap.js";
 
 export interface SafePlatformExecutionInput {
