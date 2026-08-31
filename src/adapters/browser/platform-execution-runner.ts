@@ -112,15 +112,24 @@ export class SafePlatformExecutionRunner {
       })()`);
       if(!changed)throw new UiActionExecutionError(`Enum option ${expected} is not available for ${action.stepKey}`);
     }else{
+      // A platform shows the option in ITS language ("Nur du" for only_you) and renders the list
+      // only after the click: comparing against the raw contract value with one immediate look
+      // could never succeed, so replays failed on a setting exploration had just applied.
+      const accepted=[wanted,...visibilityLabels(String(expected)).map(normalized)];
       const current=await this.readEnum(action.locators);
-      if(normalized(current)!==wanted){
+      if(!accepted.includes(normalized(current))){
         await this.driver.click(action.locators,10_000,finalLocators);
-        const selected=await this.session.evaluate<boolean>(`(() => {
-          const norm=v=>String(v||'').trim().toLocaleLowerCase('en-US').replace(/[_-]+/g,' ').replace(/\\s+/g,' '),wanted=${JSON.stringify(wanted)};
+        const pick=async():Promise<boolean>=>await this.session.evaluate<boolean>(`(() => {
+          const norm=v=>String(v||'').trim().toLocaleLowerCase('en-US').replace(/[_-]+/g,' ').replace(/\\s+/g,' '),wanted=new Set(${JSON.stringify(accepted)});
           const candidates=Array.from(document.querySelectorAll('[role="option"],option,[data-value]'));
-          const option=candidates.find(el=>norm(el.getAttribute('data-value'))===wanted||norm(el.getAttribute('value'))===wanted||norm(el.textContent)===wanted);
+          const option=candidates.find(el=>wanted.has(norm(el.getAttribute('data-value')))||wanted.has(norm(el.getAttribute('value')))||wanted.has(norm(el.textContent)));
           if(!option)return false;option.click();return true;
         })()`);
+        let selected=false;
+        for(const deadline=Date.now()+8_000;!selected&&Date.now()<deadline;){
+          selected=await pick();
+          if(!selected)await new Promise((resolvePoll)=>setTimeout(resolvePoll,400));
+        }
         if(!selected)throw new UiActionExecutionError(`Cannot safely locate enum option ${expected} for ${action.stepKey}`);
       }
     }
