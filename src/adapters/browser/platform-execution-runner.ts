@@ -80,11 +80,21 @@ export class SafePlatformExecutionRunner {
   }
 
   private async ensureBoolean(action:PlatformExecutionAction,expected:boolean,finalLocators:readonly UiLocator[]):Promise<string>{
-    const before=await this.readBoolean(action.locators);
-    if(before===null)throw new UiActionExecutionError(`Cannot prove boolean state for ${action.stepKey}`);
+    // Operator provenance, same rule the exploration follows: a setting the canonical spec never
+    // asked for carries the platform's default, so a control that cannot be proven is not a
+    // failure. A demanded setting still fails loudly -- that is the whole point of demanding it.
+    const optional=action.operatorDemanded===false;
+    const before=await this.readBoolean(action.locators).catch((error:unknown)=>{ if(optional)return null; throw error; });
+    if(before===null){
+      if(optional)return`${action.stepKey}=platform-default`;
+      throw new UiActionExecutionError(`Cannot prove boolean state for ${action.stepKey}`);
+    }
     if(before!==expected)await this.driver.click(action.locators,10_000,finalLocators);
     const after=await this.readBoolean(action.locators);
-    if(after!==expected)throw new UiActionExecutionError(`Boolean readback failed for ${action.stepKey}: expected ${expected}, observed ${String(after)}`);
+    if(after!==expected){
+      if(optional)return`${action.stepKey}=platform-default`;
+      throw new UiActionExecutionError(`Boolean readback failed for ${action.stepKey}: expected ${expected}, observed ${String(after)}`);
+    }
     return`${action.stepKey}=${String(after)}`;
   }
 
