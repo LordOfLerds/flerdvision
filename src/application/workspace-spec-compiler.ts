@@ -100,22 +100,35 @@ function payloadTemplate(channel: WorkspaceChannelSpec, format: WorkspaceChannel
   return { copy, payload };
 }
 
+function minuteOfDay(localTime: string): number {
+  const [hours, minutes] = localTime.split(":").map(Number);
+  return hours! * 60 + minutes!;
+}
+
 function schedulingPolicy(spec: WorkspaceSpecV1, channel: WorkspaceChannelSpec, format: WorkspaceChannelFormatSpec): { id: string; policy: SchedulingPolicy } {
-  const id = stable("schedule", `${spec.workspace.timezone}|${channel.key}|${format.type}|${format.times.join(",")}`);
   const slots = format.times.map((localTime, index) => ({ key: `${slug(channel.key)}-${slug(format.type)}-${index + 1}`, localTime }));
+  // `maxPerAccountPerBusinessDate` and `minimumSpacingMinutes` are enforced by the planner across
+  // ALL routes of one account, while `slots` stay per format. Deriving the two account-wide fields
+  // from a single format made every additional format on the same channel exceed the channel's own
+  // cap: a spec with reel 3x + story 2x produced five deliveries against an effective cap of two,
+  // so the planner dropped the entire day as ACCOUNT_DAILY_CAP_CONFLICT and the backlog grew
+  // forever without a single post. They must come from the channel's whole configured rhythm.
+  const accountTimes = [...new Set(channel.formats.flatMap((item) => item.times))].sort((left, right) => minuteOfDay(left) - minuteOfDay(right));
+  const accountPostsPerDay = channel.formats.reduce((total, item) => total + item.times.length, 0);
+  // No artificial floor: a spacing above the operator's own configured gap can only ever reject
+  // the rhythm the spec asked for, which is starvation, not safety.
+  const minimumSpacingMinutes = accountTimes.length <= 1
+    ? 0
+    : Math.min(...accountTimes.slice(1).map((localTime, index) => minuteOfDay(localTime) - minuteOfDay(accountTimes[index]!)));
+  const id = stable("schedule", `${spec.workspace.timezone}|${channel.key}|${format.type}|${format.times.join(",")}|${accountTimes.join(",")}|${accountPostsPerDay}`);
   return {
     id,
     policy: {
       timeZone: spec.workspace.timezone,
       slots,
       windowMinutes: 30,
-      maxPerAccountPerBusinessDate: slots.length,
-      minimumSpacingMinutes: slots.length <= 1 ? 0 : Math.max(15, Math.min(...slots.slice(1).map((slot, index) => {
-        const previous = slots[index]!;
-        const [ph, pm] = previous.localTime.split(":").map(Number);
-        const [ch, cm] = slot.localTime.split(":").map(Number);
-        return (ch! * 60 + cm!) - (ph! * 60 + pm!);
-      }))),
+      maxPerAccountPerBusinessDate: accountPostsPerDay,
+      minimumSpacingMinutes,
       overflowAllowed: false,
       overflowMinimumSpacingMinutes: 240
     }
