@@ -31,7 +31,7 @@ test("the chooser flow arms interception before the click and always disarms", (
 
 test("the fallback only triggers on an explicit refusal and needs a real capability", () => {
   const idx = driver.indexOf("async setFile(");
-  const block = driver.slice(idx, idx + 2400);
+  const block = driver.slice(idx, idx + 3400);
   assert.match(block, /if \(!\(error instanceof FileInputRejectedError\)\) throw error;/);
   assert.match(block, /if \(!this\.session\.setInputFilesViaChooser\) throw error;/);
   assert.match(block, /setInputFilesViaChooser\(\[filePath\]/);
@@ -47,7 +47,7 @@ test("chooser openers name upload controls only, never flow or publish controls"
 
 test("the in-page DataTransfer handover is tried before the chooser and streams in chunks", () => {
   const idx = driver.indexOf("async setFile(");
-  const block = driver.slice(idx, idx + 2400);
+  const block = driver.slice(idx, idx + 3400);
   const inPage = block.indexOf("setInputFilesInPage");
   const chooser = block.indexOf("setInputFilesViaChooser([filePath]");
   assert.ok(inPage > 0 && inPage < chooser, "the proven path must be tried first");
@@ -91,7 +91,7 @@ test("the armed chooser waiter can never reject unobserved", () => {
 
 test("the in-page handover waits for the widget the refused protocol write tore down", () => {
   const idx = driver.indexOf("async setFile(");
-  const block = driver.slice(idx, idx + 2600);
+  const block = driver.slice(idx, idx + 3400);
   assert.match(block, /Date\.now\(\) \+ 15_000/);
   assert.match(block, /setInputFilesInPage\('input\[type="file"\]', filePath\)/);
 });
