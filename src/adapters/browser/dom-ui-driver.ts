@@ -291,7 +291,11 @@ export class BrowserDomUiDriver {
         const el = document.querySelector(${JSON.stringify(selector)});
         return el ? (el.textContent || '') : '';
       })()`);
-      if (!readback.includes(value)) {
+      // Rich editors keep the words but not the whitespace: DraftJS turns a blank line into a
+      // separate block, so an exact substring check reported a mismatch on text that had in fact
+      // arrived complete. Every non-whitespace character must still be present, in order.
+      const collapse = (text: string): string => text.replace(/\s+/g, " ").trim();
+      if (!collapse(readback).includes(collapse(value))) {
         throw new UiActionExecutionError(`Editable target did not accept the text (readback mismatch): ${target.descriptor}`);
       }
       return target.descriptor;

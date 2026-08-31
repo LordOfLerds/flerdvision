@@ -34,7 +34,7 @@ test("the editable fill proves focus before typing", () => {
 
 test("the editable fill proves the text arrived by reading it back", () => {
   // A caption that only LOOKS set surfaces as an empty caption on a real publication.
-  assert.match(driver, /readback\.includes\(value\)/);
+  assert.match(driver, /collapse\(readback\)\.includes\(collapse\(value\)\)/);
   assert.match(driver, /readback mismatch/);
 });
 
@@ -42,4 +42,13 @@ test("session fakes without insertText keep the legacy fill path", () => {
   const fillBlock = driver.slice(driver.indexOf("async fill("), driver.indexOf("async fill(") + 4200);
   assert.match(fillBlock, /el\.isContentEditable/);
   assert.match(fillBlock, /dispatchEvent\(new InputEvent\('input'/);
+});
+
+test("the readback tolerates whitespace normalization but not missing words", () => {
+  // DraftJS turns the caption's blank line into a separate block: the words arrive complete
+  // while the exact substring check failed. Collapsing whitespace on BOTH sides keeps the
+  // proof strict about content and silent about layout.
+  const fillBlock = driver.slice(driver.indexOf("async fill("), driver.indexOf("async fill(") + 4200);
+  assert.match(fillBlock, /const collapse = /);
+  assert.match(fillBlock, /collapse\(readback\)\.includes\(collapse\(value\)\)/);
 });
