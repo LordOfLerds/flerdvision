@@ -276,12 +276,22 @@ export class AutonomousSurfaceExplorer {
         return null;
       }
     }
-    else if (step.action === "FILL_CAPTION") {
-      if (input.caption === undefined) throw new Error("Caption payload is missing");
-      await this.driver.fill([selected], input.caption, step.timeoutMs ?? 12_000);
-    } else if (step.action === "FILL_TITLE") {
-      if (input.title === undefined) throw new Error("Title payload is missing");
-      await this.driver.fill([selected], input.title, step.timeoutMs ?? 12_000);
+    else if (step.action === "FILL_CAPTION" || step.action === "FILL_TITLE") {
+      const value = step.action === "FILL_CAPTION" ? input.caption : input.title;
+      if (value === undefined) throw new Error(`${step.action === "FILL_CAPTION" ? "Caption" : "Title"} payload is missing`);
+      try {
+        await this.driver.fill([selected], value, step.timeoutMs ?? 12_000);
+      } catch (error) {
+        // Promo overlays surface late, after the upload finished processing: TikTok covered the
+        // caption with "Automatische Inhaltsprüfungen aktivieren" exactly when it was needed.
+        // One dismissal attempt and one retry -- the same narrow allowlist as everywhere else.
+        const message = error instanceof Error ? error.message : String(error);
+        if (!/^Refusing to click/.test(message)) throw error;
+        const dismissed = await this.dismissBenignOverlay(journal);
+        if (!dismissed) throw error;
+        await sleep(1200);
+        await this.driver.fill([selected], value, step.timeoutMs ?? 12_000);
+      }
     } else {
       await this.driver.locate([selected], step.timeoutMs ?? 12_000, true);
     }

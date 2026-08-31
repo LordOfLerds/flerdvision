@@ -73,3 +73,13 @@ test("draft discard confirms only exact discard labels and shares no final vocab
   assert.match(qual, /await discardPreparedDraft\(session\)\.catch/);
   assert.match(qual, /await discardPreparedDraft\(replaySession\)\.catch/);
 });
+
+test("a late promo overlay over the caption is dismissed once and the fill retried", () => {
+  // TikTok covered the caption with "Automatische Inhaltsprüfungen aktivieren" only after the
+  // upload had finished processing -- long after the earlier dismissal passes.
+  const idx = source.lastIndexOf('step.action === "FILL_CAPTION" || step.action === "FILL_TITLE"');
+  const block = source.slice(idx, idx + 1200);
+  assert.match(block, /if \(!\/\^Refusing to click\/\.test\(message\)\) throw error;/);
+  assert.match(block, /const dismissed = await this\.dismissBenignOverlay\(journal\);/);
+  assert.match(block, /if \(!dismissed\) throw error;/);
+});
