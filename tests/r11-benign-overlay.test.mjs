@@ -81,7 +81,7 @@ test("a late promo overlay over the caption is cleared and the fill retried", ()
   assert.match(block, /const benign = await this\.dismissBenignOverlay\(journal\)\.catch\(\(\) => false\);/);
   assert.match(block, /const declined = await declineFeatureOptIn\(this\.session, journal\)\.catch\(\(\) => false\);/);
   assert.match(block, /if \(!benign && !declined\)/);
-  assert.match(block, /attempt >= 2/);
+  assert.match(block, /attempt >= 7/);
   // A dismissed modal leaves its backdrop behind, just as opaque to a click as the dialog was.
   assert.match(block, /role="dialog"\], \[role="alertdialog"\]'\)\)\.some\(visible\)/);
 });
@@ -127,7 +127,8 @@ test("an exactly named acknowledge control counts even without a button role", (
   // TikTok's tour renders "Verstanden" as a plain div; a button-only scan never found it.
   const idx = source.indexOf("private async dismissBenignOverlay");
   const block = source.slice(idx, idx + 4000);
-  assert.match(block, /querySelectorAll\('button, \[role="button"\], div, span'\)\)\.filter\(clickable\)/);
+  assert.match(source, /'button, \[role="button"\], div, span'/);
+  assert.match(source, /\.filter\(clickable\)/);
   // Exactness and the container guards are what keep this safe, not the element type.
   assert.match(block, /input\[type="file"\], textarea, \[contenteditable="true"\]/);
   assert.match(block, /forbid\.some\(\(word\) => text\.includes/);

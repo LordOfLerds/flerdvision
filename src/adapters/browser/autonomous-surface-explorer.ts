@@ -302,7 +302,9 @@ export class AutonomousSurfaceExplorer {
           break;
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          if (!/^Refusing to click/.test(message) || attempt >= 2) throw error;
+          // Product tours are multi-step: each acknowledge clears one step and re-renders the
+          // same blocking overlay, so a two-attempt budget could never walk one out.
+          if (!/^Refusing to click/.test(message) || attempt >= 7) throw error;
           // A dismissal that throws must not end the retry: the next one may be the one that
           // clears the blocking layer. Evidence is captured on every blocked pass, because a
           // bare occlusion message never says which layers were actually up.
