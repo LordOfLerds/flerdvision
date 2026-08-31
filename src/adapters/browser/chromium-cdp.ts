@@ -94,10 +94,22 @@ class CdpClient {
     return new CdpClient(socket);
   }
 
-  send(method: string, params: Readonly<Record<string, unknown>> = {}): Promise<Record<string, unknown>> {
+  /**
+   * Every protocol call is bounded. Without this a browser that stops answering -- a crashed
+   * renderer, a frozen tab -- left the caller waiting forever: a live qualification hung with no
+   * output and no evidence, and nothing in the system could notice. A hang is a failure.
+   */
+  send(method: string, params: Readonly<Record<string, unknown>> = {}, timeoutMs = 90_000): Promise<Record<string, unknown>> {
     const id = this.nextId++;
     return new Promise((resolvePromise, reject) => {
-      this.pending.set(id, { resolve: resolvePromise, reject });
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`Chrome DevTools Protocol call ${method} timed out after ${timeoutMs} ms`));
+      }, timeoutMs);
+      this.pending.set(id, {
+        resolve: (value) => { clearTimeout(timer); resolvePromise(value); },
+        reject: (error) => { clearTimeout(timer); reject(error); }
+      });
       this.socket.send(JSON.stringify({ id, method, params }));
     });
   }
