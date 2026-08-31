@@ -13,6 +13,12 @@ import { BrowserDomUiDriver, UiTargetNotFoundError } from "./dom-ui-driver.js";
 import { surfaceExecutionBootstrapUrl } from "./surface-bootstrap.js";
 
 export type AutonomousStepAction = "CLICK" | "SET_FILE" | "FILL_CAPTION" | "FILL_TITLE" | "FINAL_BOUNDARY";
+/**
+ * The journal also records read-only assertions that touch nothing at all (audio integrity). Those
+ * are deliberately NOT step actions: they have no locator, propose nothing to the surface agent,
+ * and can never be replayed as an interaction.
+ */
+export type AutonomousJournalAction = AutonomousStepAction | "OBSERVE";
 interface AutonomousStep {
   stepKey: string;
   label: string;
@@ -24,7 +30,7 @@ interface AutonomousStep {
 export interface AutonomousSurfaceJournalEntry {
   at: string;
   stepKey: string;
-  action: AutonomousStepAction;
+  action: AutonomousJournalAction;
   outcome: "PASS" | "SKIPPED" | "FAIL";
   locator?: UiLocator;
   detail: string;

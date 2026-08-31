@@ -3,6 +3,8 @@ import type { BrowserPageSessionPort } from "../../domain/browser-identity-ports
 import type { PlatformExecutionAction, PlatformExecutionPlan } from "../../domain/platform-execution.js";
 import type { PrepareArtifactSinkPort } from "../../domain/platform-ui-ports.js";
 import type { UiLocator } from "../../domain/platform-ui.js";
+import { DEFAULT_AUDIO_INTEGRITY_POLICY, type AudioIntegrityDecision, type AudioIntegrityPolicy } from "../../domain/audio-integrity.js";
+import { assertOriginalAudio, AudioIntegrityViolationError } from "./audio-integrity-probe.js";
 import { BrowserCalibrationRecorder } from "./calibration-recorder.js";
 import { BrowserDomUiDriver, UiActionExecutionError } from "./dom-ui-driver.js";
 import { humanPacing, type HumanPacing } from "./human-pacing.js";
@@ -14,7 +16,7 @@ export interface SafePlatformExecutionInput {
   caption?:string;
   title?:string;
 }
-interface SafeExecutionJournalEntry {stepKey:string;operation:string;outcome:"PASS";detail:string;}
+interface SafeExecutionJournalEntry {stepKey:string;operation:string;outcome:"PASS"|"FAIL";detail:string;}
 export interface SafePlatformExecutionResult {
   reachedFinalActionBoundary:true;
   finalActionInvoked:false;
@@ -35,8 +37,27 @@ export class SafePlatformExecutionRunner {
   constructor(
     private readonly session:BrowserPageSessionPort,
     private readonly artifacts:PrepareArtifactSinkPort,
-    now:()=>string=()=>new Date().toISOString()
+    now:()=>string=()=>new Date().toISOString(),
+    private readonly audioPolicy:AudioIntegrityPolicy=DEFAULT_AUDIO_INTEGRITY_POLICY
   ){this.driver=new BrowserDomUiDriver(session);this.now=now;}
+
+  /**
+   * Original-audio integrity at the last point before anything irreversible can be invoked: the
+   * retained prepared session a live publish reuses is exactly the session that stops here. The
+   * probe is read-only; a sound that is not the video's own throws with the boundary evidence and
+   * the journal already written, and is never clicked away automatically.
+   */
+  private async guardOriginalAudio(plan:PlatformExecutionPlan,identity:BrowserIdentity,journal:SafeExecutionJournalEntry[],artifactRefs:string[]):Promise<AudioIntegrityDecision>{
+    try{
+      return await assertOriginalAudio(this.session,plan.intent.platform,this.now(),this.audioPolicy);
+    }catch(error){
+      if(!(error instanceof AudioIntegrityViolationError))throw error;
+      journal.push({stepKey:"AUDIO_INTEGRITY",operation:"OBSERVE",outcome:"FAIL",detail:`${error.decision.code}: ${error.decision.message}`});
+      artifactRefs.push(...await this.artifacts.captureBoundary(this.session,plan.intent,identity,"surface-execution-audio-integrity-violation",this.now()).catch(()=>[]));
+      artifactRefs.push(await this.artifacts.writeJournal(plan.intent,journal,this.now()).catch(()=>""));
+      throw error;
+    }
+  }
   private pause():Promise<void>{const ms=this.pacing?.stepPauseMs()??0;return ms>0?new Promise((resolvePause)=>setTimeout(resolvePause,ms)):Promise.resolve();}
 
   private finalLocators(plan:PlatformExecutionPlan):readonly UiLocator[]{
@@ -139,6 +160,8 @@ export class SafePlatformExecutionRunner {
         detail=(await this.driver.locate(action.locators,10_000,true)).descriptor;
         journal.push({stepKey:action.stepKey,operation:action.operation,outcome:"PASS",detail});
         artifactRefs.push(...await this.artifacts.captureBoundary(this.session,plan.intent,identity,"surface-execution-final-boundary",this.now()));
+        const audio=await this.guardOriginalAudio(plan,identity,journal,artifactRefs);
+        journal.push({stepKey:"AUDIO_INTEGRITY",operation:"OBSERVE",outcome:"PASS",detail:`${audio.code}: ${audio.message}`});
         artifactRefs.push(await this.artifacts.writeJournal(plan.intent,journal,this.now()));
         return{reachedFinalActionBoundary:true,finalActionInvoked:false,environmentFingerprint:environment.fingerprint,artifactRefs,journal};
       }
