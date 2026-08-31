@@ -103,3 +103,14 @@ test("a feature opt-in offer is declined, never enabled", async () => {
   assert.match(block, /decline\.setAttribute\('data-flerdvision-decline', '1'\)/);
   assert.match(block, /rect\.width > 0 && rect\.height > 0/);
 });
+
+test("an unfinished product tour is acknowledged like any other benign overlay", () => {
+  // TikTok's react-joyride overlay covers the page with pointer-events enabled: the caption
+  // refusal named an empty presentation layer, not a dialog, so the scan never saw it.
+  assert.match(source, /react-joyride__tooltip, \[data-test-id="tooltip"\]/);
+  const idx = source.indexOf("private async dismissBenignOverlay");
+  const block = source.slice(idx, idx + 1800);
+  // The tour tooltip goes through the same guards as every other container.
+  assert.match(block, /forbid\.some\(\(word\) => text\.includes/);
+  assert.match(block, /input\[type="file"\], textarea, \[contenteditable="true"\]/);
+});

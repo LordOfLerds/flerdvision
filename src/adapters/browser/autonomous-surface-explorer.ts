@@ -198,9 +198,14 @@ export class AutonomousSurfaceExplorer {
       const decline = new Set(${decline});
       const forbid = ${forbid};
       const normalize = (value) => (value || "").replace(/\s+/g, " ").trim();
-      const containers = [...document.querySelectorAll('[role="dialog"]')];
+      const containers = [...document.querySelectorAll('[role="dialog"], [role="alertdialog"]')];
       const cookieHost = document.querySelector('tiktok-cookie-banner');
       if (cookieHost) containers.push(cookieHost);
+      // Product tours render their own opaque page overlay with pointer-events enabled, so an
+      // unfinished tour blocks the compose surface exactly like a modal -- TikTok's covered the
+      // caption behind an empty presentation layer. Their tooltip carries the same acknowledge
+      // control the allowlist already trusts; every guard below still applies to it.
+      containers.push(...document.querySelectorAll('.react-joyride__tooltip, [data-test-id="tooltip"]'));
       for (const container of containers) {
         const scope = container.shadowRoot ?? container;
         const text = normalize(scope.textContent || container.textContent).toLocaleLowerCase("en-US");
