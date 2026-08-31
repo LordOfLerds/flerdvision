@@ -344,7 +344,14 @@ export class BrowserDomUiDriver {
       // the chooser stays as a second fallback for surfaces that behave the other way round.
       if (this.session.setInputFilesInPage) {
         try {
-          await this.session.setInputFilesInPage(selector, filePath);
+          // The refused protocol write itself tears the widget down on some surfaces (verified:
+          // the input was gone microseconds later), so wait for the page to put it back and hand
+          // over through a fresh query rather than the now-stale marker.
+          for (let present = false, deadline = Date.now() + 15_000; !present && Date.now() < deadline; ) {
+            present = await this.session.evaluate<boolean>(`Boolean(document.querySelector('input[type="file"]'))`).catch(() => false);
+            if (!present) await new Promise((resolvePoll) => setTimeout(resolvePoll, 500));
+          }
+          await this.session.setInputFilesInPage('input[type="file"]', filePath);
           return target.descriptor;
         } catch (inPageError) {
           // Keep the reason: a swallowed handover failure left only an unrelated chooser timeout

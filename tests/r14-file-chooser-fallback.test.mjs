@@ -88,3 +88,10 @@ test("the armed chooser waiter can never reject unobserved", () => {
   assert.match(block, /opened\.catch\(/);
   assert.match(block, /__failed/);
 });
+
+test("the in-page handover waits for the widget the refused protocol write tore down", () => {
+  const idx = driver.indexOf("async setFile(");
+  const block = driver.slice(idx, idx + 2600);
+  assert.match(block, /Date\.now\(\) \+ 15_000/);
+  assert.match(block, /setInputFilesInPage\('input\[type="file"\]', filePath\)/);
+});
