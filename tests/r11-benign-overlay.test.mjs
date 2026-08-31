@@ -122,3 +122,13 @@ test("a control is matched by its label or its visible text, never by a substrin
   assert.match(block, /decline\.has\(value\)/);
   assert.match(block, /allow\.has\(value\)/);
 });
+
+test("an exactly named acknowledge control counts even without a button role", () => {
+  // TikTok's tour renders "Verstanden" as a plain div; a button-only scan never found it.
+  const idx = source.indexOf("private async dismissBenignOverlay");
+  const block = source.slice(idx, idx + 4000);
+  assert.match(block, /querySelectorAll\('button, \[role="button"\], div, span'\)\)\.filter\(clickable\)/);
+  // Exactness and the container guards are what keep this safe, not the element type.
+  assert.match(block, /input\[type="file"\], textarea, \[contenteditable="true"\]/);
+  assert.match(block, /forbid\.some\(\(word\) => text\.includes/);
+});

@@ -211,7 +211,12 @@ export class AutonomousSurfaceExplorer {
         const text = normalize(scope.textContent || container.textContent).toLocaleLowerCase("en-US");
         if (forbid.some((word) => text.includes(word.toLocaleLowerCase("en-US")))) continue;
         if (scope.querySelector('input[type="file"], textarea, [contenteditable="true"]')) continue;
-        const buttons = [...scope.querySelectorAll('button, [role="button"]')];
+        // Not every acknowledge control is a semantic button: TikTok's tour renders "Verstanden"
+        // as a plain div, so a button-only scan never found it and the tour kept covering the
+        // compose surface. Candidates stay exact-name-matched and must be visible; the container
+        // has already passed the input and forbidden-word guards above.
+        const clickable = (el) => { const style = getComputedStyle(el); const rect = el.getBoundingClientRect(); return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0; };
+        const buttons = [...scope.querySelectorAll('button, [role="button"], div, span')].filter(clickable);
         // Some widgets carry stylesheet text in aria-label (TikTok's tour tooltip does), so a
         // single name source silently stops matching. Either the label or the visible text may
         // identify the control -- both are compared against the same exact allowlists.
