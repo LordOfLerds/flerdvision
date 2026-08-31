@@ -46,7 +46,9 @@ function visibilityControlLocators(): readonly UiLocator[] {
   // CURRENT VALUE ("Alle"), while the question sits in a separate label element -- so a
   // question-only search could never find it. Its present setting identifies it just as well.
   const currentValues = ["Everyone", "Alle", "Public", "Öffentlich", "Friends", "Freunde", "Followers", "Follower", "Only you", "Nur du", "Private", "Privat", "Unlisted", "Nicht gelistet"];
-  return unique([...role("combobox", names), ...role("button", names), ...label(names), ...text(names), ...role("combobox", currentValues), { kind: "css", value: "select[name*=\"privacy\" i],select[name*=\"visibility\" i]" }]);
+  // Interactive candidates first: the plain question text is a label element, and clicking it
+  // opened nothing at all while consuming the attempt -- the option search then found no list.
+  return unique([...role("combobox", names), ...role("button", names), ...role("combobox", currentValues), ...role("button", currentValues), { kind: "css", value: "select[name*=\"privacy\" i],select[name*=\"visibility\" i]" }, ...label(names), ...text(names)]);
 }
 function visibilityLabels(value: string): readonly string[] {
   if (value === "everyone" || value === "public") return ["Everyone", "Public", "Alle", "Öffentlich"];
