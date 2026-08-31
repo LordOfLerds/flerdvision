@@ -78,10 +78,13 @@ test("a late promo overlay over the caption is dismissed once and the fill retri
   // TikTok covered the caption with "Automatische Inhaltsprüfungen aktivieren" only after the
   // upload had finished processing -- long after the earlier dismissal passes.
   const idx = source.lastIndexOf('step.action === "FILL_CAPTION" || step.action === "FILL_TITLE"');
-  const block = source.slice(idx, idx + 1200);
-  assert.match(block, /if \(!\/\^Refusing to click\/\.test\(message\)\) throw error;/);
-  assert.match(block, /const dismissed = \(await this\.dismissBenignOverlay\(journal\)\) \|\| \(await declineFeatureOptIn\(this\.session, journal\)\);/);
-  assert.match(block, /if \(!dismissed\) throw error;/);
+  const block = source.slice(idx, idx + 1800);
+  assert.match(block, /Refusing to click/);
+  // Stacked overlays: short-circuiting hid the second dialog entirely.
+  assert.match(block, /const benign = await this\.dismissBenignOverlay\(journal\);/);
+  assert.match(block, /const declined = await declineFeatureOptIn\(this\.session, journal\);/);
+  assert.match(block, /if \(!benign && !declined\) throw error;/);
+  assert.match(block, /attempt >= 2/);
 });
 
 test("a feature opt-in offer is declined, never enabled", async () => {

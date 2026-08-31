@@ -279,18 +279,22 @@ export class AutonomousSurfaceExplorer {
     else if (step.action === "FILL_CAPTION" || step.action === "FILL_TITLE") {
       const value = step.action === "FILL_CAPTION" ? input.caption : input.title;
       if (value === undefined) throw new Error(`${step.action === "FILL_CAPTION" ? "Caption" : "Title"} payload is missing`);
-      try {
-        await this.driver.fill([selected], value, step.timeoutMs ?? 12_000);
-      } catch (error) {
-        // Promo overlays surface late, after the upload finished processing: TikTok covered the
-        // caption with "Automatische Inhaltsprüfungen aktivieren" exactly when it was needed.
-        // One dismissal attempt and one retry -- the same narrow allowlist as everywhere else.
-        const message = error instanceof Error ? error.message : String(error);
-        if (!/^Refusing to click/.test(message)) throw error;
-        const dismissed = (await this.dismissBenignOverlay(journal)) || (await declineFeatureOptIn(this.session, journal));
-        if (!dismissed) throw error;
-        await sleep(1200);
-        await this.driver.fill([selected], value, step.timeoutMs ?? 12_000);
+      // Overlays surface late and STACK: TikTok raised an info dialog and a feature offer over
+      // the caption at once, so dismissing only the first left the field just as covered. Every
+      // dismissal runs on each pass -- short-circuiting hid the second dialog entirely -- and
+      // the fill is retried while something was actually cleared.
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          await this.driver.fill([selected], value, step.timeoutMs ?? 12_000);
+          break;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (!/^Refusing to click/.test(message) || attempt >= 2) throw error;
+          const benign = await this.dismissBenignOverlay(journal);
+          const declined = await declineFeatureOptIn(this.session, journal);
+          if (!benign && !declined) throw error;
+          await sleep(1200);
+        }
       }
     } else {
       await this.driver.locate([selected], step.timeoutMs ?? 12_000, true);
