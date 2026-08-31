@@ -236,7 +236,13 @@ export class AutonomousSurfaceExplorer {
     if (!selected) {
       const detail = `No safe locator found for ${step.stepKey}`;
       journal.push({ at: this.now(), stepKey: step.stepKey, action: step.action, outcome: step.required ? "FAIL" : "SKIPPED", detail });
-      if (step.required) throw new Error(detail);
+      if (step.required) {
+        // A required step that cannot find its target says nothing about WHY; without a capture
+        // of the surface at that instant every investigation starts blind.
+        artifactRefs.push(...await this.artifacts.captureBoundary(this.session, intent, { identityId: "surface-explorer", accountId: intent.accountId, platform: intent.platform, profileKey: "surface-explorer", expectedHandle: intent.accountId, enabled: true }, `autonomous-${step.stepKey.toLocaleLowerCase("en-US")}-unfound`, this.now()).catch(() => []));
+        artifactRefs.push(await this.artifacts.writeJournal(intent, journal, this.now()).catch(() => ""));
+        throw new Error(detail);
+      }
       return null;
     }
     const fallbacks = candidates.filter((locator) => locatorKey(locator) !== locatorKey(selected)).slice(0, 3);
