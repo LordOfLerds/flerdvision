@@ -327,6 +327,23 @@ export class BrowserDomUiDriver {
   ];
 
   async setFile(locators: readonly UiLocator[], filePath: string, timeoutMs?: number): Promise<string> {
+    // Marking mutates the element, and on TikTok that attribute write makes the app replace the
+    // whole upload widget: the protocol write then landed on a dead node and the input never
+    // came back. A file input addressed by a plain CSS selector needs no marker at all.
+    const direct = locators.find((locator) => locator.kind === "css");
+    if (direct) {
+      const found = await this.session.evaluate<boolean>(`Boolean(document.querySelector(${JSON.stringify(direct.value)}))`).catch(() => false);
+      if (found) {
+        try {
+          await this.session.setInputFiles(direct.value, [filePath]);
+          return `css:${direct.value}`;
+        } catch (error) {
+          if (!(error instanceof FileInputRejectedError) || !this.session.setInputFilesInPage) throw error;
+          await this.session.setInputFilesInPage(direct.value, filePath);
+          return `css:${direct.value}`;
+        }
+      }
+    }
     const target = await this.locate(locators, timeoutMs ?? 10_000, false);
     const selector = `[data-flerdvision-node=${JSON.stringify(target.token)}]`;
     try {
