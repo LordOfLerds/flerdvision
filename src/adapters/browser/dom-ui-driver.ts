@@ -288,8 +288,12 @@ export class BrowserDomUiDriver {
           await this.session.pressKey("Delete").catch(() => {});
         }
       }
-      if (this.pacing) {
-        // Human typing: one trusted insertText per character with seeded per-character delays.
+      // Editors that own their content model (DraftJS) ignore a bulk insertText outright: the
+      // readback proved the caption never arrived. Real keystrokes are what they listen to.
+      if (this.session.typeText) {
+        const delays = this.pacing?.typingDelaysMs(value);
+        await this.session.typeText(value, delays ? (index) => delays[index] ?? 80 : undefined);
+      } else if (this.pacing) {
         const delays = this.pacing.typingDelaysMs(value);
         for (let index = 0; index < value.length; index += 1) {
           await this.session.insertText(value[index]!);

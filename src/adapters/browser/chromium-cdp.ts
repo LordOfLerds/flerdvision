@@ -286,6 +286,20 @@ export class ChromiumCdpRuntimeAdapter implements BrowserRuntimePort {
           await page.send("Input.dispatchKeyEvent", { type: "keyDown", ...base, ...(descriptor.text && mask === 0 ? { text: descriptor.text } : {}) });
           await page.send("Input.dispatchKeyEvent", { type: "keyUp", ...base });
         },
+        async typeText(text: string, delayMs?: (index: number) => number): Promise<void> {
+          for (let index = 0; index < text.length; index += 1) {
+            const char = text[index]!;
+            if (char === "\n") {
+              await page.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, text: "\r" });
+              await page.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
+            } else {
+              await page.send("Input.dispatchKeyEvent", { type: "keyDown", key: char, text: char, unmodifiedText: char });
+              await page.send("Input.dispatchKeyEvent", { type: "keyUp", key: char });
+            }
+            const wait = delayMs?.(index) ?? 0;
+            if (wait > 0) await sleep(wait);
+          }
+        },
         async insertText(text: string): Promise<void> {
           await page.send("Input.insertText", { text });
         },

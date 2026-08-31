@@ -62,3 +62,11 @@ test("a pre-filled caption is cleared the way a person clears it", () => {
   // Only when there is something to clear -- an empty field is never touched.
   assert.match(fillBlock, /if \(existing\.trim\(\)\.length > 0\)/);
 });
+
+test("text is typed as real keystrokes where the editor owns its content model", () => {
+  const fillBlock = driver.slice(driver.indexOf("async fill("), driver.indexOf("async fill(") + 5600);
+  assert.match(fillBlock, /if \(this\.session\.typeText\)/);
+  assert.match(fillBlock, /this\.session\.typeText\(value/);
+  // The old bulk path stays for sessions without the capability.
+  assert.match(fillBlock, /this\.session\.insertText\(value\)/);
+});

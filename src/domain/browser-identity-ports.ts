@@ -68,6 +68,11 @@ export interface BrowserPageSessionPort {
    */
   pressKey?(key: "a" | "Delete" | "Backspace" | "Enter", modifiers?: { meta?: boolean; ctrl?: boolean }): Promise<void>;
   /**
+   * Types text as real key events, one character at a time. Editors that own their content
+   * model (DraftJS) ignore a bulk insertText outright; keystrokes are what they listen to.
+   */
+  typeText?(text: string, delayMs?: (index: number) => number): Promise<void>;
+  /**
    * Insert text through the browser's input pipeline into the focused element. Optional like
    * clickAt; needed because state-owning editors (Instagram's caption is a Lexical editor)
    * ignore synthetic textContent writes exactly as the platform ignores synthetic clicks.
