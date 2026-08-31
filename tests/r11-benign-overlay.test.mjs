@@ -74,17 +74,16 @@ test("draft discard confirms only exact discard labels and shares no final vocab
   assert.match(qual, /await discardPreparedDraft\(replaySession\)\.catch/);
 });
 
-test("a late promo overlay over the caption is dismissed once and the fill retried", () => {
-  // TikTok covered the caption with "Automatische Inhaltsprüfungen aktivieren" only after the
-  // upload had finished processing -- long after the earlier dismissal passes.
+test("a late promo overlay over the caption is cleared and the fill retried", () => {
   const idx = source.lastIndexOf('step.action === "FILL_CAPTION" || step.action === "FILL_TITLE"');
-  const block = source.slice(idx, idx + 2600);
+  const block = source.slice(idx, idx + 3000);
   assert.match(block, /Refusing to click/);
-  // Stacked overlays: short-circuiting hid the second dialog entirely.
-  assert.match(block, /const benign = await this\.dismissBenignOverlay\(journal\);/);
-  assert.match(block, /const declined = await declineFeatureOptIn\(this\.session, journal\);/);
-  assert.match(block, /if \(!benign && !declined\) throw error;/);
+  assert.match(block, /const benign = await this\.dismissBenignOverlay\(journal\)\.catch\(\(\) => false\);/);
+  assert.match(block, /const declined = await declineFeatureOptIn\(this\.session, journal\)\.catch\(\(\) => false\);/);
+  assert.match(block, /if \(!benign && !declined\)/);
   assert.match(block, /attempt >= 2/);
+  // A dismissed modal leaves its backdrop behind, just as opaque to a click as the dialog was.
+  assert.match(block, /role="dialog"\], \[role="alertdialog"\]'\)\)\.some\(visible\)/);
 });
 
 test("a feature opt-in offer is declined, never enabled", async () => {

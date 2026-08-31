@@ -300,6 +300,15 @@ export class AutonomousSurfaceExplorer {
             artifactRefs.push(await this.artifacts.writeJournal(intent, journal, this.now()).catch(() => ""));
             throw error;
           }
+          // A dismissed modal leaves its backdrop behind for a moment, and that empty layer is
+          // just as opaque to a click as the dialog was. Wait for the surface to actually clear.
+          for (let clear = false, deadline = Date.now() + 8_000; !clear && Date.now() < deadline; ) {
+            clear = await this.session.evaluate<boolean>(`(() => {
+              const visible = (el) => { const style = getComputedStyle(el); const rect = el.getBoundingClientRect(); return style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0" && rect.width > 0 && rect.height > 0; };
+              return !Array.from(document.querySelectorAll('[role="dialog"], [role="alertdialog"]')).some(visible);
+            })()`).catch(() => true);
+            if (!clear) await sleep(500);
+          }
           await sleep(1200);
         }
       }
