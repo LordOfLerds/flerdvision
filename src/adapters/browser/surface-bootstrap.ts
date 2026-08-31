@@ -17,6 +17,8 @@ import type { PublicationIntent } from "../../domain/model.js";
  */
 export function surfaceExecutionBootstrapUrl(platform: PublicationIntent["platform"]): string {
   if (platform === "instagram") return "https://www.instagram.com/";
-  if (platform === "tiktok") return "https://www.tiktok.com/upload";
+  // The public /upload path redirects into the studio; going there directly avoids a redirect
+  // that left the app half-booted (evidence: a rendered "TikTok Studio" shell with no controls).
+  if (platform === "tiktok") return "https://www.tiktok.com/tiktokstudio/upload";
   return "https://studio.youtube.com/";
 }

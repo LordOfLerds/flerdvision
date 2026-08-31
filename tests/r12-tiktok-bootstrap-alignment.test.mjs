@@ -13,8 +13,10 @@ import { surfaceExecutionBootstrapUrl } from "../dist/adapters/browser/surface-b
 const explorerSource = readFileSync(new URL("../src/adapters/browser/autonomous-surface-explorer.ts", import.meta.url).pathname, "utf8");
 const runnerSource = readFileSync(new URL("../src/adapters/browser/platform-execution-runner.ts", import.meta.url).pathname, "utf8");
 
-test("the shared bootstrap starts TikTok directly on the upload page", () => {
-  assert.equal(surfaceExecutionBootstrapUrl("tiktok"), "https://www.tiktok.com/upload");
+test("the shared bootstrap starts TikTok directly on the studio upload page", () => {
+  // The public /upload path redirects into the studio and left the app half-booted: a rendered
+  // "TikTok Studio" shell with no controls at all.
+  assert.equal(surfaceExecutionBootstrapUrl("tiktok"), "https://www.tiktok.com/tiktokstudio/upload");
 });
 
 test("Instagram and YouTube bootstraps are unchanged by the extraction", () => {
@@ -60,6 +62,6 @@ test("exploration waits for a rendered surface instead of a fixed settle", async
   const { readFileSync } = await import("node:fs");
   const source = readFileSync(new URL("../src/adapters/browser/autonomous-surface-explorer.ts", import.meta.url).pathname, "utf8");
   // TikTok Studio's document was still a 1.5 KB shell after the fixed 1.5 s settle.
-  assert.match(source, /Date\.now\(\) \+ 25_000/);
-  assert.match(source, /button, \[role="button"\], input, a\[href\]'\)\.length > 3/);
+  assert.match(source, /Date\.now\(\) \+ 40_000/);
+  assert.match(source, /button, \[role="button"\], input, textarea'\)\.length > 0/);
 });

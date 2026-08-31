@@ -302,8 +302,10 @@ export class AutonomousSurfaceExplorer {
     // A fixed settle is a race against the app's own boot: TikTok Studio's document was still a
     // 1.5 KB shell when exploration began, so nothing could be located at all. Wait until the
     // surface actually rendered interactive content, bounded, then settle briefly.
-    for (let rendered = false, deadline = Date.now() + 25_000; !rendered && Date.now() < deadline; ) {
-      rendered = await this.session.evaluate<boolean>(`document.querySelectorAll('button, [role="button"], input, a[href]').length > 3`).catch(() => false);
+    for (let rendered = false, deadline = Date.now() + 40_000; !rendered && Date.now() < deadline; ) {
+      // Links alone are not evidence of a booted app: the TikTok shell rendered its title and
+      // navigation while the upload widget did not exist yet. Controls are the real signal.
+      rendered = await this.session.evaluate<boolean>(`document.querySelectorAll('button, [role="button"], input, textarea').length > 0`).catch(() => false);
       if (!rendered) await sleep(500);
     }
     await sleep(1500);
