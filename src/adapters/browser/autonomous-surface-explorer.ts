@@ -443,7 +443,11 @@ export async function declineFeatureOptIn(session: BrowserPageSessionPort, journ
       if (!visible(dialog)) return false;
       if (dialog.querySelector('input[type="file"], textarea, [contenteditable="true"]')) return false;
       const text = (dialog.innerText || "").toLocaleLowerCase("en-US");
-      if (forbidden.some((word) => text.includes(word))) return false;
+      // The guard belongs on the CONTROLS, not the prose: a copyright-check offer explains what
+      // happens when you publish, and a body-text scan therefore refused to decline it forever.
+      // What matters is that no button in this dialog is a flow or publish control.
+      const labels = Array.from(dialog.querySelectorAll('button, [role="button"]')).map((button) => (button.innerText || "").trim().toLocaleLowerCase("en-US"));
+      if (labels.some((label) => forbidden.some((word) => label === word))) return false;
       return markers.some((marker) => text.includes(marker));
     });
   })()`).catch(() => false);

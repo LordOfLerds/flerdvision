@@ -96,6 +96,6 @@ test("a feature opt-in offer is declined, never enabled", async () => {
   const block = source.slice(idx, idx + 1600);
   // Same guards as every other dismissal: visible only, never over inputs, forbidden words block.
   assert.match(block, /input\[type="file"\], textarea, \[contenteditable="true"\]/);
-  assert.match(block, /forbidden\.some\(\(word\) => text\.includes\(word\)\)/);
+  assert.match(block, /labels\.some\(\(label\) => forbidden\.some\(\(word\) => label === word\)\)/);
   assert.match(block, /rect\.width > 0 && rect\.height > 0/);
 });
