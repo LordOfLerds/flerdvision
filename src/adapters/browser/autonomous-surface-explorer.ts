@@ -447,24 +447,34 @@ export const FEATURE_OPT_IN_DECLINE_LABELS = ["Abbrechen", "Cancel", "Nicht jetz
 export async function declineFeatureOptIn(session: BrowserPageSessionPort, journal?: AutonomousSurfaceJournalEntry[]): Promise<boolean> {
   const markers = JSON.stringify(FEATURE_OPT_IN_MARKERS);
   const forbidden = JSON.stringify(OVERLAY_DISMISS_FORBIDDEN_WORDS.map((word) => word.toLocaleLowerCase("en-US")));
+  const declineLabels = JSON.stringify(FEATURE_OPT_IN_DECLINE_LABELS.map((label) => label.toLocaleLowerCase("en-US")));
+  // Tag the decline control INSIDE the visible offer. Clicking by accessible name alone found a
+  // hidden twin in another mounted dialog and the occlusion guard rightly refused it, so the
+  // offer stayed up through every retry.
   const present = await session.evaluate<boolean>(`(() => {
-    const markers = ${markers}; const forbidden = ${forbidden};
+    const markers = ${markers}; const forbidden = ${forbidden}; const declines = ${declineLabels};
     const visible = (el) => { const style = getComputedStyle(el); const rect = el.getBoundingClientRect(); return style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0" && rect.width > 0 && rect.height > 0; };
-    return Array.from(document.querySelectorAll('[role="dialog"], [role="alertdialog"]')).some((dialog) => {
-      if (!visible(dialog)) return false;
-      if (dialog.querySelector('input[type="file"], textarea, [contenteditable="true"]')) return false;
+    for (const previous of Array.from(document.querySelectorAll('[data-flerdvision-decline]'))) previous.removeAttribute('data-flerdvision-decline');
+    for (const dialog of Array.from(document.querySelectorAll('[role="dialog"], [role="alertdialog"]'))) {
+      if (!visible(dialog)) continue;
+      if (dialog.querySelector('input[type="file"], textarea, [contenteditable="true"]')) continue;
       const text = (dialog.innerText || "").toLocaleLowerCase("en-US");
       // The guard belongs on the CONTROLS, not the prose: a copyright-check offer explains what
       // happens when you publish, and a body-text scan therefore refused to decline it forever.
-      // What matters is that no button in this dialog is a flow or publish control.
-      const labels = Array.from(dialog.querySelectorAll('button, [role="button"]')).map((button) => (button.innerText || "").trim().toLocaleLowerCase("en-US"));
-      if (labels.some((label) => forbidden.some((word) => label === word))) return false;
-      return markers.some((marker) => text.includes(marker));
-    });
+      const buttons = Array.from(dialog.querySelectorAll('button, [role="button"]'));
+      const labels = buttons.map((button) => (button.innerText || "").trim().toLocaleLowerCase("en-US"));
+      if (labels.some((label) => forbidden.some((word) => label === word))) continue;
+      if (!markers.some((marker) => text.includes(marker))) continue;
+      const decline = buttons.find((button) => declines.includes((button.innerText || "").trim().toLocaleLowerCase("en-US")) && visible(button));
+      if (!decline) continue;
+      decline.setAttribute('data-flerdvision-decline', '1');
+      return true;
+    }
+    return false;
   })()`).catch(() => false);
   if (!present) return false;
   try {
-    const descriptor = await new BrowserDomUiDriver(session).click(FEATURE_OPT_IN_DECLINE_LABELS.map((label) => ({ kind: "role" as const, value: label })), 6_000, []);
+    const descriptor = await new BrowserDomUiDriver(session).click([{ kind: "css", value: '[data-flerdvision-decline="1"]' }], 6_000, []);
     journal?.push({ at: new Date().toISOString(), stepKey: "DECLINE_FEATURE_OPT_IN", action: "CLICK", outcome: "PASS", detail: descriptor });
     return true;
   } catch {

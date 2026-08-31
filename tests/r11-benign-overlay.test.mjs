@@ -78,7 +78,7 @@ test("a late promo overlay over the caption is dismissed once and the fill retri
   // TikTok covered the caption with "Automatische Inhaltsprüfungen aktivieren" only after the
   // upload had finished processing -- long after the earlier dismissal passes.
   const idx = source.lastIndexOf('step.action === "FILL_CAPTION" || step.action === "FILL_TITLE"');
-  const block = source.slice(idx, idx + 1800);
+  const block = source.slice(idx, idx + 2600);
   assert.match(block, /Refusing to click/);
   // Stacked overlays: short-circuiting hid the second dialog entirely.
   assert.match(block, /const benign = await this\.dismissBenignOverlay\(journal\);/);
@@ -96,9 +96,11 @@ test("a feature opt-in offer is declined, never enabled", async () => {
   }
   assert.ok(FEATURE_OPT_IN_MARKERS.some((m) => "automatische inhaltsprüfungen aktivieren?".includes(m)));
   const idx = source.indexOf("export async function declineFeatureOptIn");
-  const block = source.slice(idx, idx + 1600);
+  const block = source.slice(idx, idx + 2600);
   // Same guards as every other dismissal: visible only, never over inputs, forbidden words block.
   assert.match(block, /input\[type="file"\], textarea, \[contenteditable="true"\]/);
   assert.match(block, /labels\.some\(\(label\) => forbidden\.some\(\(word\) => label === word\)\)/);
+  // Clicking by name alone hit a hidden twin in another mounted dialog.
+  assert.match(block, /decline\.setAttribute\('data-flerdvision-decline', '1'\)/);
   assert.match(block, /rect\.width > 0 && rect\.height > 0/);
 });
