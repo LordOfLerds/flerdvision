@@ -8,6 +8,8 @@ import type { PlatformSurfaceContract, SurfaceContractStep } from "../../domain/
 import type { PrepareArtifactSinkPort } from "../../domain/platform-ui-ports.js";
 import type { UiLocator } from "../../domain/platform-ui.js";
 import type { SurfaceAgentPort, SurfaceAgentRequest } from "../../domain/surface-agent.js";
+import { DEFAULT_AUDIO_INTEGRITY_POLICY, type AudioIntegrityPolicy } from "../../domain/audio-integrity.js";
+import { assertOriginalAudio, AudioIntegrityViolationError } from "./audio-integrity-probe.js";
 import { captureSemanticSurfaceSnapshot, type AutonomousSurfaceJournalEntry } from "./autonomous-surface-explorer.js";
 import { BrowserDomUiDriver, UiActionExecutionError, UiTargetNotFoundError } from "./dom-ui-driver.js";
 
@@ -69,8 +71,28 @@ export class AutonomousSurfaceSettings {
     private readonly session: BrowserPageSessionPort,
     private readonly artifacts: PrepareArtifactSinkPort,
     private readonly agent?: SurfaceAgentPort,
-    private readonly now: () => string = () => new Date().toISOString()
+    private readonly now: () => string = () => new Date().toISOString(),
+    private readonly audioPolicy: AudioIntegrityPolicy = DEFAULT_AUDIO_INTEGRITY_POLICY
   ) { this.driver = new BrowserDomUiDriver(session); }
+
+  /**
+   * Operator rule: an automatically published video keeps ITS OWN audio. This is the last moment
+   * the qualification can read that state -- the compose surface is still live and still shows the
+   * preview card that names the attached sound. Read-only and fail-closed: a sound that is not the
+   * video's own ends the run with evidence for a human, and is never clicked away automatically.
+   */
+  private async guardOriginalAudio(input: { intent: PublicationIntent; identity: BrowserIdentity }, artifactRefs: string[], journal: AutonomousSurfaceJournalEntry[]): Promise<void> {
+    try {
+      const decision = await assertOriginalAudio(this.session, input.intent.platform, this.now(), this.audioPolicy);
+      journal.push({ at: this.now(), stepKey: "AUDIO_INTEGRITY", action: "OBSERVE", outcome: decision.code === "CALIBRATION_GAP_RECORDED" ? "SKIPPED" : "PASS", detail: `${decision.code}: ${decision.message}` });
+    } catch (error) {
+      if (!(error instanceof AudioIntegrityViolationError)) throw error;
+      journal.push({ at: this.now(), stepKey: "AUDIO_INTEGRITY", action: "OBSERVE", outcome: "FAIL", detail: `${error.decision.code}: ${error.decision.message}` });
+      artifactRefs.push(...await this.artifacts.captureBoundary(this.session, input.intent, input.identity, "autonomous-audio-integrity-violation", this.now()).catch(() => []));
+      artifactRefs.push(await this.artifacts.writeJournal(input.intent, journal, this.now()).catch(() => ""));
+      throw error;
+    }
+  }
 
   private async firstPresent(locators: readonly UiLocator[], timeoutMs = 3000, visibleOnly = true): Promise<UiLocator | null> {
     const deadline = Date.now() + timeoutMs;
@@ -288,6 +310,9 @@ export class AutonomousSurfaceSettings {
       settings.push(await this.ensureVisibility({ intent: input.intent, identity: input.identity, expected: input.postingProfile.visibility, forbidden, artifactRefs, journal }));
     }
     addAdvancedFromJournal();
+    // Runs after every setting has been applied, so the audio state observed here is the state the
+    // sealed contract will be replayed towards.
+    await this.guardOriginalAudio(input, artifactRefs, journal);
     const final = input.contract.steps.at(-1)!;
     const base = input.contract.steps.slice(0, -1).filter((step) => !settings.some((setting) => setting.stepKey === step.stepKey));
     artifactRefs.push(await this.artifacts.writeJournal(input.intent, journal, this.now()));
