@@ -309,7 +309,10 @@ export class BrowserDomUiDriver {
       // Rich editors keep the words but not the whitespace: DraftJS turns a blank line into a
       // separate block, so an exact substring check reported a mismatch on text that had in fact
       // arrived complete. Every non-whitespace character must still be present, in order.
-      const collapse = (text: string): string => text.replace(/\s+/g, " ").trim();
+      // Not collapsed -- REMOVED: DraftJS drops the blank line entirely rather than rendering a
+      // separator, so "…-01\n\n[FV:…]" comes back as "…-01[FV:…]" and a space-normalised
+      // comparison still missed. Every non-whitespace character must be present, in order.
+      const collapse = (text: string): string => text.replace(/\s+/g, "");
       if (!collapse(readback).includes(collapse(value))) {
         throw new UiActionExecutionError(`Editable target did not accept the text (readback mismatch): ${target.descriptor}`);
       }

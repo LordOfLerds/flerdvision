@@ -44,7 +44,7 @@ test("session fakes without insertText keep the legacy fill path", () => {
   assert.match(fillBlock, /dispatchEvent\(new InputEvent\('input'/);
 });
 
-test("the readback tolerates whitespace normalization but not missing words", () => {
+test("the readback ignores whitespace entirely but never a missing character", () => {
   // DraftJS turns the caption's blank line into a separate block: the words arrive complete
   // while the exact substring check failed. Collapsing whitespace on BOTH sides keeps the
   // proof strict about content and silent about layout.
