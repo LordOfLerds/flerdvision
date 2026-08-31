@@ -67,3 +67,10 @@ test("the replay path accepts the localized option the platform actually shows",
   assert.ok(visibilityLabels("only_you").includes("Nur du"));
   assert.ok(visibilityLabels("private").includes("Privat"));
 });
+
+test("the replay waits for the option list the click opens", () => {
+  const runner = readFileSync(new URL("../src/adapters/browser/platform-execution-runner.ts", import.meta.url).pathname, "utf8");
+  // A single immediate look found nothing: the list renders after the click.
+  assert.match(runner, /const pick=async\(\):Promise<boolean>/);
+  assert.match(runner, /Date\.now\(\)\+8_000/);
+});
