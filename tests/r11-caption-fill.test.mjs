@@ -39,7 +39,7 @@ test("the editable fill proves the text arrived by reading it back", () => {
 });
 
 test("session fakes without insertText keep the legacy fill path", () => {
-  const fillBlock = driver.slice(driver.indexOf("async fill("), driver.indexOf("async fill(") + 4200);
+  const fillBlock = driver.slice(driver.indexOf("async fill("), driver.indexOf("async fill(") + 5600);
   assert.match(fillBlock, /el\.isContentEditable/);
   assert.match(fillBlock, /dispatchEvent\(new InputEvent\('input'/);
 });
