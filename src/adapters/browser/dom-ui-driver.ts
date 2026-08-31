@@ -277,6 +277,17 @@ export class BrowserDomUiDriver {
         return el !== null && (document.activeElement === el || el.contains(document.activeElement));
       })()`);
       if (!focused) throw new UiActionExecutionError(`Editable target did not take focus: ${target.descriptor}`);
+      // Platforms pre-fill the caption from the filename (TikTok does), and a rich editor
+      // ignores text inserted next to content it already owns -- the readback then proved the
+      // caption never arrived. Clear it the way a person does before typing.
+      if (this.session.pressKey) {
+        const existing = await this.session.evaluate<string>(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); return el ? (el.textContent || "") : ""; })()`).catch(() => "");
+        if (existing.trim().length > 0) {
+          await this.session.pressKey("a", { meta: true }).catch(() => {});
+          await this.session.pressKey("a", { ctrl: true }).catch(() => {});
+          await this.session.pressKey("Delete").catch(() => {});
+        }
+      }
       if (this.pacing) {
         // Human typing: one trusted insertText per character with seeded per-character delays.
         const delays = this.pacing.typingDelaysMs(value);

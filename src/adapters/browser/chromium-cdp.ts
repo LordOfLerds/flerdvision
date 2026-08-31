@@ -272,6 +272,20 @@ export class ChromiumCdpRuntimeAdapter implements BrowserRuntimePort {
         async setViewport(viewport: { width: number; height: number; deviceScaleFactor: number }): Promise<void> {
           await page.send("Emulation.setDeviceMetricsOverride", { width: viewport.width, height: viewport.height, deviceScaleFactor: viewport.deviceScaleFactor, mobile: false });
         },
+        async pressKey(key: "a" | "Delete" | "Backspace" | "Enter", modifiers: { meta?: boolean; ctrl?: boolean } = {}): Promise<void> {
+          const descriptors: Readonly<Record<string, { code: string; keyCode: number; text?: string }>> = {
+            a: { code: "KeyA", keyCode: 65, text: "a" },
+            Delete: { code: "Delete", keyCode: 46 },
+            Backspace: { code: "Backspace", keyCode: 8 },
+            Enter: { code: "Enter", keyCode: 13, text: "\r" }
+          };
+          const descriptor = descriptors[key];
+          if (!descriptor) throw new Error(`Unsupported key: ${key}`);
+          const mask = (modifiers.meta ? 4 : 0) | (modifiers.ctrl ? 2 : 0);
+          const base = { key, code: descriptor.code, windowsVirtualKeyCode: descriptor.keyCode, nativeVirtualKeyCode: descriptor.keyCode, modifiers: mask };
+          await page.send("Input.dispatchKeyEvent", { type: "keyDown", ...base, ...(descriptor.text && mask === 0 ? { text: descriptor.text } : {}) });
+          await page.send("Input.dispatchKeyEvent", { type: "keyUp", ...base });
+        },
         async insertText(text: string): Promise<void> {
           await page.send("Input.insertText", { text });
         },

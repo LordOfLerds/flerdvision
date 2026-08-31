@@ -52,3 +52,13 @@ test("the readback tolerates whitespace normalization but not missing words", ()
   assert.match(fillBlock, /const collapse = /);
   assert.match(fillBlock, /collapse\(readback\)\.includes\(collapse\(value\)\)/);
 });
+
+test("a pre-filled caption is cleared the way a person clears it", () => {
+  // TikTok pre-fills the description from the filename, and DraftJS ignored text inserted next
+  // to content it already owned: the readback proved the caption never arrived.
+  const fillBlock = driver.slice(driver.indexOf("async fill("), driver.indexOf("async fill(") + 4600);
+  assert.match(fillBlock, /this\.session\.pressKey\("a", \{ meta: true \}\)/);
+  assert.match(fillBlock, /this\.session\.pressKey\("Delete"\)/);
+  // Only when there is something to clear -- an empty field is never touched.
+  assert.match(fillBlock, /if \(existing\.trim\(\)\.length > 0\)/);
+});

@@ -62,6 +62,12 @@ export interface BrowserPageSessionPort {
    */
   setInputFilesInPage?(selector: string, filePath: string): Promise<void>;
   /**
+   * Trusted key input. Rich editors (DraftJS, Lexical) own their content model and ignore text
+   * inserted into a field they believe already holds something; clearing it the way a person
+   * does -- select all, delete -- is the only honest way to replace pre-filled text.
+   */
+  pressKey?(key: "a" | "Delete" | "Backspace" | "Enter", modifiers?: { meta?: boolean; ctrl?: boolean }): Promise<void>;
+  /**
    * Insert text through the browser's input pipeline into the focused element. Optional like
    * clickAt; needed because state-owning editors (Instagram's caption is a Lexical editor)
    * ignore synthetic textContent writes exactly as the platform ignores synthetic clicks.
