@@ -96,6 +96,11 @@ export class SafePlatformExecutionRunner {
       for(const name of ['data-value','aria-valuetext','value']){const raw=el.getAttribute(name);if(raw&&raw.trim())return raw.trim();}
       const selected=el.querySelector('[aria-selected="true"],[data-state="checked"],[data-state="selected"]');
       if(selected&&selected.textContent?.trim())return selected.textContent.trim();
+      // Last resort: the control shows its current value as plain text, which is how a person
+      // reads it. TikTok's visibility button does exactly that -- every attribute-based read
+      // returned nothing and the readback failed on a setting that had in fact been applied.
+      const own=(el.textContent||'').trim();
+      if(own&&own.length<=40)return own;
       return null;
     })()`);
   }

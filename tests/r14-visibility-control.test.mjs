@@ -74,3 +74,14 @@ test("the replay waits for the option list the click opens", () => {
   assert.match(runner, /const pick=async\(\):Promise<boolean>/);
   assert.match(runner, /Date\.now\(\)\+8_000/);
 });
+
+test("a control that shows its value as text can still be read back", () => {
+  const runner = readFileSync(new URL("../src/adapters/browser/platform-execution-runner.ts", import.meta.url).pathname, "utf8");
+  const idx = runner.indexOf("private async readEnum");
+  const block = runner.slice(idx, idx + 1400);
+  // TikTok's visibility button carries no value attribute at all: every attribute-based read
+  // returned nothing and the readback failed on a setting that had in fact been applied.
+  assert.match(block, /const own=\(el\.textContent\|\|''\)\.trim\(\);/);
+  // Bounded so a whole panel's prose can never masquerade as a value.
+  assert.match(block, /own\.length<=40/);
+});
