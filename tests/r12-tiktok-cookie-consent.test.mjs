@@ -40,12 +40,11 @@ test("decline labels never collide with flow or publish vocabulary", () => {
 });
 
 test("the decline variant is preferred over the generic confirm labels", () => {
-  const dismissIndex = source.indexOf("private async dismissBenignOverlay");
-  const body = source.slice(dismissIndex, dismissIndex + 3000);
-  const declineFind = body.indexOf("decline.has(name(el))");
-  const allowFind = body.indexOf("allow.has(name(el))");
-  assert.ok(declineFind > 0 && allowFind > 0, "both lookups exist");
-  assert.ok(declineFind < allowFind, "decline must be searched before the generic confirm labels");
+  const idx = source.indexOf("private async dismissBenignOverlay");
+  const block = source.slice(idx, idx + 3000);
+  const declineFirst = block.indexOf("decline.has(value)");
+  const allowSecond = block.indexOf("allow.has(value)");
+  assert.ok(declineFirst > 0 && declineFirst < allowSecond, "declining must be preferred");
 });
 
 test("the scan reaches the TikTok cookie banner host and its shadow root", () => {

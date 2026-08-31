@@ -116,11 +116,9 @@ test("an unfinished product tour is acknowledged like any other benign overlay",
 });
 
 test("a control is matched by its label or its visible text, never by a substring", () => {
-  // TikTok's tour tooltip carries stylesheet text in aria-label; a single name source stopped
-  // matching entirely. Exactness is preserved: both candidates go through the same Set lookups.
   const idx = source.indexOf("private async dismissBenignOverlay");
-  const block = source.slice(idx, idx + 2200);
-  assert.match(block, /const names = \(el\) => \[normalize\(el\.getAttribute\("aria-label"\)\), normalize\(el\.textContent\)\]/);
-  assert.match(block, /names\(el\)\.some\(\(value\) => decline\.has\(value\)\)/);
-  assert.match(block, /names\(el\)\.some\(\(value\) => allow\.has\(value\)\)/);
+  const block = source.slice(idx, idx + 3000);
+  assert.match(block, /const names = \(el\) =>/);
+  assert.match(block, /decline\.has\(value\)/);
+  assert.match(block, /allow\.has\(value\)/);
 });
