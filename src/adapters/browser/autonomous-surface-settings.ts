@@ -48,7 +48,7 @@ function visibilityControlLocators(): readonly UiLocator[] {
   const currentValues = ["Everyone", "Alle", "Public", "Öffentlich", "Friends", "Freunde", "Followers", "Follower", "Only you", "Nur du", "Private", "Privat", "Unlisted", "Nicht gelistet"];
   // Interactive candidates first: the plain question text is a label element, and clicking it
   // opened nothing at all while consuming the attempt -- the option search then found no list.
-  return unique([...role("combobox", names), ...role("button", names), ...role("combobox", currentValues), ...role("button", currentValues), { kind: "css", value: "select[name*=\"privacy\" i],select[name*=\"visibility\" i]" }, ...label(names), ...text(names)]);
+  return unique([...role("combobox", names), ...role("button", names), ...role("combobox", currentValues), ...role("button", currentValues), { kind: "css", value: "select[name*=\"privacy\" i],select[name*=\"visibility\" i]" }, { kind: "css", value: "button[role=\"combobox\"]" }, ...label(names), ...text(names)]);
 }
 function visibilityLabels(value: string): readonly string[] {
   if (value === "everyone" || value === "public") return ["Everyone", "Public", "Alle", "Öffentlich"];

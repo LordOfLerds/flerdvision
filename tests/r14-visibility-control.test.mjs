@@ -39,3 +39,12 @@ test("interactive candidates rank before the plain question text", () => {
   // Clicking the label opened nothing and consumed the attempt; the option list never appeared.
   assert.ok(combobox > 0 && combobox < plainText, "the real control must be preferred over its label");
 });
+
+test("a structural combobox candidate exists, guarded by the value readback", () => {
+  const idx = source.indexOf("function visibilityControlLocators");
+  const block = source.slice(idx, idx + 1800);
+  // TikTok's control carries no usable accessible name; structure finds it, and picking the
+  // wrong one still fails loudly because the setting is read back afterwards.
+  assert.match(block, /button\[role=\\"combobox\\"\]/);
+  assert.match(source, /Visibility readback failed: expected/);
+});
