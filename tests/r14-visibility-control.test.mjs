@@ -57,3 +57,13 @@ test("a control that vanishes between probe and use is re-resolved once", () => 
   assert.match(block, /const refreshed = await this\.firstPresent\(candidates, 5000\);/);
   assert.match(block, /if \(!refreshed\) throw error;/);
 });
+
+test("the replay path accepts the localized option the platform actually shows", async () => {
+  const runner = readFileSync(new URL("../src/adapters/browser/platform-execution-runner.ts", import.meta.url).pathname, "utf8");
+  // TikTok shows "Nur du" for only_you: comparing against the raw contract value alone could
+  // never match, so the replay failed on a setting exploration had just applied.
+  assert.match(runner, /visibilityLabels\(String\(expected\)\)\.map\(normalized\)/);
+  const { visibilityLabels } = await import("../dist/adapters/browser/autonomous-surface-settings.js");
+  assert.ok(visibilityLabels("only_you").includes("Nur du"));
+  assert.ok(visibilityLabels("private").includes("Privat"));
+});

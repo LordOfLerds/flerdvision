@@ -53,7 +53,7 @@ function visibilityControlLocators(): readonly UiLocator[] {
   // while the element's role and tag stay put. The value readback still proves the right control.
   return unique([...role("combobox", names), ...role("button", names), { kind: "css", value: "select[name*=\"privacy\" i],select[name*=\"visibility\" i]" }, { kind: "css", value: "button[role=\"combobox\"]" }, ...role("combobox", currentValues), ...role("button", currentValues), ...label(names), ...text(names)]);
 }
-function visibilityLabels(value: string): readonly string[] {
+export function visibilityLabels(value: string): readonly string[] {
   if (value === "everyone" || value === "public") return ["Everyone", "Public", "Alle", "Öffentlich"];
   if (value === "friends") return ["Friends", "Freunde"];
   if (value === "followers") return ["Followers", "Follower"];

@@ -103,7 +103,9 @@ export class SafePlatformExecutionRunner {
       }
     }
     const after=await this.readEnum(action.locators);
-    if(normalized(after)!==wanted)throw new UiActionExecutionError(`Enum readback failed for ${action.stepKey}: expected ${expected}, observed ${after??"UNKNOWN"}`);
+    // The readback sees the localized label too, so it must accept the same set the selection did.
+    const acceptedAfter=new Set([wanted,...visibilityLabels(String(expected)).map(normalized)]);
+    if(!acceptedAfter.has(normalized(after)))throw new UiActionExecutionError(`Enum readback failed for ${action.stepKey}: expected ${expected}, observed ${after??"UNKNOWN"}`);
     return`${action.stepKey}=${after}`;
   }
 
