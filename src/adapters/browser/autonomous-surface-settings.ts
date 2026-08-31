@@ -217,7 +217,15 @@ export class AutonomousSurfaceSettings {
       selected = await this.firstPresent(candidates, 3000);
     }
     if (!selected) throw new UiActionExecutionError("Could not locate required visibility setting");
-    const target = await this.driver.locate([selected], 5000, true);
+    // The control that answered the probe can be gone a moment later: this surface re-renders
+    // its settings section constantly, and a candidate chosen with a short probe then failed a
+    // full five-second locate. Re-resolve across the whole candidate list before giving up.
+    let target = await this.driver.locate([selected], 5000, true).catch(async (error: unknown) => {
+      const refreshed = await this.firstPresent(candidates, 5000);
+      if (!refreshed) throw error;
+      selected = refreshed;
+      return await this.driver.locate([refreshed], 5000, true);
+    });
     const selector = `[data-flerdvision-node=${JSON.stringify(target.token)}]`;
     const native = await this.session.evaluate<boolean>(`document.querySelector(${JSON.stringify(selector)}) instanceof HTMLSelectElement`);
     const wantedLabels = visibilityLabels(input.expected);

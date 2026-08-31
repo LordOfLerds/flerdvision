@@ -48,3 +48,12 @@ test("a structural combobox candidate exists, guarded by the value readback", ()
   assert.match(block, /button\[role=\\"combobox\\"\]/);
   assert.match(source, /Visibility readback failed: expected/);
 });
+
+test("a control that vanishes between probe and use is re-resolved once", () => {
+  const idx = source.indexOf("Could not locate required visibility setting");
+  const block = source.slice(idx, idx + 900);
+  // The settings section re-renders constantly: a candidate chosen with a short probe failed a
+  // full five-second locate moments later.
+  assert.match(block, /const refreshed = await this\.firstPresent\(candidates, 5000\);/);
+  assert.match(block, /if \(!refreshed\) throw error;/);
+});
