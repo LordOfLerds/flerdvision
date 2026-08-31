@@ -55,7 +55,8 @@ test("the in-page DataTransfer handover is tried before the chooser and streams 
   const implBlock = cdp.slice(impl, impl + 2600);
   assert.match(implBlock, /chunkSize = 512 \* 1024/);
   assert.match(implBlock, /new DataTransfer\(\)/);
-  assert.match(implBlock, /input\.files\.length > 0/);
+  assert.match(implBlock, /input\.files\.length === 0/);
+  assert.match(implBlock, /marked input kept zero files/);
   assert.match(implBlock, /too large for in-page upload/);
 });
 

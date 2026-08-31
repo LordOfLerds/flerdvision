@@ -306,7 +306,7 @@ export class ChromiumCdpRuntimeAdapter implements BrowserRuntimePort {
             const chunk = base64.slice(offset, offset + chunkSize);
             await this.evaluate(`(() => { window.__flerdvisionUpload.push(${JSON.stringify(chunk)}); return true; })()`);
           }
-          const accepted = await this.evaluate<boolean>(`(() => {
+          const accepted = await this.evaluate<{ ok: boolean; reason: string }>(`(() => {
             const chunks = window.__flerdvisionUpload || [];
             delete window.__flerdvisionUpload;
             const binary = atob(chunks.join(""));
@@ -315,15 +315,17 @@ export class ChromiumCdpRuntimeAdapter implements BrowserRuntimePort {
             const file = new File([bytes], ${JSON.stringify(name)}, { type: "video/mp4" });
             // The marker attribute can be dropped by the app's own re-render between locating the
             // input and handing over the bytes; the file input itself is what matters here.
-            const input = document.querySelector(${JSON.stringify(selector)}) || document.querySelector('input[type="file"]');
-            if (!input) return false;
+            const marked = document.querySelector(${JSON.stringify(selector)});
+            const input = marked || document.querySelector('input[type="file"]');
+            if (!input) return { ok: false, reason: "no file input on the page" };
             const transfer = new DataTransfer();
             transfer.items.add(file);
-            input.files = transfer.files;
+            try { input.files = transfer.files; } catch (error) { return { ok: false, reason: "assignment threw: " + String(error && error.message || error) }; }
+            if (!input.files || input.files.length === 0) return { ok: false, reason: marked ? "marked input kept zero files" : "fallback input kept zero files" };
             input.dispatchEvent(new Event("change", { bubbles: true }));
-            return input.files.length > 0;
+            return { ok: true, reason: (marked ? "marked" : "fallback") + " input accepted " + input.files.length + " file(s)" };
           })()`);
-          if (!accepted) throw new Error(`In-page file handover was rejected for selector: ${selector}`);
+          if (!accepted?.ok) throw new Error(`In-page file handover was rejected (${accepted?.reason ?? "no diagnosis"}) for selector: ${selector}`);
         },
         async setInputFilesViaChooser(filePaths: readonly string[], openChooser: () => Promise<void>, timeoutMs: number): Promise<void> {
           if (filePaths.length === 0) throw new Error("setInputFilesViaChooser requires at least one file");
