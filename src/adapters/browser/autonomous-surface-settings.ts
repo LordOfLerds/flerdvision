@@ -42,7 +42,11 @@ function advancedLocators(): readonly UiLocator[] {
 }
 function visibilityControlLocators(): readonly UiLocator[] {
   const names = ["Who can watch this video", "Who can view this post", "Visibility", "Sichtbarkeit", "Wer kann dieses Video ansehen?", "Wer kann diesen Beitrag sehen?"];
-  return unique([...role("combobox", names), ...role("button", names), ...label(names), ...text(names), { kind: "css", value: "select[name*=\"privacy\" i],select[name*=\"visibility\" i]" }]);
+  // Live evidence (TikTok, 2026-08-31): the control is a combobox whose accessible name is its
+  // CURRENT VALUE ("Alle"), while the question sits in a separate label element -- so a
+  // question-only search could never find it. Its present setting identifies it just as well.
+  const currentValues = ["Everyone", "Alle", "Public", "Öffentlich", "Friends", "Freunde", "Followers", "Follower", "Only you", "Nur du", "Private", "Privat", "Unlisted", "Nicht gelistet"];
+  return unique([...role("combobox", names), ...role("button", names), ...label(names), ...text(names), ...role("combobox", currentValues), { kind: "css", value: "select[name*=\"privacy\" i],select[name*=\"visibility\" i]" }]);
 }
 function visibilityLabels(value: string): readonly string[] {
   if (value === "everyone" || value === "public") return ["Everyone", "Public", "Alle", "Öffentlich"];
