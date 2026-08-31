@@ -334,14 +334,25 @@ export class BrowserDomUiDriver {
     if (direct) {
       const found = await this.session.evaluate<boolean>(`Boolean(document.querySelector(${JSON.stringify(direct.value)}))`).catch(() => false);
       if (found) {
-        try {
-          await this.session.setInputFiles(direct.value, [filePath]);
-          return `css:${direct.value}`;
-        } catch (error) {
-          if (!(error instanceof FileInputRejectedError) || !this.session.setInputFilesInPage) throw error;
-          await this.session.setInputFilesInPage(direct.value, filePath);
-          return `css:${direct.value}`;
+        // The page's own DataTransfer path goes first: a REFUSED protocol write is not harmless
+        // on every surface -- on TikTok it makes the app unmount the upload widget outright, so
+        // the fallback then had nothing left to work with. Handing the file over the way a human
+        // drop does never damages the surface, and the readback proves it landed either way.
+        if (this.session.setInputFilesInPage) {
+          try {
+            await this.session.setInputFilesInPage(direct.value, filePath);
+            return `css:${direct.value}`;
+          } catch (inPageError) {
+            try {
+              await this.session.setInputFiles(direct.value, [filePath]);
+              return `css:${direct.value}`;
+            } catch {
+              throw inPageError;
+            }
+          }
         }
+        await this.session.setInputFiles(direct.value, [filePath]);
+        return `css:${direct.value}`;
       }
     }
     const target = await this.locate(locators, timeoutMs ?? 10_000, false);

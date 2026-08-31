@@ -45,6 +45,14 @@ test("chooser openers name upload controls only, never flow or publish controls"
   }
 });
 
+test("the page's own handover goes first on a css-addressed input", () => {
+  const idx = driver.indexOf("async setFile(");
+  const block = driver.slice(idx, idx + 5200);
+  const inPage = block.indexOf("setInputFilesInPage(direct.value");
+  const protocol = block.indexOf("setInputFiles(direct.value");
+  assert.ok(inPage > 0 && inPage < protocol, "a refused protocol write can destroy the widget");
+});
+
 test("the in-page DataTransfer handover is tried before the chooser and streams in chunks", () => {
   const idx = driver.indexOf("async setFile(");
   const block = driver.slice(idx, idx + 5200);
@@ -98,11 +106,11 @@ test("the in-page handover waits for the widget the refused protocol write tore 
 
 test("a css-addressed file input is never marked before the handover", () => {
   const idx = driver.indexOf("async setFile(");
-  const block = driver.slice(idx, idx + 1400);
+  const block = driver.slice(idx, idx + 5200);
   // The marker write itself made TikTok replace the widget; the protocol write then landed on
   // a dead node and the input never returned.
   assert.match(block, /const direct = locators\.find\(\(locator\) => locator\.kind === "css"\)/);
-  const directPath = block.indexOf("setInputFiles(direct.value");
+  const directPath = block.indexOf("direct.value");
   const markedPath = block.indexOf("this.locate(locators");
   assert.ok(directPath > 0 && directPath < markedPath, "the unmarked path must come first");
 });
