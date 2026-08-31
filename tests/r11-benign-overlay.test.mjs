@@ -32,8 +32,8 @@ test("every final-action word of every platform blocks dismissal", () => {
   }
 });
 
-test("dismissal only ever targets a role=dialog and skips dialogs with inputs", () => {
-  assert.match(source, /querySelectorAll\('\[role="dialog"\]'\)/);
+test("dismissal only ever targets dialog-like containers and skips those with inputs", () => {
+  assert.match(source, /querySelectorAll\('\[role="dialog"\], \[role="alertdialog"\]'\)/);
   assert.match(source, /input\[type="file"\], textarea, \[contenteditable="true"\]/);
 });
 

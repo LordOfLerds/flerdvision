@@ -55,9 +55,11 @@ test("the scan reaches the TikTok cookie banner host and its shadow root", () =>
   assert.match(source, /container\.shadowRoot \?\? container/);
 });
 
-test("the dialog scan itself stays narrow: role=dialog plus the one named cookie host", () => {
-  assert.match(source, /querySelectorAll\('\[role="dialog"\]'\)/);
-  // No broadening to arbitrary elements: the only addition is the single named custom element.
+test("the dialog scan stays narrow: dialog roles plus two named hosts", () => {
+  assert.match(source, /querySelectorAll\('\[role="dialog"\], \[role="alertdialog"\]'\)/);
+  // Named additions only -- the cookie banner element and the product-tour tooltip. No wildcards.
+  assert.match(source, /tiktok-cookie-banner/);
+  assert.match(source, /react-joyride__tooltip, \[data-test-id="tooltip"\]/);
   assert.doesNotMatch(source, /querySelectorAll\('\[role="dialog"\][^']*\*/);
 });
 
