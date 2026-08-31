@@ -212,8 +212,11 @@ export class AutonomousSurfaceExplorer {
         if (forbid.some((word) => text.includes(word.toLocaleLowerCase("en-US")))) continue;
         if (scope.querySelector('input[type="file"], textarea, [contenteditable="true"]')) continue;
         const buttons = [...scope.querySelectorAll('button, [role="button"]')];
-        const name = (el) => normalize(el.getAttribute("aria-label") || el.textContent);
-        const confirm = buttons.find((el) => decline.has(name(el))) ?? buttons.find((el) => allow.has(name(el)));
+        // Some widgets carry stylesheet text in aria-label (TikTok's tour tooltip does), so a
+        // single name source silently stops matching. Either the label or the visible text may
+        // identify the control -- both are compared against the same exact allowlists.
+        const names = (el) => [normalize(el.getAttribute("aria-label")), normalize(el.textContent)].filter(Boolean);
+        const confirm = buttons.find((el) => names(el).some((value) => decline.has(value))) ?? buttons.find((el) => names(el).some((value) => allow.has(value)));
         if (!confirm) continue;
         confirm.setAttribute("data-flerdvision-overlay", ${JSON.stringify("m")});
         confirm.scrollIntoView({ block: "center", inline: "center" });
