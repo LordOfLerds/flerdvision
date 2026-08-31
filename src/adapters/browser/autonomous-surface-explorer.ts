@@ -322,7 +322,8 @@ export class AutonomousSurfaceExplorer {
     // create control before anything has been clicked at all. The post-upload dismissal cannot
     // help there; the TikTok-readiness review flagged exactly this wiring gap.
     await this.dismissBenignOverlay(journal);
-    await dismissDraftRestore(this.session, journal);
+    const draftDismissed = await dismissDraftRestore(this.session, journal);
+    if (draftDismissed) await sleep(3000);
     // An optional opening step navigates TOWARDS the upload surface; clicking it when the file
     // input is already on the page navigates away from it (TikTok's nav "Hochladen" leaves the
     // studio upload page, and the required upload step then found nothing at all).
@@ -425,7 +426,15 @@ export const DRAFT_RESTORE_MARKERS = ["wurde nicht gespeichert", "not saved", "u
  */
 export async function dismissDraftRestore(session: BrowserPageSessionPort, journal?: AutonomousSurfaceJournalEntry[]): Promise<boolean> {
   const markers = JSON.stringify(DRAFT_RESTORE_MARKERS);
-  const present = await session.evaluate<boolean>(`(() => { const text = (document.body && document.body.innerText || "").toLocaleLowerCase("en-US"); return ${markers}.some((marker) => text.includes(marker)); })()`).catch(() => false);
+  // The wording also lives in dialogs the app keeps mounted but hidden. Acting on those clicked
+  // discard on a perfectly healthy upload surface and tore the file input out from under the
+  // upload step, which then found nothing at all. Only a VISIBLE prompt may be answered.
+  const present = await session.evaluate<boolean>(`(() => {
+    const markers = ${markers};
+    const visible = (el) => { const style = getComputedStyle(el); const rect = el.getBoundingClientRect(); return style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0" && rect.width > 0 && rect.height > 0; };
+    const containers = Array.from(document.querySelectorAll('[role="dialog"], [role="alertdialog"]'));
+    return containers.some((container) => visible(container) && markers.some((marker) => (container.innerText || "").toLocaleLowerCase("en-US").includes(marker)));
+  })()`).catch(() => false);
   if (!present) return false;
   try {
     const descriptor = await new BrowserDomUiDriver(session).click(DISCARD_CONFIRM_LABELS.map((label) => ({ kind: "role" as const, value: label })), 6_000, []);

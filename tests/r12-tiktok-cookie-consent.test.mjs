@@ -87,3 +87,13 @@ test("a leftover-draft restore prompt is discarded, never continued", async () =
   assert.match(source, /await dismissDraftRestore\(this\.session, journal\)/);
   assert.match(source, /platform === "tiktok" \? 90_000 : 2500/);
 });
+
+test("only a visible restore prompt is answered, never a mounted-but-hidden one", () => {
+  const source = readFileSync(new URL("../src/adapters/browser/autonomous-surface-explorer.ts", import.meta.url).pathname, "utf8");
+  const idx = source.indexOf("export async function dismissDraftRestore");
+  const block = source.slice(idx, idx + 1400);
+  // Acting on a hidden dialog clicked discard on a healthy upload surface and tore the file
+  // input out from under the upload step.
+  assert.match(block, /role="dialog"\], \[role="alertdialog"\]/);
+  assert.match(block, /rect\.width > 0 && rect\.height > 0/);
+});

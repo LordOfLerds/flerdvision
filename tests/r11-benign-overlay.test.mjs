@@ -41,7 +41,7 @@ test("dismissal runs before the opening steps, after upload, and inside the cont
   // A fresh account shows enable-notifications over the create control before any click; the
   // post-upload dismissal cannot reach that.
   const openingIndex = source.indexOf("for (const step of openingSteps(");
-  const beforeOpening = source.slice(openingIndex - 900, openingIndex);
+  const beforeOpening = source.slice(openingIndex - 1400, openingIndex);
   assert.match(beforeOpening, /dismissBenignOverlay/);
   const uploadIndex = source.indexOf("The first upload on a fresh profile summons");
   const loopIndex = source.indexOf("for (let nextIndex = 1;");
