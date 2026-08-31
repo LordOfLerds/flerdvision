@@ -34,7 +34,7 @@ test("only_you still maps to the exact German option TikTok shows", () => {
 test("interactive candidates rank before the plain question text", () => {
   const idx = source.indexOf("function visibilityControlLocators");
   const block = source.slice(idx, idx + 1600);
-  const combobox = block.indexOf('role("combobox", currentValues)');
+  const combobox = block.indexOf('button[role=');
   const plainText = block.indexOf("...text(names)");
   // Clicking the label opened nothing and consumed the attempt; the option list never appeared.
   assert.ok(combobox > 0 && combobox < plainText, "the real control must be preferred over its label");
