@@ -290,9 +290,16 @@ export class AutonomousSurfaceExplorer {
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           if (!/^Refusing to click/.test(message) || attempt >= 2) throw error;
-          const benign = await this.dismissBenignOverlay(journal);
-          const declined = await declineFeatureOptIn(this.session, journal);
-          if (!benign && !declined) throw error;
+          // A dismissal that throws must not end the retry: the next one may be the one that
+          // clears the blocking layer. Evidence is captured on every blocked pass, because a
+          // bare occlusion message never says which layers were actually up.
+          artifactRefs.push(...await this.artifacts.captureBoundary(this.session, intent, { identityId: "surface-explorer", accountId: intent.accountId, platform: intent.platform, profileKey: "surface-explorer", expectedHandle: intent.accountId, enabled: true }, `autonomous-${step.stepKey.toLocaleLowerCase("en-US")}-blocked-${attempt}`, this.now()).catch(() => []));
+          const benign = await this.dismissBenignOverlay(journal).catch(() => false);
+          const declined = await declineFeatureOptIn(this.session, journal).catch(() => false);
+          if (!benign && !declined) {
+            artifactRefs.push(await this.artifacts.writeJournal(intent, journal, this.now()).catch(() => ""));
+            throw error;
+          }
           await sleep(1200);
         }
       }
