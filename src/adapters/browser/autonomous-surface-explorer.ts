@@ -287,7 +287,7 @@ export class AutonomousSurfaceExplorer {
         // One dismissal attempt and one retry -- the same narrow allowlist as everywhere else.
         const message = error instanceof Error ? error.message : String(error);
         if (!/^Refusing to click/.test(message)) throw error;
-        const dismissed = await this.dismissBenignOverlay(journal);
+        const dismissed = (await this.dismissBenignOverlay(journal)) || (await declineFeatureOptIn(this.session, journal));
         if (!dismissed) throw error;
         await sleep(1200);
         await this.driver.fill([selected], value, step.timeoutMs ?? 12_000);
@@ -422,6 +422,41 @@ export class AutonomousSurfaceExplorer {
  * through the guarded trusted-click path, and any failure is swallowed -- hygiene, not safety.
  */
 export const DISCARD_CONFIRM_LABELS = ["Verwerfen", "Discard", "Delete draft", "Entwurf verwerfen"] as const;
+
+/**
+ * Feature opt-in prompts (TikTok's "Automatische Inhaltsprüfungen aktivieren?") appear over the
+ * compose surface and block it. They offer only "Einschalten" and "Abbrechen" -- neither belongs
+ * in the generic benign allowlist: turning a feature on changes the account, and a bare
+ * "Abbrechen" elsewhere can mean cancelling the upload itself. Declining is only allowed when
+ * the dialog is visibly a feature offer, identified by its own wording.
+ */
+export const FEATURE_OPT_IN_MARKERS = ["inhaltsprüfungen aktivieren", "content checks", "urheberrechtsverletzungen", "copyright checks", "aktivieren?"] as const;
+export const FEATURE_OPT_IN_DECLINE_LABELS = ["Abbrechen", "Cancel", "Nicht jetzt", "Not now", "Später", "Later"] as const;
+
+export async function declineFeatureOptIn(session: BrowserPageSessionPort, journal?: AutonomousSurfaceJournalEntry[]): Promise<boolean> {
+  const markers = JSON.stringify(FEATURE_OPT_IN_MARKERS);
+  const forbidden = JSON.stringify(OVERLAY_DISMISS_FORBIDDEN_WORDS.map((word) => word.toLocaleLowerCase("en-US")));
+  const present = await session.evaluate<boolean>(`(() => {
+    const markers = ${markers}; const forbidden = ${forbidden};
+    const visible = (el) => { const style = getComputedStyle(el); const rect = el.getBoundingClientRect(); return style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0" && rect.width > 0 && rect.height > 0; };
+    return Array.from(document.querySelectorAll('[role="dialog"], [role="alertdialog"]')).some((dialog) => {
+      if (!visible(dialog)) return false;
+      if (dialog.querySelector('input[type="file"], textarea, [contenteditable="true"]')) return false;
+      const text = (dialog.innerText || "").toLocaleLowerCase("en-US");
+      if (forbidden.some((word) => text.includes(word))) return false;
+      return markers.some((marker) => text.includes(marker));
+    });
+  })()`).catch(() => false);
+  if (!present) return false;
+  try {
+    const descriptor = await new BrowserDomUiDriver(session).click(FEATURE_OPT_IN_DECLINE_LABELS.map((label) => ({ kind: "role" as const, value: label })), 6_000, []);
+    journal?.push({ at: new Date().toISOString(), stepKey: "DECLINE_FEATURE_OPT_IN", action: "CLICK", outcome: "PASS", detail: descriptor });
+    return true;
+  } catch {
+    journal?.push({ at: new Date().toISOString(), stepKey: "DECLINE_FEATURE_OPT_IN", action: "CLICK", outcome: "SKIPPED", detail: "feature offer present but no exact decline control" });
+    return false;
+  }
+}
 
 /** Text that identifies a leftover-draft restore prompt (TikTok shows one after any aborted run). */
 export const DRAFT_RESTORE_MARKERS = ["wurde nicht gespeichert", "not saved", "unsaved", "entwurf wiederherstellen", "restore draft"] as const;

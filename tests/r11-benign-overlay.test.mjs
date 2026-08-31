@@ -83,3 +83,19 @@ test("a late promo overlay over the caption is dismissed once and the fill retri
   assert.match(block, /const dismissed = await this\.dismissBenignOverlay\(journal\);/);
   assert.match(block, /if \(!dismissed\) throw error;/);
 });
+
+test("a feature opt-in offer is declined, never enabled", async () => {
+  const { FEATURE_OPT_IN_DECLINE_LABELS, FEATURE_OPT_IN_MARKERS } = await import("../dist/adapters/browser/autonomous-surface-explorer.js");
+  // TikTok's "Automatische Inhaltsprüfungen aktivieren?" blocks the compose surface and offers
+  // only Einschalten / Abbrechen. Enabling changes the account, so only declining is allowed.
+  for (const label of FEATURE_OPT_IN_DECLINE_LABELS) {
+    assert.ok(!/einschalten|turn on|enable|aktivieren/i.test(label), `${label} must never enable a feature`);
+  }
+  assert.ok(FEATURE_OPT_IN_MARKERS.some((m) => "automatische inhaltsprüfungen aktivieren?".includes(m)));
+  const idx = source.indexOf("export async function declineFeatureOptIn");
+  const block = source.slice(idx, idx + 1600);
+  // Same guards as every other dismissal: visible only, never over inputs, forbidden words block.
+  assert.match(block, /input\[type="file"\], textarea, \[contenteditable="true"\]/);
+  assert.match(block, /forbidden\.some\(\(word\) => text\.includes\(word\)\)/);
+  assert.match(block, /rect\.width > 0 && rect\.height > 0/);
+});
