@@ -80,7 +80,7 @@ test("a late promo overlay over the caption is dismissed once and the fill retri
   const idx = source.lastIndexOf('step.action === "FILL_CAPTION" || step.action === "FILL_TITLE"');
   const block = source.slice(idx, idx + 1200);
   assert.match(block, /if \(!\/\^Refusing to click\/\.test\(message\)\) throw error;/);
-  assert.match(block, /const dismissed = await this\.dismissBenignOverlay\(journal\);/);
+  assert.match(block, /const dismissed = \(await this\.dismissBenignOverlay\(journal\)\) \|\| \(await declineFeatureOptIn\(this\.session, journal\)\);/);
   assert.match(block, /if \(!dismissed\) throw error;/);
 });
 
