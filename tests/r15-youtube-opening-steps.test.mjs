@@ -35,7 +35,7 @@ test("a click refused during a menu animation gets one settle and one retry", ()
   assert.match(block, /outcome: "SKIPPED"/);
 });
 
-test("the second click attempt targets the visible element that owns its own centre", () => {
+test("clicks target the visible element that owns its own centre", () => {
   // Name-based locating settled on a mounted-but-stacked twin: the entry sat plainly visible on
   // screen while the click point belonged to its neighbour.
   assert.match(source, /async function clickExactVisibleByName/);

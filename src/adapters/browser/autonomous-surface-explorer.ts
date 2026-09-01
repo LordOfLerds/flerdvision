@@ -276,7 +276,13 @@ export class AutonomousSurfaceExplorer {
     const fallbacks = candidates.filter((locator) => locatorKey(locator) !== locatorKey(selected)).slice(0, 3);
     if (step.action === "CLICK") {
       try {
-        await this.driver.click([selected], step.timeoutMs ?? 12_000, []);
+        // Prefer the element a person sees: name matching alone repeatedly settled on a
+        // mounted-but-stacked twin (YouTube's create menu, TikTok's dialogs), and the occlusion
+        // guard then refused a control that was plainly on screen. Exact names only.
+        const stepNames = step.locators.filter((locator) => locator.kind === "role" || locator.kind === "text").map((locator) => locator.value);
+        const visible = stepNames.length > 0 ? await clickExactVisibleByName(this.session, stepNames) : null;
+        if (visible) await this.driver.click([{ kind: "css", value: '[data-flerdvision-exact="1"]' }], step.timeoutMs ?? 12_000, []);
+        else await this.driver.click([selected], step.timeoutMs ?? 12_000, []);
       } catch (firstError) {
         // A menu that is still animating puts a neighbour under the click point: YouTube's
         // create menu refused "Videos hochladen" as occluded by "Livestream starten". One
