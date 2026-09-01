@@ -331,8 +331,7 @@ export class AutonomousSurfaceExplorer {
       // same id -- and the first match may be an off-screen one, which then reads as "occluded"
       // no matter how long the run waits. Prefer the field a person would type into.
       const cssSelectors = candidates.filter((locator) => locator.kind === "css").map((locator) => locator.value);
-      if (cssSelectors.length > 0) {
-        const targeted = await this.session.evaluate<boolean>(`(() => {
+      const retarget = async (): Promise<boolean> => await this.session.evaluate<boolean>(`(() => {
           const selectors = ${JSON.stringify(cssSelectors)};
           for (const previous of Array.from(document.querySelectorAll('[data-flerdvision-field]'))) previous.removeAttribute('data-flerdvision-field');
           for (const selector of selectors) {
@@ -347,14 +346,15 @@ export class AutonomousSurfaceExplorer {
           }
           return false;
         })()`).catch(() => false);
-        if (targeted) selected = { kind: "css", value: '[data-flerdvision-field="1"]' };
-      }
       // Overlays surface late and STACK: TikTok raised an info dialog and a feature offer over
       // the caption at once, so dismissing only the first left the field just as covered. Every
       // dismissal runs on each pass -- short-circuiting hid the second dialog entirely -- and
       // the fill is retried while something was actually cleared.
       for (let attempt = 0; ; attempt += 1) {
         try {
+          // Re-target on every attempt: which field is reachable changes while the surface
+          // settles, so deciding once before the first try fixed the wrong answer in place.
+          if (cssSelectors.length > 0 && await retarget()) selected = { kind: "css", value: '[data-flerdvision-field="1"]' };
           await this.driver.fill([selected], value, step.timeoutMs ?? 12_000);
           break;
         } catch (error) {
