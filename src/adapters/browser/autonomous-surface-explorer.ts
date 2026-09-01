@@ -274,7 +274,16 @@ export class AutonomousSurfaceExplorer {
     if (step.action === "CLICK") {
       try {
         await this.driver.click([selected], step.timeoutMs ?? 12_000, []);
-      } catch (error) {
+      } catch (firstError) {
+        // A menu that is still animating puts a neighbour under the click point: YouTube's
+        // create menu refused "Videos hochladen" as occluded by "Livestream starten". One
+        // settle and one retry -- a genuinely covered target still refuses twice.
+        const firstMessage = firstError instanceof Error ? firstError.message : String(firstError);
+        if (!/^Refusing to click/.test(firstMessage)) throw firstError;
+        await sleep(1500);
+        try {
+          await this.driver.click([selected], step.timeoutMs ?? 12_000, []);
+        } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         // An optional step names a control some surface variants simply do not have: the
         // compact-nav create button opens the dialog directly, so the format-picker step found
@@ -285,7 +294,8 @@ export class AutonomousSurfaceExplorer {
         if (step.required || !/^Refusing to click/.test(message)) throw error;
         journal.push({ at: this.now(), stepKey: step.stepKey, action: step.action, outcome: "SKIPPED", locator: selected, detail: message });
         artifactRefs.push(...await this.artifacts.captureBoundary(this.session, intent, { identityId: "surface-explorer", accountId: intent.accountId, platform: intent.platform, profileKey: "surface-explorer", expectedHandle: intent.accountId, enabled: true }, `autonomous-${step.stepKey.toLocaleLowerCase("en-US")}-occluded`, this.now()));
-        return null;
+          return null;
+        }
       }
     }
     else if (step.action === "SET_FILE") {

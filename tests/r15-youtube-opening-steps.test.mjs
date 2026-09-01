@@ -23,3 +23,14 @@ test("the upload entry is optional so a surface that skips the menu still works"
   const block = source.slice(idx, idx + 400);
   assert.match(block, /required: false/);
 });
+
+test("a click refused during a menu animation gets one settle and one retry", () => {
+  // YouTube's create menu refused "Videos hochladen" as occluded by its neighbour
+  // "Livestream starten" while still animating open.
+  const idx = source.indexOf('if (step.action === "CLICK") {');
+  const block = source.slice(idx, idx + 1600);
+  assert.match(block, /await sleep\(1500\);/);
+  assert.match(block, /if \(!\/\^Refusing to click\/\.test\(firstMessage\)\) throw firstError;/);
+  // A genuinely covered target still refuses on the second try and is handled as before.
+  assert.match(block, /outcome: "SKIPPED"/);
+});
