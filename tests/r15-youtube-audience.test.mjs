@@ -37,3 +37,13 @@ test("the spec accepts madeForKids for youtube and refuses it elsewhere", () => 
   assert.equal(yt.channels[0].formats[0].settings.madeForKids, false);
   assert.throws(() => parseWorkspaceSpec({ ...base, channels: [{ key: "ig", name: "IG", platform: "instagram", handle: "h", formats: [{ type: "reel", times: ["09:00"], sourceMatch: ["x"], settings: { madeForKids: false } }] }] }), /not valid for instagram/);
 });
+
+test("the declaration is answered before the wizard is walked", () => {
+  const explorer = readFileSync(new URL("../src/adapters/browser/autonomous-surface-explorer.ts", import.meta.url).pathname, "utf8");
+  // Continue stays disabled until the question is answered, so answering it after the walk
+  // meant the walk never moved and the final control was never reachable.
+  const audience = explorer.indexOf('stepKey: "AUDIENCE"');
+  const wizard = explorer.indexOf("Wizard surfaces put the final control");
+  assert.ok(audience > 0 && audience < wizard, "the declaration must precede the wizard walk");
+  assert.match(explorer, /set settings\.madeForKids in the canonical spec/);
+});

@@ -342,9 +342,13 @@ export class AutonomousSurfaceSettings {
       // Studio's mandatory audience question blocks the entire wizard until it is answered, and
       // it is a legal statement about the content -- so it comes from the operator's spec or the
       // run stops here instead of quietly declaring something on their behalf.
+      // The declaration is answered during exploration -- the wizard cannot be walked without it
+      // -- so here it is only re-asserted when the surface still offers it unanswered.
       const madeForKids = input.postingProfile.madeForKids;
       if (madeForKids === undefined) throw new UiActionExecutionError("YouTube requires the made-for-kids declaration: set settings.madeForKids in the canonical spec");
-      settings.push(await this.ensureAudience({ intent: input.intent, identity: input.identity, madeForKids, forbidden, artifactRefs, journal }));
+      if (!input.contract.steps.some((step) => step.stepKey === "AUDIENCE")) {
+        settings.push(await this.ensureAudience({ intent: input.intent, identity: input.identity, madeForKids, forbidden, artifactRefs, journal }));
+      }
       settings.push(await this.ensureVisibility({ intent: input.intent, identity: input.identity, expected: input.postingProfile.visibility, forbidden, artifactRefs, journal }));
     }
     addAdvancedFromJournal();

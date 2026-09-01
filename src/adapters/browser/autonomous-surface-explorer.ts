@@ -452,6 +452,22 @@ export class AutonomousSurfaceExplorer {
     if (!fieldResult) throw new Error(`${fieldAction.stepKey} unexpectedly remained unresolved`);
     steps.push({ stepKey: fieldAction.stepKey, label: fieldAction.label, actionMode: "OBSERVE_ACTION", locator: fieldResult.locator, fallbackLocators: fieldResult.fallbacks, observations: 1 });
 
+    // YouTube blocks its wizard on a mandatory audience declaration: Continue stays disabled
+    // until it is answered, so it has to happen here, before any advance is attempted. It is a
+    // legal statement about the content and therefore comes from the operator's spec only.
+    if (input.postingProfile.platform === "youtube") {
+      const madeForKids = input.postingProfile.madeForKids;
+      if (madeForKids === undefined) throw new Error("YouTube requires the made-for-kids declaration: set settings.madeForKids in the canonical spec");
+      const audienceNames = madeForKids
+        ? ["Ja, es ist speziell für Kinder", "Yes, it's made for kids"]
+        : ["Nein, es ist nicht speziell für Kinder", "No, it's not made for kids"];
+      const audienceStep: AutonomousStep = { stepKey: "AUDIENCE", label: "Made-for-kids declaration", action: "CLICK", required: true, timeoutMs: 20_000, locators: [...named("radio", audienceNames), ...named("menuitemradio", audienceNames), ...text(audienceNames)] };
+      const audience = await this.executeStep(audienceStep, input.intent, input, artifactRefs, journal);
+      if (!audience) throw new Error("Made-for-kids declaration could not be answered");
+      steps.push({ stepKey: audienceStep.stepKey, label: audienceStep.label, actionMode: "OBSERVE_ACTION", locator: audience.locator, fallbackLocators: audience.fallbacks, observations: 1 });
+      await sleep(1200);
+    }
+
     // Wizard surfaces put the final control on a later step: YouTube Studio asks for details,
     // then checks, then visibility, and only the last screen offers Save/Publish. Walking those
     // screens is what a person does; without it the run looked for a control that was three
