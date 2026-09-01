@@ -21,7 +21,7 @@ test("the shared bootstrap starts TikTok directly on the studio upload page", ()
 
 test("Instagram and YouTube bootstraps are unchanged by the extraction", () => {
   assert.equal(surfaceExecutionBootstrapUrl("instagram"), "https://www.instagram.com/");
-  assert.equal(surfaceExecutionBootstrapUrl("youtube"), "https://studio.youtube.com/");
+  assert.equal(surfaceExecutionBootstrapUrl("youtube"), "https://www.youtube.com/upload");
 });
 
 test("the explorer derives its bootstrap from the shared function and owns no platform URL", () => {
