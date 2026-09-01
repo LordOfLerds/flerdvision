@@ -85,3 +85,15 @@ test("a control that shows its value as text can still be read back", () => {
   // Bounded so a whole panel's prose can never masquerade as a value.
   assert.match(block, /own\.length<=40/);
 });
+
+test("a radio-based visibility surface is handled before the combobox search", () => {
+  // YouTube's last wizard screen lists Öffentlich / Nicht gelistet / Privat as radios; the
+  // combobox search settled on the section heading and read "Sichtbarkeit" as the value.
+  const idx = source.indexOf("Some surfaces expose visibility as radio buttons");
+  const block = source.slice(idx, idx + 1800);
+  assert.match(block, /const radio = await this\.firstPresent\(radioCandidates, 2500\);/);
+  assert.match(block, /aria-checked"\) === "true"/);
+  const radioPath = source.indexOf("const radio = await this.firstPresent");
+  const comboPath = source.indexOf("await this.proposedLocators(input.intent, \"VISIBILITY\"");
+  assert.ok(radioPath > 0 && radioPath < comboPath, "radios must be considered first");
+});

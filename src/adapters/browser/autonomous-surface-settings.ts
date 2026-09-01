@@ -267,6 +267,29 @@ export class AutonomousSurfaceSettings {
     artifactRefs: string[];
     journal: AutonomousSurfaceJournalEntry[];
   }): Promise<SurfaceContractStep> {
+    // Some surfaces expose visibility as radio buttons rather than a select: YouTube's last
+    // wizard screen lists Öffentlich / Nicht gelistet / Privat, and the combobox search settled
+    // on the section heading, whose text ("Sichtbarkeit") then failed the value readback.
+    const wantedForRadio = visibilityLabels(input.expected);
+    const radioCandidates = unique([...role("radio", wantedForRadio), ...role("menuitemradio", wantedForRadio)]);
+    const radio = await this.firstPresent(radioCandidates, 2500);
+    if (radio) {
+      await this.driver.click([radio], 5000, input.forbidden);
+      await sleep(600);
+      const checked = await this.session.evaluate<boolean>(`(() => {
+        const norm = (value) => String(value || "").replace(/\\s+/g, " ").trim().toLocaleLowerCase("en-US");
+        const wanted = new Set(${JSON.stringify(wantedForRadio.map((label) => label.toLocaleLowerCase("en-US")))});
+        return Array.from(document.querySelectorAll('[role="radio"], input[type="radio"]')).some((element) => {
+          const label = norm(element.getAttribute("aria-label")) || norm(element.closest("label")?.textContent) || norm(element.parentElement?.textContent);
+          if (!wanted.has(label)) return false;
+          return element.getAttribute("aria-checked") === "true" || element.checked === true;
+        });
+      })()`).catch(() => false);
+      if (!checked) throw new UiActionExecutionError(`Visibility readback failed: expected ${input.expected} to be selected`);
+      input.journal.push({ at: this.now(), stepKey: "VISIBILITY", action: "CLICK", outcome: "PASS", locator: radio, detail: `visibility=${input.expected}` });
+      input.artifactRefs.push(...await this.artifacts.captureBoundary(this.session, input.intent, input.identity, "autonomous-setting-visibility", this.now()));
+      return { stepKey: "VISIBILITY", label: "Visibility setting", actionMode: "OBSERVE_ACTION", locator: radio, fallbackLocators: radioCandidates.filter((locator) => JSON.stringify(locator) !== JSON.stringify(radio)).slice(0, 3), observations: 1 };
+    }
     let candidates = await this.proposedLocators(input.intent, "VISIBILITY", visibilityControlLocators());
     let selected = await this.firstPresent(candidates, 3000);
     if (!selected) {
