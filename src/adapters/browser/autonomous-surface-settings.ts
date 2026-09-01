@@ -272,17 +272,39 @@ export class AutonomousSurfaceSettings {
     // on the section heading, whose text ("Sichtbarkeit") then failed the value readback.
     const wantedForRadio = visibilityLabels(input.expected);
     const radioCandidates = unique([...role("radio", wantedForRadio), ...role("menuitemradio", wantedForRadio)]);
-    const radio = await this.firstPresent(radioCandidates, 2500);
+    let radio = await this.firstPresent(radioCandidates, 2500);
+    if (!radio) {
+      // Studio renders its options as custom elements (tp-yt-paper-radio-button), which carry no
+      // usable role: the role search found nothing and the combobox fallback then read the
+      // section heading as the value. Tag the visible option that carries the exact label.
+      const tagged = await this.session.evaluate<boolean>(`(() => {
+        const norm = (value) => String(value || "").replace(/\\s+/g, " ").trim().toLocaleLowerCase("en-US");
+        const wanted = new Set(${JSON.stringify(wantedForRadio.map((label) => label.toLocaleLowerCase("en-US")))});
+        for (const previous of Array.from(document.querySelectorAll('[data-flerdvision-visibility]'))) previous.removeAttribute('data-flerdvision-visibility');
+        const candidates = Array.from(document.querySelectorAll('tp-yt-paper-radio-button, [role="radio"], input[type="radio"], label, div'));
+        for (const candidate of candidates) {
+          const name = norm(candidate.getAttribute("aria-label")) || norm(candidate.getAttribute("name")) || norm(candidate.textContent);
+          if (!wanted.has(name)) continue;
+          const rect = candidate.getBoundingClientRect();
+          const style = getComputedStyle(candidate);
+          if (style.display === "none" || style.visibility === "hidden" || rect.width <= 0 || rect.height <= 0) continue;
+          candidate.setAttribute('data-flerdvision-visibility', '1');
+          return true;
+        }
+        return false;
+      })()`).catch(() => false);
+      if (tagged) radio = { kind: "css", value: '[data-flerdvision-visibility="1"]' };
+    }
     if (radio) {
       await this.driver.click([radio], 5000, input.forbidden);
       await sleep(600);
       const checked = await this.session.evaluate<boolean>(`(() => {
         const norm = (value) => String(value || "").replace(/\\s+/g, " ").trim().toLocaleLowerCase("en-US");
         const wanted = new Set(${JSON.stringify(wantedForRadio.map((label) => label.toLocaleLowerCase("en-US")))});
-        return Array.from(document.querySelectorAll('[role="radio"], input[type="radio"]')).some((element) => {
-          const label = norm(element.getAttribute("aria-label")) || norm(element.closest("label")?.textContent) || norm(element.parentElement?.textContent);
+        return Array.from(document.querySelectorAll('tp-yt-paper-radio-button, [role="radio"], input[type="radio"]')).some((element) => {
+          const label = norm(element.getAttribute("aria-label")) || norm(element.getAttribute("name")) || norm(element.closest("label")?.textContent) || norm(element.textContent) || norm(element.parentElement?.textContent);
           if (!wanted.has(label)) return false;
-          return element.getAttribute("aria-checked") === "true" || element.checked === true;
+          return element.getAttribute("aria-checked") === "true" || element.getAttribute("checked") !== null || element.checked === true;
         });
       })()`).catch(() => false);
       if (!checked) throw new UiActionExecutionError(`Visibility readback failed: expected ${input.expected} to be selected`);
