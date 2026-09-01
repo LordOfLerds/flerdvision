@@ -47,3 +47,15 @@ test("the declaration is answered before the wizard is walked", () => {
   assert.ok(audience > 0 && audience < wizard, "the declaration must precede the wizard walk");
   assert.match(explorer, /set settings\.madeForKids in the canonical spec/);
 });
+
+test("the two answers are told apart by an unambiguous discriminator", () => {
+  const explorer = readFileSync(new URL("../src/adapters/browser/autonomous-surface-explorer.ts", import.meta.url).pathname, "utf8");
+  const idx = explorer.indexOf("Exact-name matching kept missing this one");
+  const block = explorer.slice(idx, idx + 2200);
+  // Both answers contain "speziell für Kinder"; only the negation separates them.
+  assert.match(block, /text\.includes\("nicht"\) \|\| text\.startsWith\("no,"\) \|\| text\.includes\("not made"\)/);
+  assert.match(block, /isNegative === negative/);
+  // The smallest match wins so a wrapper containing both answers can never be clicked.
+  assert.match(block, /matches\.sort\(\(left, right\) =>/);
+  assert.match(block, /text\.length > 80/);
+});

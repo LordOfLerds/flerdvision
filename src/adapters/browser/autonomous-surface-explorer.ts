@@ -473,7 +473,32 @@ export class AutonomousSurfaceExplorer {
       // Studio renders the options as custom elements with no usable role, so nothing role-based
       // can even locate them. Tag the visible option carrying the exact declared answer first,
       // then act on that one element -- no guessing, no substring matching.
-      const tagged = await clickExactVisibleByName(this.session, audienceNames);
+      // Exact-name matching kept missing this one: Studio splits the answer across the radio and
+      // its label, and the visible string carries punctuation the contract text does not. The two
+      // answers are still told apart unambiguously -- "nicht"/"not" is the whole discriminator --
+      // and the smallest matching element is chosen so a wrapper can never be clicked instead.
+      const audienceTagged = await this.session.evaluate<boolean>(`(() => {
+        const norm = (value) => String(value || "").replace(/\\s+/g, " ").trim().toLocaleLowerCase("en-US");
+        const negative = ${JSON.stringify(!madeForKids)};
+        const visible = (element) => { const style = getComputedStyle(element); const rect = element.getBoundingClientRect(); return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0; };
+        const collect = (root, out) => { for (const element of Array.from(root.querySelectorAll('tp-yt-paper-radio-button, [role="radio"], input[type="radio"], label, div, span'))) { out.push(element); if (element.shadowRoot) collect(element.shadowRoot, out); } return out; };
+        for (const previous of Array.from(document.querySelectorAll('[data-flerdvision-exact]'))) previous.removeAttribute('data-flerdvision-exact');
+        const matches = collect(document, []).filter((element) => {
+          if (!visible(element)) return false;
+          const text = norm(element.getAttribute("aria-label")) || norm(element.textContent);
+          if (text.length === 0 || text.length > 80) return false;
+          const kidsGerman = text.includes("speziell für kinder");
+          const kidsEnglish = text.includes("made for kids");
+          if (!kidsGerman && !kidsEnglish) return false;
+          const isNegative = text.includes("nicht") || text.startsWith("no,") || text.includes("not made");
+          return isNegative === negative;
+        });
+        if (matches.length === 0) return false;
+        matches.sort((left, right) => (left.textContent || "").length - (right.textContent || "").length);
+        matches[0].setAttribute('data-flerdvision-exact', '1');
+        return true;
+      })()`).catch(() => false);
+      const tagged = audienceTagged ? "audience" : await clickExactVisibleByName(this.session, audienceNames);
       const audienceLocators: readonly UiLocator[] = tagged
         ? [{ kind: "css", value: '[data-flerdvision-exact="1"]' }]
         : [...named("radio", audienceNames), ...named("menuitemradio", audienceNames), ...text(audienceNames)];
