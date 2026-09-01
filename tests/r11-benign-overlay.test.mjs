@@ -133,3 +133,12 @@ test("an exactly named acknowledge control counts even without a button role", (
   assert.match(block, /input\[type="file"\], textarea, \[contenteditable="true"\]/);
   assert.match(block, /forbid\.some\(\(word\) => text\.includes/);
 });
+
+test("a nameless transient layer is waited out, a permanent one still fails", () => {
+  // A surface mid-animation puts a plain div over the field: nothing to dismiss, everything to
+  // wait out -- but only briefly, so a real cover still stops the run.
+  const idx = source.lastIndexOf('step.action === "FILL_CAPTION" || step.action === "FILL_TITLE"');
+  const block = source.slice(idx, idx + 3200);
+  assert.match(block, /if \(attempt >= 2\)/);
+  assert.match(block, /await sleep\(2500\);\s*\n\s*continue;/);
+});

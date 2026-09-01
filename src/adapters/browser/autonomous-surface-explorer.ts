@@ -346,8 +346,15 @@ export class AutonomousSurfaceExplorer {
           const benign = await this.dismissBenignOverlay(journal).catch(() => false);
           const declined = await declineFeatureOptIn(this.session, journal).catch(() => false);
           if (!benign && !declined) {
-            artifactRefs.push(await this.artifacts.writeJournal(intent, journal, this.now()).catch(() => ""));
-            throw error;
+            // Not every blocking layer is a dialog: a surface mid-animation puts a plain,
+            // nameless div over the field for a moment. Nothing to dismiss, everything to wait
+            // out -- but only for the first attempts, so a permanent cover still fails loudly.
+            if (attempt >= 2) {
+              artifactRefs.push(await this.artifacts.writeJournal(intent, journal, this.now()).catch(() => ""));
+              throw error;
+            }
+            await sleep(2500);
+            continue;
           }
           // A dismissed modal leaves its backdrop behind for a moment, and that empty layer is
           // just as opaque to a click as the dialog was. Wait for the surface to actually clear.
