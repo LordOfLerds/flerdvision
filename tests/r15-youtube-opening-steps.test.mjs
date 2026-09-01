@@ -73,3 +73,14 @@ test("final-action candidates never widen to contains matching", () => {
   assert.doesNotMatch(block, /namedContains/);
   assert.doesNotMatch(block, /exact: false/);
 });
+
+test("the boundary waits for a final control that is actually pressable", () => {
+  // YouTube keeps Save aria-disabled while it processes the upload: the control was in the DOM
+  // the whole time, and reaching a boundary that cannot be pressed is not reaching it.
+  const idx = source.indexOf("keeps its final control disabled");
+  const block = source.slice(idx, idx + 1600);
+  assert.match(block, /Date\.now\(\) \+ 240_000/);
+  assert.match(block, /element\.hasAttribute\("disabled"\) \|\| element\.getAttribute\("aria-disabled"\) === "true"/);
+  // Read-only: the wait never clicks anything.
+  assert.doesNotMatch(block, /\.click\(\)/);
+});

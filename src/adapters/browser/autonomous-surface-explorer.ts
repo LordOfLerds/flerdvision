@@ -466,6 +466,25 @@ export class AutonomousSurfaceExplorer {
       await sleep(1500);
     }
 
+    // A platform keeps its final control disabled while it is still processing the upload
+    // (YouTube's Save stays aria-disabled through the checks). Reaching a boundary that cannot
+    // yet be pressed is not reaching it, so wait for it to become live -- bounded, read-only.
+    const finalNames = JSON.stringify(finalCandidates.filter((locator) => locator.kind === "role" || locator.kind === "text").map((locator) => locator.value.toLocaleLowerCase("en-US")));
+    for (let ready = false, deadline = Date.now() + 240_000; !ready && Date.now() < deadline; ) {
+      ready = await this.session.evaluate<boolean>(`(() => {
+        const wanted = new Set(${finalNames});
+        const norm = (value) => String(value || "").replace(/\\s+/g, " ").trim().toLocaleLowerCase("en-US");
+        return Array.from(document.querySelectorAll('button, [role="button"]')).some((element) => {
+          const name = norm(element.getAttribute("aria-label")) || norm(element.textContent);
+          if (!wanted.has(name)) return false;
+          if (element.hasAttribute("disabled") || element.getAttribute("aria-disabled") === "true") return false;
+          const rect = element.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        });
+      })()`).catch(() => false);
+      if (!ready) await sleep(2000);
+    }
+
     const final: AutonomousStep = { stepKey: "FINAL_ACTION", label: "Final publish boundary", action: "FINAL_BOUNDARY", required: true, locators: finalCandidates, timeoutMs: 60_000 };
     const finalResult = await this.executeStep(final, input.intent, input, artifactRefs, journal);
     if (!finalResult) throw new Error("Final boundary unexpectedly remained unresolved");
