@@ -229,7 +229,10 @@ export class ChromiumCdpRuntimeAdapter implements BrowserRuntimePort {
         async navigate(url: string): Promise<void> {
           const navigation = await page.send("Page.navigate", { url });
           if (navigation.errorText) throw new Error(`Navigation failed: ${String(navigation.errorText)}`);
-          const deadline = Date.now() + 10_000;
+          // 10 s was too tight once redirect chains began being waited out rather than thrown:
+          // Instagram's settings page settles in that window only on a good day, and a healthy
+          // session was reported UNREACHABLE mid-qualification. Still bounded, just honest.
+          const deadline = Date.now() + 25_000;
           let stableUrl = "";
           let stableCount = 0;
           while (Date.now() < deadline) {
@@ -258,7 +261,7 @@ export class ChromiumCdpRuntimeAdapter implements BrowserRuntimePort {
             }
             await sleep(75);
           }
-          throw new Error(`Navigation did not settle within 10000 ms: ${url}`);
+          throw new Error(`Navigation did not settle within 25000 ms: ${url}`);
         },
         async currentUrl(): Promise<string> {
           return this.evaluate<string>("location.href");
