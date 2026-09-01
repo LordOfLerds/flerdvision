@@ -70,3 +70,14 @@ test("text is typed as real keystrokes where the editor owns its content model",
   // The old bulk path stays for sessions without the capability.
   assert.match(fillBlock, /this\.session\.insertText\(value\)/);
 });
+
+test("the fill targets the visible field when a selector matches several", async () => {
+  const { readFileSync } = await import("node:fs");
+  const explorer = readFileSync(new URL("../src/adapters/browser/autonomous-surface-explorer.ts", import.meta.url).pathname, "utf8");
+  // YouTube gives the title and the description the same id: the first match was off-screen and
+  // read as "occluded" no matter how long the run waited.
+  const idx = explorer.lastIndexOf('step.action === "FILL_CAPTION" || step.action === "FILL_TITLE"');
+  const block = explorer.slice(idx, idx + 1800);
+  assert.match(block, /data-flerdvision-field/);
+  assert.match(block, /document\.elementFromPoint/);
+});

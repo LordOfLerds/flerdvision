@@ -260,7 +260,7 @@ export class AutonomousSurfaceExplorer {
   private async executeStep(step: AutonomousStep, intent: PublicationIntent, input: { mediaPath: string; caption?: string; title?: string }, artifactRefs: string[], journal: AutonomousSurfaceJournalEntry[]): Promise<{ locator: UiLocator; fallbacks: readonly UiLocator[] } | null> {
     const candidates = await this.locatorsFor(step, intent);
     const visibleOnly = step.action !== "SET_FILE";
-    const selected = await this.workingLocator(candidates, visibleOnly, step.timeoutMs ?? 12_000);
+    let selected = await this.workingLocator(candidates, visibleOnly, step.timeoutMs ?? 12_000);
     if (!selected) {
       const detail = `No safe locator found for ${step.stepKey}`;
       journal.push({ at: this.now(), stepKey: step.stepKey, action: step.action, outcome: step.required ? "FAIL" : "SKIPPED", detail });
@@ -273,7 +273,8 @@ export class AutonomousSurfaceExplorer {
       }
       return null;
     }
-    const fallbacks = candidates.filter((locator) => locatorKey(locator) !== locatorKey(selected)).slice(0, 3);
+    const chosen: UiLocator = selected;
+    const fallbacks = candidates.filter((locator) => locatorKey(locator) !== locatorKey(chosen)).slice(0, 3);
     if (step.action === "CLICK") {
       try {
         // Prefer the element a person sees: name matching alone repeatedly settled on a
@@ -326,6 +327,28 @@ export class AutonomousSurfaceExplorer {
     else if (step.action === "FILL_CAPTION" || step.action === "FILL_TITLE") {
       const value = step.action === "FILL_CAPTION" ? input.caption : input.title;
       if (value === undefined) throw new Error(`${step.action === "FILL_CAPTION" ? "Caption" : "Title"} payload is missing`);
+      // One selector can match several fields -- YouTube gives the title and the description the
+      // same id -- and the first match may be an off-screen one, which then reads as "occluded"
+      // no matter how long the run waits. Prefer the field a person would type into.
+      const cssSelectors = candidates.filter((locator) => locator.kind === "css").map((locator) => locator.value);
+      if (cssSelectors.length > 0) {
+        const targeted = await this.session.evaluate<boolean>(`(() => {
+          const selectors = ${JSON.stringify(cssSelectors)};
+          for (const previous of Array.from(document.querySelectorAll('[data-flerdvision-field]'))) previous.removeAttribute('data-flerdvision-field');
+          for (const selector of selectors) {
+            for (const element of Array.from(document.querySelectorAll(selector))) {
+              const style = getComputedStyle(element); const rect = element.getBoundingClientRect();
+              if (style.display === "none" || style.visibility === "hidden" || rect.width <= 0 || rect.height <= 0) continue;
+              const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + Math.min(16, rect.height / 2));
+              if (!hit || !(hit === element || element.contains(hit) || hit.contains(element))) continue;
+              element.setAttribute('data-flerdvision-field', '1');
+              return true;
+            }
+          }
+          return false;
+        })()`).catch(() => false);
+        if (targeted) selected = { kind: "css", value: '[data-flerdvision-field="1"]' };
+      }
       // Overlays surface late and STACK: TikTok raised an info dialog and a feature offer over
       // the caption at once, so dismissing only the first left the field just as covered. Every
       // dismissal runs on each pass -- short-circuiting hid the second dialog entirely -- and
