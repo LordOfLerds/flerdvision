@@ -67,7 +67,7 @@ test("an optional step whose only match stays occluded is skipped, not fatal", (
   // optional step, a persistently occluded target means "this variant has no such step".
   const idx = source.indexOf('if (step.action === "CLICK") {');
   assert.ok(idx > 0, "the click action must have a guarded branch");
-  const block = source.slice(idx, idx + 1600);
+  const block = source.slice(idx, idx + 2600);
   assert.match(block, /if \(step\.required \|\| !\/\^Refusing to click\/\.test\(message\)\) throw error;/);
   assert.match(block, /outcome: "SKIPPED"/);
   assert.match(block, /-occluded/);

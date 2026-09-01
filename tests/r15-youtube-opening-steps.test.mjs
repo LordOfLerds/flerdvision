@@ -34,3 +34,15 @@ test("a click refused during a menu animation gets one settle and one retry", ()
   // A genuinely covered target still refuses on the second try and is handled as before.
   assert.match(block, /outcome: "SKIPPED"/);
 });
+
+test("the second click attempt targets the visible element that owns its own centre", () => {
+  // Name-based locating settled on a mounted-but-stacked twin: the entry sat plainly visible on
+  // screen while the click point belonged to its neighbour.
+  assert.match(source, /async function clickExactVisibleByName/);
+  const idx = source.indexOf("async function clickExactVisibleByName");
+  const block = source.slice(idx, idx + 1600);
+  assert.match(block, /document\.elementFromPoint\(rect\.left \+ rect\.width \/ 2, rect\.top \+ rect\.height \/ 2\)/);
+  assert.match(block, /hit === candidate \|\| candidate\.contains\(hit\) \|\| hit\.contains\(candidate\)/);
+  // Exact names only -- never a substring, so an unrelated control can never be adopted.
+  assert.match(block, /wanted\.has\(name\)/);
+});

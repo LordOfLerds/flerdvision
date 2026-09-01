@@ -282,7 +282,10 @@ export class AutonomousSurfaceExplorer {
         if (!/^Refusing to click/.test(firstMessage)) throw firstError;
         await sleep(1500);
         try {
-          await this.driver.click([selected], step.timeoutMs ?? 12_000, []);
+          const names = step.locators.filter((locator) => locator.kind === "role" || locator.kind === "text").map((locator) => locator.value);
+          const exact = names.length > 0 ? await clickExactVisibleByName(this.session, names) : null;
+          if (exact) await this.driver.click([{ kind: "css", value: '[data-flerdvision-exact="1"]' }], step.timeoutMs ?? 12_000, []);
+          else await this.driver.click([selected], step.timeoutMs ?? 12_000, []);
         } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         // An optional step names a control some surface variants simply do not have: the
@@ -540,6 +543,36 @@ export const DRAFT_RESTORE_MARKERS = ["wurde nicht gespeichert", "not saved", "u
  * Live evidence 2026-08-31: TikTok's upload page silently refuses new uploads while this prompt
  * is up, which stalled the whole qualification at the caption step.
  */
+
+/**
+ * Clicks the element a person would click: the one that carries this exact name, is visible, and
+ * actually receives clicks at its own centre. Name-based locating can settle on a mounted-but-
+ * stacked twin whose centre belongs to a neighbour -- YouTube's create menu refused "Videos
+ * hochladen" as occluded by "Livestream starten" while the entry sat plainly visible on screen.
+ */
+async function clickExactVisibleByName(session: BrowserPageSessionPort, names: readonly string[]): Promise<string | null> {
+  const wanted = JSON.stringify(names.map((name) => name.trim().toLocaleLowerCase("en-US")));
+  const tagged = await session.evaluate<string | null>(`(() => {
+    const wanted = new Set(${wanted});
+    const norm = (value) => String(value || "").replace(/\\s+/g, " ").trim().toLocaleLowerCase("en-US");
+    for (const previous of Array.from(document.querySelectorAll('[data-flerdvision-exact]'))) previous.removeAttribute('data-flerdvision-exact');
+    const candidates = Array.from(document.querySelectorAll('button, a, [role="menuitem"], [role="button"], [role="option"], div, span'));
+    for (const candidate of candidates) {
+      const name = norm(candidate.getAttribute("aria-label")) || norm(candidate.textContent);
+      if (!wanted.has(name)) continue;
+      const rect = candidate.getBoundingClientRect();
+      const style = getComputedStyle(candidate);
+      if (style.display === "none" || style.visibility === "hidden" || rect.width <= 0 || rect.height <= 0) continue;
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      if (!hit || !(hit === candidate || candidate.contains(hit) || hit.contains(candidate))) continue;
+      candidate.setAttribute('data-flerdvision-exact', '1');
+      return name;
+    }
+    return null;
+  })()`).catch(() => null);
+  return tagged;
+}
+
 export async function dismissDraftRestore(session: BrowserPageSessionPort, journal?: AutonomousSurfaceJournalEntry[]): Promise<boolean> {
   const markers = JSON.stringify(DRAFT_RESTORE_MARKERS);
   // The wording also lives in dialogs the app keeps mounted but hidden. Acting on those clicked
