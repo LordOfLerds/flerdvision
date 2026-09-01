@@ -19,6 +19,7 @@ export interface OperatorPlanViewStores {
     getReservationForIntent(intentId: string): ScheduleReservation | null;
     listIncidents(statuses?: readonly Incident["status"][]): readonly Incident[];
     listKillSwitches(enabledOnly?: boolean): readonly KillSwitch[];
+    getVerifiedPublication?(intentId: string): { permalink?: string } | null;
   };
   state: { listAssets(): readonly StoredContentAssetRevision[] };
   pauses: { listSchedulePauses(): readonly SchedulePause[] };
@@ -29,8 +30,12 @@ export interface OperatorPlanEntry {
   label: string;
   timeLocal: string;
   channelKey: string;
+  /** Display name from the canonical spec -- what the operator calls this channel. */
+  channelName: string;
   platform: string;
   state: PublicationState;
+  /** Live post URL once verification found it; the whole point of a checklist entry going green. */
+  permalink?: string;
 }
 
 export interface OperatorPipelineSummary {
@@ -85,8 +90,10 @@ export function collectOperatorPlanView(
         label: labelByContent.get(record.intent.contentId) ?? record.intent.contentId,
         timeLocal: localTime(reservation?.targetAt ?? record.intent.scheduledFor, timeZone),
         channelKey: channel?.key ?? record.intent.accountId,
+        channelName: channel?.name ?? channel?.key ?? record.intent.accountId,
         platform: channel?.platform ?? record.intent.platform,
         state: record.state,
+        ...(record.state === "VERIFIED" ? (() => { const permalink = stores.control.getVerifiedPublication?.(record.intent.intentId)?.permalink; return permalink ? { permalink } : {}; })() : {}),
         sortKey: reservation?.targetAt ?? record.intent.scheduledFor
       };
     })
@@ -111,13 +118,21 @@ export function collectOperatorPlanView(
 }
 
 /** German, compact, emoji-status. The same text is the morning checklist and the /plan reply. */
+const PLATFORM_LABEL: Readonly<Record<string, string>> = { instagram: "Instagram", tiktok: "TikTok", youtube: "YouTube" };
+
 export function renderOperatorPlan(view: OperatorPlanView): string {
   const lines: string[] = [`📋 Tagesplan ${view.businessDate}`];
   if (view.entries.length === 0) lines.push("Keine Posts geplant.");
   for (const entry of view.entries) {
     const badge = STATE_BADGE[entry.state] ?? "⬜";
-    const suffix = entry.state === "PUBLISH_UNCERTAIN" ? " (UNSICHER — eingefroren)" : entry.state === "BLOCKED" ? " (blockiert)" : "";
-    lines.push(`${badge} ${entry.timeLocal} · ${entry.channelKey} · ${entry.label}${suffix}`);
+    // The operator reads channel NAMES, not spec keys, and a finished post is only useful with
+    // the link to it -- a checklist that goes green without one says nothing you can act on.
+    const platform = PLATFORM_LABEL[entry.platform] ?? entry.platform;
+    const suffix = entry.state === "PUBLISH_UNCERTAIN"
+      ? " · unsicher, eingefroren (verify im Terminal)"
+      : entry.state === "BLOCKED" ? " · blockiert" : "";
+    const link = entry.permalink ? `\n     ${entry.permalink}` : "";
+    lines.push(`${badge} ${entry.timeLocal} · ${entry.channelName} (${platform}) · ${entry.label}${suffix}${link}`);
   }
   lines.push("", `📥 Drive-Pipeline: ${view.pipeline.observed} neu · ${view.pipeline.stabilizing} stabilisierend · ${view.pipeline.ready} READY · ${view.pipeline.blocked} blockiert`);
   for (const label of view.pipeline.blockedLabels.slice(0, 5)) lines.push(`  ⚠️ blockiert: ${label}`);

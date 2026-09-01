@@ -68,9 +68,10 @@ test("render shows checkmarks, uncertainty freeze, pipeline and disturbances in 
   }), channels, "2026-08-30", "Europe/Vienna");
   const text = renderOperatorPlan(view);
   assert.match(text, /📋 Tagesplan 2026-08-30/);
-  assert.match(text, /✅ 09:30 · reels · morgen-reel\.mp4/);
-  assert.match(text, /🛑 14:00 · reels · content:i3 \(UNSICHER — eingefroren\)/);
-  assert.match(text, /⬜ 18:00 · clips · abend-clip\.mp4/);
+  // Names and platform, not spec keys: the operator reads "Reels (Instagram)", not "reels".
+  assert.match(text, /✅ 09:30 · Reels \(Instagram\) · morgen-reel\.mp4/);
+  assert.match(text, /🛑 14:00 · Reels \(Instagram\) · content:i3 · unsicher, eingefroren \(verify im Terminal\)/);
+  assert.match(text, /⬜ 18:00 · Clips \(TikTok\) · abend-clip\.mp4/);
   assert.match(text, /📥 Drive-Pipeline: 1 neu · 0 stabilisierend · 1 READY · 1 blockiert/);
   assert.match(text, /⚠️ blockiert: kaputt\.mp4/);
   assert.match(text, /⏸️ Pausiert: clips \(operator_pause\)/);
@@ -84,4 +85,17 @@ test("an empty day renders a clear German empty state", () => {
   const text = renderOperatorPlan(view);
   assert.match(text, /Keine Posts geplant\./);
   assert.match(text, /📥 Drive-Pipeline: 0 neu · 0 stabilisierend · 0 READY · 0 blockiert/);
+});
+
+test("a verified entry carries the live post link, an unverified one carries none", () => {
+  const withLink = collectOperatorPlanView(stores({
+    control: { getVerifiedPublication: (intentId) => intentId === "i1" ? { permalink: "https://www.instagram.com/reel/ABC/" } : null }
+  }), channels, "2026-08-30", "Europe/Vienna");
+  const verified = withLink.entries.find((entry) => entry.state === "VERIFIED");
+  assert.equal(verified.permalink, "https://www.instagram.com/reel/ABC/");
+  const text = renderOperatorPlan(withLink);
+  // A checklist that goes green without a link says nothing the operator can act on.
+  assert.match(text, /https:\/\/www\.instagram\.com\/reel\/ABC\//);
+  const pending = withLink.entries.find((entry) => entry.state !== "VERIFIED");
+  assert.equal(pending.permalink, undefined);
 });
