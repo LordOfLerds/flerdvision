@@ -81,3 +81,11 @@ test("the fill targets the visible field when a selector matches several", async
   assert.match(block, /data-flerdvision-field/);
   assert.match(block, /document\.elementFromPoint/);
 });
+
+test("a field outside the dialog's scroll window is brought into view first", () => {
+  const explorer = readFileSync(new URL("../src/adapters/browser/autonomous-surface-explorer.ts", import.meta.url).pathname, "utf8");
+  // Its rect is off-screen otherwise and the point test hits whatever sits at those coordinates.
+  const idx = explorer.lastIndexOf("data-flerdvision-field");
+  const block = explorer.slice(Math.max(0, idx - 2000), idx + 800);
+  assert.match(block, /element\.scrollIntoView\(\{ block: "center", inline: "center" \}\)/);
+});

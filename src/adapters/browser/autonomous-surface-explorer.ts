@@ -336,8 +336,14 @@ export class AutonomousSurfaceExplorer {
           for (const previous of Array.from(document.querySelectorAll('[data-flerdvision-field]'))) previous.removeAttribute('data-flerdvision-field');
           for (const selector of selectors) {
             for (const element of Array.from(document.querySelectorAll(selector))) {
-              const style = getComputedStyle(element); const rect = element.getBoundingClientRect();
-              if (style.display === "none" || style.visibility === "hidden" || rect.width <= 0 || rect.height <= 0) continue;
+              const style = getComputedStyle(element);
+              if (style.display === "none" || style.visibility === "hidden") continue;
+              // A field can sit outside the dialog's scroll window: its rect is then off-screen
+              // and the point test hits whatever happens to be at those coordinates. Bring it
+              // into view first -- exactly what a person does before typing.
+              element.scrollIntoView({ block: "center", inline: "center" });
+              const rect = element.getBoundingClientRect();
+              if (rect.width <= 0 || rect.height <= 0) continue;
               const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + Math.min(16, rect.height / 2));
               if (!hit || !(hit === element || element.contains(hit) || hit.contains(element))) continue;
               element.setAttribute('data-flerdvision-field', '1');
