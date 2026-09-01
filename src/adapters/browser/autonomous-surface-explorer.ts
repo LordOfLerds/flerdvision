@@ -414,7 +414,10 @@ export class AutonomousSurfaceExplorer {
       if (!uploadReady) await sleep(500);
     }
     for (const step of openingSteps(input.postingProfile)) {
-      if (uploadReady && !step.required) {
+      // Opening steps exist to REACH the upload surface. Standing on it already makes them
+      // pointless by definition -- and harmful: YouTube's create control sits behind the very
+      // dialog we are in, so clicking it was refused by the dialog's own backdrop.
+      if (uploadReady) {
         journal.push({ at: this.now(), stepKey: step.stepKey, action: step.action, outcome: "SKIPPED", detail: "upload surface already reached" });
         continue;
       }

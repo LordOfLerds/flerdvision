@@ -54,7 +54,7 @@ test("an optional opening step is skipped once the upload surface is already rea
   // step then found no file input at all.
   assert.match(source, /let uploadReady = false;/);
   assert.match(source, /Date\.now\(\) \+ 8_000/);
-  assert.match(source, /if \(uploadReady && !step\.required\)/);
+  assert.match(source, /if \(uploadReady\) \{/);
   assert.match(source, /upload surface already reached/);
 });
 
