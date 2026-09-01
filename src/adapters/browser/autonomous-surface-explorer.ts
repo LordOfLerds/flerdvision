@@ -79,7 +79,13 @@ function openingSteps(profile: PostingProfile): AutonomousStep[] {
   if (profile.platform === "tiktok") {
     return [{ stepKey: "OPEN_UPLOAD", label: "Open upload flow", action: "CLICK", required: false, locators: [...named("link", ["Upload", "Hochladen"]), ...named("button", ["Upload", "Hochladen"]), ...text(["Upload", "Hochladen"])] }];
   }
-  return [{ stepKey: "OPEN_UPLOAD", label: "Open upload flow", action: "CLICK", required: true, locators: [...named("button", ["Create", "Erstellen"]), ...named("button", ["Upload videos", "Videos hochladen"]), ...text(["Upload videos", "Videos hochladen"])] }];
+  // YouTube Studio needs two steps, not one: the create control opens a menu, and the upload
+  // entry inside it is what reaches the dialog. Mixing both into a single step meant the create
+  // button always won and the menu entry was never clicked -- the upload input never existed.
+  return [
+    { stepKey: "OPEN_CREATE", label: "Open create menu", action: "CLICK", required: true, locators: [...named("button", ["Create", "Erstellen"]), ...named("link", ["Create", "Erstellen"]), ...namedContains("button", ["Erstellen", "Create"])] },
+    { stepKey: "OPEN_UPLOAD", label: "Choose video upload", action: "CLICK", required: false, locators: [...named("menuitem", ["Video hochladen", "Videos hochladen", "Upload video", "Upload videos"]), ...named("button", ["Video hochladen", "Videos hochladen", "Upload video", "Upload videos"]), ...text(["Video hochladen", "Videos hochladen", "Upload video", "Upload videos"])] }
+  ];
 }
 function uploadStep(): AutonomousStep {
   return { stepKey: "UPLOAD_MEDIA", label: "Upload media", action: "SET_FILE", required: true, timeoutMs: 60_000, locators: [{ kind: "css", value: "input[type=\"file\"]" }] };
