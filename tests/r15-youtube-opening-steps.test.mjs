@@ -28,7 +28,7 @@ test("a click refused during a menu animation gets one settle and one retry", ()
   // YouTube's create menu refused "Videos hochladen" as occluded by its neighbour
   // "Livestream starten" while still animating open.
   const idx = source.indexOf('if (step.action === "CLICK") {');
-  const block = source.slice(idx, idx + 1600);
+  const block = source.slice(idx, idx + 2600);
   assert.match(block, /await sleep\(1500\);/);
   assert.match(block, /if \(!\/\^Refusing to click\/\.test\(firstMessage\)\) throw firstError;/);
   // A genuinely covered target still refuses on the second try and is handled as before.
@@ -45,4 +45,16 @@ test("the second click attempt targets the visible element that owns its own cen
   assert.match(block, /hit === candidate \|\| candidate\.contains\(hit\) \|\| hit\.contains\(candidate\)/);
   // Exact names only -- never a substring, so an unrelated control can never be adopted.
   assert.match(block, /wanted\.has\(name\)/);
+});
+
+test("a wizard surface is walked until the final control is on screen", () => {
+  // YouTube Studio asks for details, then checks, then visibility: the final control is three
+  // clicks away and the run reported it missing instead of walking there.
+  const idx = source.indexOf("Wizard surfaces put the final control");
+  const block = source.slice(idx, idx + 1400);
+  assert.match(block, /advance <= 4/);
+  assert.match(block, /if \(await this\.workingLocator\(finalCandidates, true, 2500\)\) break;/);
+  assert.match(block, /stepKey: `ADVANCE_\$\{advance\}`/);
+  // The advance step is optional: a surface that already shows the final control walks nowhere.
+  assert.match(block, /required: false/);
 });

@@ -449,7 +449,21 @@ export class AutonomousSurfaceExplorer {
     if (!fieldResult) throw new Error(`${fieldAction.stepKey} unexpectedly remained unresolved`);
     steps.push({ stepKey: fieldAction.stepKey, label: fieldAction.label, actionMode: "OBSERVE_ACTION", locator: fieldResult.locator, fallbackLocators: fieldResult.fallbacks, observations: 1 });
 
-    const final: AutonomousStep = { stepKey: "FINAL_ACTION", label: "Final publish boundary", action: "FINAL_BOUNDARY", required: true, locators: finalLocators(input.postingProfile), timeoutMs: 60_000 };
+    // Wizard surfaces put the final control on a later step: YouTube Studio asks for details,
+    // then checks, then visibility, and only the last screen offers Save/Publish. Walking those
+    // screens is what a person does; without it the run looked for a control that was three
+    // clicks away and reported it missing.
+    const finalCandidates = finalLocators(input.postingProfile);
+    for (let advance = 1; advance <= 4; advance += 1) {
+      if (await this.workingLocator(finalCandidates, true, 2500)) break;
+      const wizardStep: AutonomousStep = { stepKey: `ADVANCE_${advance}`, label: `Advance wizard ${advance}`, action: "CLICK", required: false, locators: nextLocators(), timeoutMs: 20_000 };
+      const advanced = await this.executeStep(wizardStep, input.intent, input, artifactRefs, journal);
+      if (!advanced) break;
+      steps.push({ stepKey: wizardStep.stepKey, label: wizardStep.label, actionMode: "OBSERVE_ACTION", locator: advanced.locator, fallbackLocators: advanced.fallbacks, observations: 1 });
+      await sleep(1500);
+    }
+
+    const final: AutonomousStep = { stepKey: "FINAL_ACTION", label: "Final publish boundary", action: "FINAL_BOUNDARY", required: true, locators: finalCandidates, timeoutMs: 60_000 };
     const finalResult = await this.executeStep(final, input.intent, input, artifactRefs, journal);
     if (!finalResult) throw new Error("Final boundary unexpectedly remained unresolved");
     steps.push({ stepKey: final.stepKey, label: final.label, actionMode: "BLOCK_ACTION", locator: finalResult.locator, fallbackLocators: finalResult.fallbacks, observations: 1 });
