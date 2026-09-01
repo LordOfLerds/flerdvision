@@ -470,7 +470,14 @@ export class AutonomousSurfaceExplorer {
       const audienceNames = madeForKids
         ? ["Ja, es ist speziell für Kinder", "Yes, it's made for kids"]
         : ["Nein, es ist nicht speziell für Kinder", "No, it's not made for kids"];
-      const audienceStep: AutonomousStep = { stepKey: "AUDIENCE", label: "Made-for-kids declaration", action: "CLICK", required: true, timeoutMs: 20_000, locators: [...named("radio", audienceNames), ...named("menuitemradio", audienceNames), ...text(audienceNames)] };
+      // Studio renders the options as custom elements with no usable role, so nothing role-based
+      // can even locate them. Tag the visible option carrying the exact declared answer first,
+      // then act on that one element -- no guessing, no substring matching.
+      const tagged = await clickExactVisibleByName(this.session, audienceNames);
+      const audienceLocators: readonly UiLocator[] = tagged
+        ? [{ kind: "css", value: '[data-flerdvision-exact="1"]' }]
+        : [...named("radio", audienceNames), ...named("menuitemradio", audienceNames), ...text(audienceNames)];
+      const audienceStep: AutonomousStep = { stepKey: "AUDIENCE", label: "Made-for-kids declaration", action: "CLICK", required: true, timeoutMs: 20_000, locators: audienceLocators };
       const audience = await this.executeStep(audienceStep, input.intent, input, artifactRefs, journal);
       if (!audience) throw new Error("Made-for-kids declaration could not be answered");
       steps.push({ stepKey: audienceStep.stepKey, label: audienceStep.label, actionMode: "OBSERVE_ACTION", locator: audience.locator, fallbackLocators: audience.fallbacks, observations: 1 });
@@ -620,7 +627,7 @@ async function clickExactVisibleByName(session: BrowserPageSessionPort, names: r
     // Studio and TikTok both put controls inside shadow roots, which a plain querySelectorAll
     // cannot see -- the search found nothing and the stacked-twin problem stayed unsolved.
     const collect = (root, out) => {
-      for (const element of Array.from(root.querySelectorAll('button, a, [role="menuitem"], [role="button"], [role="option"], tp-yt-paper-item, div, span'))) {
+      for (const element of Array.from(root.querySelectorAll('button, a, [role="menuitem"], [role="button"], [role="option"], [role="radio"], tp-yt-paper-item, tp-yt-paper-radio-button, div, span'))) {
         out.push(element);
         if (element.shadowRoot) collect(element.shadowRoot, out);
       }
