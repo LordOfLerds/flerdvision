@@ -146,6 +146,12 @@ export interface YouTubePostingProfile extends PostingProfileBase {
   format: "short";
   visibility: "private" | "unlisted" | "public";
   commentsEnabled: boolean;
+  /**
+   * YouTube's mandatory audience declaration ("made for kids"). It is a legal statement about
+   * the content, so it has no default: the operator answers it in the canonical spec, or the
+   * upload cannot proceed -- Studio keeps the wizard's Continue disabled until it is answered.
+   */
+  madeForKids?: boolean;
 }
 
 export type PostingProfile = InstagramPostingProfile | TikTokPostingProfile | YouTubePostingProfile;

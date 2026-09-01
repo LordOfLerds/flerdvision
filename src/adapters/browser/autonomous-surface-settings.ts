@@ -227,6 +227,38 @@ export class AutonomousSurfaceSettings {
 
   private normalized(value: unknown): string { return String(value ?? "").trim().toLocaleLowerCase("en-US").replace(/[_-]+/g, " ").replace(/\s+/g, " "); }
 
+  /** Answers YouTube's mandatory audience question exactly as the operator declared it. */
+  private async ensureAudience(input: {
+    intent: PublicationIntent;
+    identity: BrowserIdentity;
+    madeForKids: boolean;
+    forbidden: readonly UiLocator[];
+    artifactRefs: string[];
+    journal: AutonomousSurfaceJournalEntry[];
+  }): Promise<SurfaceContractStep> {
+    const names = input.madeForKids
+      ? ["Ja, es ist speziell für Kinder", "Yes, it's made for kids"]
+      : ["Nein, es ist nicht speziell für Kinder", "No, it's not made for kids"];
+    const candidates = unique([...role("radio", names), ...role("menuitemradio", names), ...text(names)]);
+    const selected = await this.firstPresent(candidates, 8000);
+    if (!selected) throw new UiActionExecutionError(`Could not locate the made-for-kids option "${names[0]}"`);
+    await this.driver.click([selected], 8000, input.forbidden);
+    await sleep(600);
+    const confirmed = await this.session.evaluate<boolean>(`(() => {
+      const norm = (value) => String(value || "").replace(/\\s+/g, " ").trim().toLocaleLowerCase("en-US");
+      const wanted = new Set(${JSON.stringify(names.map((name) => name.toLocaleLowerCase("en-US")))});
+      return Array.from(document.querySelectorAll('[role="radio"], input[type="radio"]')).some((element) => {
+        const label = norm(element.getAttribute("aria-label")) || norm(element.closest("label")?.textContent) || norm(element.parentElement?.textContent);
+        if (!wanted.has(label)) return false;
+        return element.getAttribute("aria-checked") === "true" || element.checked === true;
+      });
+    })()`).catch(() => false);
+    if (!confirmed) throw new UiActionExecutionError(`Made-for-kids declaration did not take: expected "${names[0]}"`);
+    input.journal.push({ at: this.now(), stepKey: "AUDIENCE", action: "CLICK", outcome: "PASS", locator: selected, detail: `madeForKids=${String(input.madeForKids)}` });
+    input.artifactRefs.push(...await this.artifacts.captureBoundary(this.session, input.intent, input.identity, "autonomous-setting-audience", this.now()));
+    return { stepKey: "AUDIENCE", label: "Made-for-kids declaration", actionMode: "OBSERVE_ACTION", locator: selected, fallbackLocators: candidates.filter((locator) => JSON.stringify(locator) !== JSON.stringify(selected)).slice(0, 3), observations: 1 };
+  }
+
   private async ensureVisibility(input: {
     intent: PublicationIntent;
     identity: BrowserIdentity;
@@ -307,6 +339,12 @@ export class AutonomousSurfaceSettings {
       push(await this.ensureBoolean({ intent: input.intent, identity: input.identity, stepKey: "DUET", label: "Duet setting", desired: input.postingProfile.duetEnabled, candidates: booleanCandidates(["Allow Duet", "Duet", "Duett erlauben", "Duett"]), forbidden, artifactRefs, journal , optionalWhenAbsent: !explicit("duetEnabled") }));
       push(await this.ensureBoolean({ intent: input.intent, identity: input.identity, stepKey: "STITCH", label: "Stitch setting", desired: input.postingProfile.stitchEnabled, candidates: booleanCandidates(["Allow Stitch", "Stitch", "Stitch erlauben"]), forbidden, artifactRefs, journal , optionalWhenAbsent: !explicit("stitchEnabled") }));
     } else if (input.postingProfile.platform === "youtube") {
+      // Studio's mandatory audience question blocks the entire wizard until it is answered, and
+      // it is a legal statement about the content -- so it comes from the operator's spec or the
+      // run stops here instead of quietly declaring something on their behalf.
+      const madeForKids = input.postingProfile.madeForKids;
+      if (madeForKids === undefined) throw new UiActionExecutionError("YouTube requires the made-for-kids declaration: set settings.madeForKids in the canonical spec");
+      settings.push(await this.ensureAudience({ intent: input.intent, identity: input.identity, madeForKids, forbidden, artifactRefs, journal }));
       settings.push(await this.ensureVisibility({ intent: input.intent, identity: input.identity, expected: input.postingProfile.visibility, forbidden, artifactRefs, journal }));
     }
     addAdvancedFromJournal();

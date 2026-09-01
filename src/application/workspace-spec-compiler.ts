@@ -76,7 +76,7 @@ export function postingProfile(channel: WorkspaceChannelSpec, format: WorkspaceC
   if (format.type !== "short") throw new Error(`Invalid YouTube format ${format.type}`);
   const visibility = format.settings.visibility;
   if (visibility && visibility !== "private" && visibility !== "unlisted" && visibility !== "public") throw new Error(`Invalid YouTube visibility ${visibility}`);
-  return { ...base, platform: "youtube", format: "short", visibility: visibility ?? "public", commentsEnabled: format.settings.commentsEnabled ?? true, explicitSettings: Object.keys(format.settings ?? {}) };
+  return { ...base, platform: "youtube", format: "short", visibility: visibility ?? "public", commentsEnabled: format.settings.commentsEnabled ?? true, ...(typeof format.settings.madeForKids === "boolean" ? { madeForKids: format.settings.madeForKids } : {}), explicitSettings: Object.keys(format.settings ?? {}) };
 }
 
 function payloadTemplate(channel: WorkspaceChannelSpec, format: WorkspaceChannelFormatSpec): { copy: CopyProfile; payload: Record<string, unknown> } {

@@ -11,7 +11,8 @@ const SETTING_SPEC_KEYS: Readonly<Record<string, string>> = {
   COMMENTS: "commentsEnabled",
   DUET: "duetEnabled",
   STITCH: "stitchEnabled",
-  VISIBILITY: "visibility"
+  VISIBILITY: "visibility",
+  AUDIENCE: "madeForKids"
 };
 
 function platformSettingOrder(profile: PostingProfile): readonly string[] {
@@ -22,7 +23,9 @@ function platformSettingOrder(profile: PostingProfile): readonly string[] {
         : ["SHARE_TO_FEED", "CROSSPOST_FACEBOOK", "COMMENTS"];
     }
   if (profile.platform === "tiktok") return ["VISIBILITY", "COMMENTS", "DUET", "STITCH"];
-  return ["VISIBILITY"];
+  // AUDIENCE first: YouTube keeps the wizard's Continue disabled until the mandatory
+  // made-for-kids question is answered, so nothing else on the surface can be reached.
+  return ["AUDIENCE", "VISIBILITY"];
 }
 
 function requiredSettings(profile: PostingProfile): readonly string[] {

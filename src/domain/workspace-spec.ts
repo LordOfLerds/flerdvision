@@ -20,6 +20,8 @@ export interface WorkspaceFormatSettings {
   visibility?: "only_you" | "friends" | "followers" | "everyone" | "private" | "unlisted" | "public";
   duetEnabled?: boolean;
   stitchEnabled?: boolean;
+  /** YouTube's mandatory audience declaration; no default, the operator states it. */
+  madeForKids?: boolean;
 }
 
 export interface WorkspaceChannelFormatSpec {
@@ -165,9 +167,9 @@ function settings(value: unknown, platformValue: Platform, path: string): Worksp
     ? new Set(["commentsEnabled", "shareToFeed", "crosspostFacebook"])
     : platformValue === "tiktok"
       ? new Set(["commentsEnabled", "duetEnabled", "stitchEnabled"])
-      : new Set(["commentsEnabled"]);
+      : new Set(["commentsEnabled", "madeForKids"]);
   const out: WorkspaceFormatSettings = {};
-  for (const key of ["commentsEnabled", "shareToFeed", "crosspostFacebook", "duetEnabled", "stitchEnabled"] as const) {
+  for (const key of ["commentsEnabled", "shareToFeed", "crosspostFacebook", "duetEnabled", "stitchEnabled", "madeForKids"] as const) {
     if (item[key] === undefined) continue;
     if (!allowedBoolean.has(key)) throw new WorkspaceSpecError(`${path}.${key} is not valid for ${platformValue}`);
     if (typeof item[key] !== "boolean") throw new WorkspaceSpecError(`${path}.${key} must be boolean`);
@@ -179,7 +181,7 @@ function settings(value: unknown, platformValue: Platform, path: string): Worksp
     if (typeof item.visibility !== "string" || !allowed.includes(item.visibility)) throw new WorkspaceSpecError(`${path}.visibility is invalid for ${platformValue}`);
     Object.assign(out, { visibility: item.visibility });
   }
-  const known = new Set(["commentsEnabled", "shareToFeed", "crosspostFacebook", "duetEnabled", "stitchEnabled", "visibility"]);
+  const known = new Set(["commentsEnabled", "shareToFeed", "crosspostFacebook", "duetEnabled", "stitchEnabled", "visibility", "madeForKids"]);
   for (const key of Object.keys(item)) if (!known.has(key)) throw new WorkspaceSpecError(`${path}.${key} is unknown`);
   return out;
 }
