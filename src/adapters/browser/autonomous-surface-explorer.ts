@@ -614,7 +614,16 @@ async function clickExactVisibleByName(session: BrowserPageSessionPort, names: r
     const wanted = new Set(${wanted});
     const norm = (value) => String(value || "").replace(/\\s+/g, " ").trim().toLocaleLowerCase("en-US");
     for (const previous of Array.from(document.querySelectorAll('[data-flerdvision-exact]'))) previous.removeAttribute('data-flerdvision-exact');
-    const candidates = Array.from(document.querySelectorAll('button, a, [role="menuitem"], [role="button"], [role="option"], div, span'));
+    // Studio and TikTok both put controls inside shadow roots, which a plain querySelectorAll
+    // cannot see -- the search found nothing and the stacked-twin problem stayed unsolved.
+    const collect = (root, out) => {
+      for (const element of Array.from(root.querySelectorAll('button, a, [role="menuitem"], [role="button"], [role="option"], tp-yt-paper-item, div, span'))) {
+        out.push(element);
+        if (element.shadowRoot) collect(element.shadowRoot, out);
+      }
+      return out;
+    };
+    const candidates = collect(document, []);
     for (const candidate of candidates) {
       const name = norm(candidate.getAttribute("aria-label")) || norm(candidate.textContent);
       if (!wanted.has(name)) continue;

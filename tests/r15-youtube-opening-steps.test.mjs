@@ -28,7 +28,7 @@ test("a click refused during a menu animation gets one settle and one retry", ()
   // YouTube's create menu refused "Videos hochladen" as occluded by its neighbour
   // "Livestream starten" while still animating open.
   const idx = source.indexOf('if (step.action === "CLICK") {');
-  const block = source.slice(idx, idx + 2600);
+  const block = source.slice(idx, idx + 4200);
   assert.match(block, /await sleep\(1500\);/);
   assert.match(block, /if \(!\/\^Refusing to click\/\.test\(firstMessage\)\) throw firstError;/);
   // A genuinely covered target still refuses on the second try and is handled as before.
@@ -83,4 +83,12 @@ test("the boundary waits for a final control that is actually pressable", () => 
   assert.match(block, /element\.hasAttribute\("disabled"\) \|\| element\.getAttribute\("aria-disabled"\) === "true"/);
   // Read-only: the wait never clicks anything.
   assert.doesNotMatch(block, /\.click\(\)/);
+});
+
+test("the visible-element search pierces shadow roots", () => {
+  // Studio and TikTok place controls inside shadow roots, which a plain querySelectorAll cannot
+  // see: the search found nothing and the stacked-twin problem stayed unsolved.
+  const idx = source.indexOf("async function clickExactVisibleByName");
+  const block = source.slice(idx, idx + 1800);
+  assert.match(block, /if \(element\.shadowRoot\) collect\(element\.shadowRoot, out\);/);
 });
