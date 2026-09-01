@@ -58,3 +58,18 @@ test("a wizard surface is walked until the final control is on screen", () => {
   // The advance step is optional: a surface that already shows the final control walks nowhere.
   assert.match(block, /required: false/);
 });
+
+test("the YouTube final control is reachable by its exact visible text too", () => {
+  // The Save button was plainly in the DOM at failure time while the name-based candidates
+  // missed it: Studio wraps it in a custom element whose accessible name is not computed.
+  const idx = source.indexOf("Studio's final control is");
+  const block = source.slice(idx, idx + 500);
+  assert.match(block, /text\(\["Publish", "Veröffentlichen", "Save", "Speichern"\]\)/);
+});
+
+test("final-action candidates never widen to contains matching", () => {
+  const idx = source.indexOf("function finalLocators");
+  const block = source.slice(idx, idx + 900);
+  assert.doesNotMatch(block, /namedContains/);
+  assert.doesNotMatch(block, /exact: false/);
+});

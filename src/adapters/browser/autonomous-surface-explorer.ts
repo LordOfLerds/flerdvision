@@ -144,7 +144,10 @@ export const COOKIE_CONSENT_DECLINE_LABELS = ["Alle ablehnen", "Decline all", "R
 function finalLocators(profile: PostingProfile): readonly UiLocator[] {
   if (profile.platform === "instagram") return unique([...named("button", ["Share", "Teilen", "Publish", "Veröffentlichen"]), ...text(["Share", "Teilen"])]);
   if (profile.platform === "tiktok") return unique([...named("button", ["Post", "Posten", "Publish", "Veröffentlichen"]), ...text(["Post", "Posten"])]);
-  return unique([...named("button", ["Publish", "Veröffentlichen", "Save", "Speichern"]), ...text(["Publish", "Veröffentlichen"])]);
+  // Studio's final control is "Speichern" for a private upload and its accessible name is not
+  // always computed from the custom element wrapper -- the button was plainly in the DOM while
+  // the name-based candidates missed it. Exact text, never a substring: this is FINAL_ACTION.
+  return unique([...named("button", ["Publish", "Veröffentlichen", "Save", "Speichern"]), ...text(["Publish", "Veröffentlichen", "Save", "Speichern"])]);
 }
 
 export async function captureSemanticSurfaceSnapshot(session: BrowserPageSessionPort, input: { platform: PublicationIntent["platform"]; format: PublicationIntent["format"]; stepKey: string; capturedAt: string }): Promise<SemanticSurfaceSnapshot> {
