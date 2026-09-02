@@ -35,6 +35,20 @@ function parse(raw:unknown):WorkspacePayloadConfig{
 }
 export function loadWorkspacePayloadConfig(path:string):WorkspacePayloadConfig{return parse(JSON.parse(readFileSync(path,"utf8")) as unknown);}
 
+/**
+ * The caption lives in the Drive filename, hashtags included -- that is how Luca writes copy:
+ * "Sonnenuntergang am See #nature #chill.mp4". Two derived variables split that one name so a
+ * spec can send the wording everywhere and the tags only where they belong (TikTok yes,
+ * Instagram no). Nothing else about the name is rewritten: dashes and casing are the operator's
+ * wording, not separators to guess at.
+ */
+export function filenameParts(filename:string):{text:string;hashtags:string}{
+  const base=filename.replace(/\.[a-z0-9]{1,5}$/i,"");
+  const tags=base.match(/#[^\s#]+/g)??[];
+  const text=base.replace(/#[^\s#]+/g,"").replace(/\s+/g," ").trim();
+  return{text,hashtags:tags.join(" ")};
+}
+
 function render(input:string,variables:Readonly<Record<string,string>>,metadata:Readonly<Record<string,string>>):string{
   return input.replace(/\{([a-zA-Z0-9_.-]+)\}/g,(_all,key:string)=>{
     if(key.startsWith("metadata.")){const name=key.slice("metadata.".length),value=metadata[name];if(value===undefined)throw new WorkspacePayloadConfigError(`Unknown payload metadata placeholder: ${key}`);return value;}
@@ -48,6 +62,7 @@ export class WorkspacePublicationPayloadResolver implements PublicationPayloadRe
     const entry=loadWorkspacePayloadConfig(this.path).payloads.find(item=>item.copyVersionId===intent.copyVersionId);if(!entry)throw new WorkspacePayloadConfigError(`No publication payload configured for copyVersionId ${intent.copyVersionId}`);
     const stored=this.content.getContentItem(intent.contentId);if(!stored)throw new WorkspacePayloadConfigError(`Content ${intent.contentId} not found while resolving publication payload`);if(stored.item.creatorId!==intent.creatorId)throw new WorkspacePayloadConfigError(`Content creator does not match intent ${intent.intentId}`);
     const metadata=stored.item.metadata,variables:Record<string,string>={contentId:intent.contentId,creatorId:intent.creatorId,accountId:intent.accountId,platform:intent.platform,format:intent.format,filename:metadata.fileName??metadata.filename??""};
+    const parts=filenameParts(variables.filename!);variables.filenameText=parts.text;variables.filenameHashtags=parts.hashtags;
     const out:PublicationPayload={copyVersionId:intent.copyVersionId};
     if(entry.captionTemplate!==undefined)Object.assign(out,{caption:render(entry.captionTemplate,variables,metadata)});
     if(entry.titleTemplate!==undefined)Object.assign(out,{title:render(entry.titleTemplate,variables,metadata)});
