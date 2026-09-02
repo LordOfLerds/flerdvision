@@ -37,6 +37,21 @@ Anforderungen (aus dem Laufzeitprofil: Chrome + Node + SQLite + Video-Mediacache
 Warum 8 GB: ein headful Chrome unter Xvfb + Node-Build + SQLite bleiben damit weit von OOM
 entfernt; 4 vCPU beschleunigen `npm test` (voller Suite-Lauf ist Teil jedes Updates).
 
+## 1a. Abkuerzung: Installer statt Handarbeit
+
+Die Abschnitte 2 bis 8 laufen auch als ein idempotenter Befehl. Er macht genau das, was unten
+steht, und hoert dort auf, wo ein Mensch gebraucht wird: er traegt keine Secrets ein, schreibt
+keine Spec und aktiviert den Posting-Daemon nicht.
+
+```bash
+root# bash deploy/install-vps.sh --repo git@github.com:<ORG>/flerdvision-post.git --release <RELEASE_SHA>
+root# bash deploy/install-vps.sh --check      # spaeter: bestehenden Host pruefen, aendert nichts
+```
+
+Danach weiter bei Abschnitt 7 (Env/Spec ausfuellen) und Abschnitt 9 (Erst-Setup). Wer lieber
+Schritt fuer Schritt vorgeht oder etwas nachvollziehen will, liest die Abschnitte unten — sie
+bleiben die Referenz, der Installer ist nur ihre Ausfuehrung.
+
 ## 2. Grund-Setup: Zeitzone, Updates, User, Firewall
 
 ```bash
