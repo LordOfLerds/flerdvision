@@ -296,6 +296,9 @@ export class AutonomousSurfaceExplorer {
     }
     const chosen: UiLocator = selected;
     const fallbacks = candidates.filter((locator) => locatorKey(locator) !== locatorKey(chosen)).slice(0, 3);
+    // What the contract records can differ from what this page is clicked by: a transient
+    // marker is valid here and meaningless in a replay. Recorded stays the durable answer.
+    let recorded: UiLocator = selected;
     if (step.action === "CLICK") {
       try {
         // Prefer the element a person sees: name matching alone repeatedly settled on a
@@ -352,7 +355,12 @@ export class AutonomousSurfaceExplorer {
       // same id -- and the first match may be an off-screen one, which then reads as "occluded"
       // no matter how long the run waits. Prefer the field a person would type into.
       const cssSelectors = candidates.filter((locator) => locator.kind === "css").map((locator) => locator.value);
-      const retarget = async (): Promise<boolean> => await this.session.evaluate<boolean>(`(() => {
+      // The marker attribute only exists inside THIS page: it is how the exploration pins the
+      // one field a person would type into among identical twins. It must never end up in the
+      // recorded contract -- a replay opens a fresh page where nothing carries it, and the route
+      // would then depend entirely on its fallbacks. So retarget reports WHICH selector it
+      // tagged: the marker drives the typing here, the real selector is what gets recorded.
+      const retarget = async (): Promise<string | null> => await this.session.evaluate<string | null>(`(() => {
           const selectors = ${JSON.stringify(cssSelectors)};
           for (const previous of Array.from(document.querySelectorAll('[data-flerdvision-field]'))) previous.removeAttribute('data-flerdvision-field');
           for (const selector of selectors) {
@@ -368,11 +376,11 @@ export class AutonomousSurfaceExplorer {
               const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + Math.min(16, rect.height / 2));
               if (!hit || !(hit === element || element.contains(hit) || hit.contains(element))) continue;
               element.setAttribute('data-flerdvision-field', '1');
-              return true;
+              return selector;
             }
           }
-          return false;
-        })()`).catch(() => false);
+          return null;
+        })()`).catch(() => null);
       // Overlays surface late and STACK: TikTok raised an info dialog and a feature offer over
       // the caption at once, so dismissing only the first left the field just as covered. Every
       // dismissal runs on each pass -- short-circuiting hid the second dialog entirely -- and
@@ -381,7 +389,13 @@ export class AutonomousSurfaceExplorer {
         try {
           // Re-target on every attempt: which field is reachable changes while the surface
           // settles, so deciding once before the first try fixed the wrong answer in place.
-          if (cssSelectors.length > 0 && await retarget()) selected = { kind: "css", value: '[data-flerdvision-field="1"]' };
+          if (cssSelectors.length > 0) {
+            const tagged = await retarget();
+            if (tagged !== null) {
+              recorded = { kind: "css", value: tagged };
+              selected = { kind: "css", value: '[data-flerdvision-field="1"]' };
+            }
+          }
           await this.driver.fill([selected], value, step.timeoutMs ?? 12_000);
           break;
         } catch (error) {
@@ -421,11 +435,11 @@ export class AutonomousSurfaceExplorer {
     } else {
       await this.driver.locate([selected], step.timeoutMs ?? 12_000, true);
     }
-    const detail = `${selected.kind}:${selected.value}`;
-    journal.push({ at: this.now(), stepKey: step.stepKey, action: step.action, outcome: "PASS", locator: selected, detail });
+    const detail = `${recorded.kind}:${recorded.value}`;
+    journal.push({ at: this.now(), stepKey: step.stepKey, action: step.action, outcome: "PASS", locator: recorded, detail });
     artifactRefs.push(...await this.artifacts.captureBoundary(this.session, intent, { identityId: "surface-explorer", accountId: intent.accountId, platform: intent.platform, profileKey: "surface-explorer", expectedHandle: intent.accountId, enabled: true }, `autonomous-${step.stepKey.toLocaleLowerCase("en-US")}`, this.now()));
     if (step.action === "SET_FILE") await sleep(3000); else if (step.action !== "FINAL_BOUNDARY") await sleep(900);
-    return { locator: selected, fallbacks };
+    return { locator: recorded, fallbacks };
   }
 
   async discoverAndPrepare(input: {

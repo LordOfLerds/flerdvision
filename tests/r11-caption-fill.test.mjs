@@ -77,7 +77,7 @@ test("the fill targets the visible field when a selector matches several", async
   // YouTube gives the title and the description the same id: the first match was off-screen and
   // read as "occluded" no matter how long the run waited.
   const idx = explorer.lastIndexOf('step.action === "FILL_CAPTION" || step.action === "FILL_TITLE"');
-  const block = explorer.slice(idx, idx + 1800);
+  const block = explorer.slice(idx, idx + 2600);
   assert.match(block, /data-flerdvision-field/);
   assert.match(block, /document\.elementFromPoint/);
 });
