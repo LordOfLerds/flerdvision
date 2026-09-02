@@ -43,7 +43,10 @@ export function loadWorkspacePayloadConfig(path:string):WorkspacePayloadConfig{r
  * wording, not separators to guess at.
  */
 export function filenameParts(filename:string):{text:string;hashtags:string}{
-  const base=filename.replace(/\.[a-z0-9]{1,5}$/i,"");
+  // Drive files are numbered so they sort into posting order ("01_Testwelle Mo 0930"). That
+  // prefix is ordering, not copy, and must not reach the caption. Only the digits-underscore
+  // form counts, so a caption that genuinely opens with a number ("5 Tipps") stays intact.
+  const base=filename.replace(/\.[a-z0-9]{1,5}$/i,"").replace(/^\d{1,3}_\s*/,"");
   const tags=base.match(/#[^\s#]+/g)??[];
   const text=base.replace(/#[^\s#]+/g,"").replace(/\s+/g," ").trim();
   return{text,hashtags:tags.join(" ")};

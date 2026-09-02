@@ -26,3 +26,14 @@ test("only a real extension is stripped, never a trailing word", () => {
   assert.equal(filenameParts("Rezept Nr. 4 Pasta").text, "Rezept Nr. 4 Pasta");
   assert.equal(filenameParts("clip.final.mp4").text, "clip.final");
 });
+
+test("the numeric sort prefix is ordering, not caption text", () => {
+  assert.equal(filenameParts("01_Testwelle Mo 0930 LordOfLerds.mp4").text, "Testwelle Mo 0930 LordOfLerds");
+  const tiktok = filenameParts("07_Testwelle Mi 1830 TikTok #flerdvision #test.mp4");
+  assert.equal(tiktok.text, "Testwelle Mi 1830 TikTok");
+  assert.equal(tiktok.hashtags, "#flerdvision #test");
+});
+
+test("a caption that really starts with a number keeps it", () => {
+  assert.equal(filenameParts("5 Tipps für den Herbst.mp4").text, "5 Tipps für den Herbst");
+});
