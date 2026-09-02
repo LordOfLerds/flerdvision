@@ -170,7 +170,7 @@ export class BrowserDomUiDriver {
     const deadline = Date.now() + 5_000;
     let lastProblem = "target never became stable";
     for (;;) {
-      const probe = await this.session.evaluate<{ x: number; y: number; occludedBy: string | null; moved: boolean } | null>(`(async () => {
+      const probe = await this.session.evaluate<{ x: number; y: number; occludedBy: string | null; moved: boolean; target?: string } | null>(`(async () => {
         const el = document.querySelector(${JSON.stringify(selector)});
         if (!el) return null;
         el.scrollIntoView({ block: 'center', inline: 'center' });
@@ -183,17 +183,31 @@ export class BrowserDomUiDriver {
         const x = second.x + second.width / 2, y = second.y + second.height / 2;
         const hit = document.elementFromPoint(x, y);
         const related = hit !== null && (el === hit || el.contains(hit) || hit.contains(el));
-        const describe = (node) => node === null ? 'nothing' : node.tagName.toLowerCase() +
-          (node.getAttribute('role') ? '[role=' + node.getAttribute('role') + ']' : '') +
-          ' "' + ((node.getAttribute('aria-label') || node.textContent || '').split(String.fromCharCode(10)).join(' ').trim().slice(0, 40)) + '"';
-        return { x, y, occludedBy: related ? null : describe(hit), moved };
+        // A nameless "div" tells nobody anything: an occlusion that repeats needs an identity
+        // to be fixable. Name the element the way a person reading DevTools would -- tag, id,
+        // first classes, stacking order and where it sits relative to the target.
+        const describe = (node) => {
+          if (node === null) return 'nothing';
+          const id = node.id ? '#' + node.id : '';
+          const classes = (node.getAttribute('class') || '').trim().split(/\s+/).filter(Boolean).slice(0, 2).map((c) => '.' + c).join('');
+          const role = node.getAttribute('role') ? '[role=' + node.getAttribute('role') + ']' : '';
+          const name = (node.getAttribute('aria-label') || node.textContent || '').split(String.fromCharCode(10)).join(' ').trim().slice(0, 40);
+          const box = node.getBoundingClientRect();
+          const layer = getComputedStyle(node).zIndex;
+          const geometry = ' at ' + Math.round(box.x) + ',' + Math.round(box.y) + ' ' + Math.round(box.width) + 'x' + Math.round(box.height) +
+            (layer && layer !== 'auto' ? ' z=' + layer : '');
+          return node.tagName.toLowerCase() + id + classes + role + ' "' + name + '"' + geometry;
+        };
+        return { x, y, occludedBy: related ? null : describe(hit), moved, target: describe(el) };
       })()`);
       if (!probe) throw new UiActionExecutionError(`${failurePrefix}: ${descriptor}`);
       if (!probe.moved && probe.occludedBy === null) {
         await this.session.clickAt(probe.x, probe.y);
         return;
       }
-      lastProblem = probe.occludedBy ? `occluded by ${probe.occludedBy}` : "still moving";
+      lastProblem = probe.occludedBy
+        ? `occluded by ${probe.occludedBy}${probe.target ? `; target was ${probe.target}` : ""}`
+        : "still moving";
       if (Date.now() >= deadline) {
         // Last resort for reversible clicks only: the platform sometimes renders the accessible
         // control as a stacked twin while the visible label is a bare text node inside a strip

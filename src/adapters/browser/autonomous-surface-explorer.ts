@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
+import { detectPlatformRefusal, PlatformRefusedError } from "./platform-refusal.js";
 import type { BrowserIdentity } from "../../domain/browser-identity.js";
 import type { BrowserPageSessionPort } from "../../domain/browser-identity-ports.js";
 import type { PostingProfile } from "../../domain/distribution.js";
@@ -257,7 +258,27 @@ export class AutonomousSurfaceExplorer {
     return true;
   }
 
+  /**
+   * Every step goes through here, which makes it the one place that can tell a broken surface
+   * from a refusing platform. When a step fails, the page is asked whether the platform has put
+   * a refusal on the screen -- an upload quota, a temporary block, a suspended account. If it
+   * has, that sentence becomes the error: retrying or repairing selectors cannot lift it, and
+   * the operator needs to read the real reason rather than a locator complaint.
+   */
   private async executeStep(step: AutonomousStep, intent: PublicationIntent, input: { mediaPath: string; caption?: string; title?: string }, artifactRefs: string[], journal: AutonomousSurfaceJournalEntry[]): Promise<{ locator: UiLocator; fallbacks: readonly UiLocator[] } | null> {
+    try {
+      return await this.runStep(step, intent, input, artifactRefs, journal);
+    } catch (error) {
+      if (error instanceof PlatformRefusedError) throw error;
+      const refusal = await detectPlatformRefusal(this.session);
+      if (!refusal) throw error;
+      journal.push({ at: this.now(), stepKey: step.stepKey, action: step.action, outcome: "FAIL", detail: refusal.message });
+      artifactRefs.push(...await this.artifacts.captureBoundary(this.session, intent, { identityId: "surface-explorer", accountId: intent.accountId, platform: intent.platform, profileKey: "surface-explorer", expectedHandle: intent.accountId, enabled: true }, "autonomous-platform-refused", this.now()));
+      throw refusal;
+    }
+  }
+
+  private async runStep(step: AutonomousStep, intent: PublicationIntent, input: { mediaPath: string; caption?: string; title?: string }, artifactRefs: string[], journal: AutonomousSurfaceJournalEntry[]): Promise<{ locator: UiLocator; fallbacks: readonly UiLocator[] } | null> {
     const candidates = await this.locatorsFor(step, intent);
     const visibleOnly = step.action !== "SET_FILE";
     let selected = await this.workingLocator(candidates, visibleOnly, step.timeoutMs ?? 12_000);
