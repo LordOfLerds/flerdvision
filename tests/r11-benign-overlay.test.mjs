@@ -76,7 +76,7 @@ test("draft discard confirms only exact discard labels and shares no final vocab
 
 test("a late promo overlay over the caption is cleared and the fill retried", () => {
   const idx = source.lastIndexOf('step.action === "FILL_CAPTION" || step.action === "FILL_TITLE"');
-  const block = source.slice(idx, idx + 5200);
+  const block = source.slice(idx, idx + 6400);
   assert.match(block, /Refusing to click/);
   assert.match(block, /const benign = await this\.dismissBenignOverlay\(journal\)\.catch\(\(\) => false\);/);
   assert.match(block, /const declined = await declineFeatureOptIn\(this\.session, journal\)\.catch\(\(\) => false\);/);
@@ -138,7 +138,7 @@ test("a nameless transient layer is waited out, a permanent one still fails", ()
   // A surface mid-animation puts a plain div over the field: nothing to dismiss, everything to
   // wait out -- but only briefly, so a real cover still stops the run.
   const idx = source.lastIndexOf('step.action === "FILL_CAPTION" || step.action === "FILL_TITLE"');
-  const block = source.slice(idx, idx + 5200);
+  const block = source.slice(idx, idx + 6400);
   assert.match(block, /if \(attempt >= 2\)/);
   assert.match(block, /await sleep\(2500\);\s*\n\s*continue;/);
 });
