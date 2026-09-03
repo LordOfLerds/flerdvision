@@ -34,6 +34,11 @@ export interface WorkspaceChannelFormatSpec {
   descriptionTemplate?: string;
   hashtags: readonly string[];
   requirement: "REQUIRED" | "OPTIONAL";
+  /**
+   * Appends a visible `[FV:{contentId}]` tail to the caption. Defaults to **false**: production
+   * posts carry no marker, and verification matches the caption the run posted instead. Only set
+   * it where a surface genuinely cannot be verified any other way.
+   */
   verificationMarker: boolean;
   settings: WorkspaceFormatSettings;
 }

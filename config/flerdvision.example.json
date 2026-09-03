@@ -25,9 +25,9 @@
           "type": "reel",
           "times": ["12:00", "19:00"],
           "sourceMatch": ["instagram", "reels"],
-          "captionTemplate": "{filenameText}\n\n[FV:{contentId}]",
+          "captionTemplate": "{filenameText}",
           "hashtags": [],
-          "verificationMarker": true,
+          "verificationMarker": false,
           "requirement": "REQUIRED",
           "settings": {
             "commentsEnabled": true,
@@ -47,9 +47,9 @@
           "type": "tiktok",
           "times": ["13:00", "20:00"],
           "sourceMatch": ["tiktok"],
-          "captionTemplate": "{filenameText} {filenameHashtags}\n\n[FV:{contentId}]",
+          "captionTemplate": "{filenameText} {filenameHashtags}",
           "hashtags": [],
-          "verificationMarker": true,
+          "verificationMarker": false,
           "requirement": "REQUIRED",
           "settings": {
             "visibility": "everyone",

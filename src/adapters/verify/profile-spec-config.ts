@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import type { Platform } from "../../domain/model.js";
 import type { UiLocator } from "../../domain/platform-ui.js";
-import type { ProfileVerificationSpec } from "./profile.js";
+import type { ProfileCaptionMatchSpec, ProfileVerificationSpec } from "./profile.js";
 
 export interface ProfileVerificationSpecEntry {
   specId:string;
@@ -27,6 +27,31 @@ function locators(value:unknown,path:string,allowPlaceholder:boolean):readonly U
   if(!Array.isArray(value)||value.length===0)throw new ProfileVerificationSpecConfigError(`${path} must be a non-empty array`);
   return value.map((item,index)=>locator(item,`${path}[${index}]`,allowPlaceholder));
 }
+function selector(value:unknown,path:string,allowPlaceholder:boolean):string{
+  if(typeof value!=="string"||!value.trim())throw new ProfileVerificationSpecConfigError(`${path} must be a non-empty selector`);
+  if(!allowPlaceholder&&value.includes("__CALIBRATE__"))throw new ProfileVerificationSpecConfigError(`${path} still contains calibration placeholder`);
+  return value;
+}
+function parseCaptionMatch(value:unknown,path:string,allowPlaceholder:boolean):ProfileCaptionMatchSpec{
+  if(!value||typeof value!=="object")throw new ProfileVerificationSpecConfigError(`${path} must be an object`);
+  const item=value as Record<string,unknown>;
+  if(!Array.isArray(item.captionSelectors)||item.captionSelectors.length===0)throw new ProfileVerificationSpecConfigError(`${path}.captionSelectors must be a non-empty array`);
+  const captionSelectors=item.captionSelectors.map((entry,index)=>selector(entry,`${path}.captionSelectors[${index}]`,allowPlaceholder));
+  // Without a readable publish time the window cannot be applied, and a post outside the window
+  // must never be matched -- so the timestamp read is part of the contract, not an option.
+  const timestampSelector=selector(item.timestampSelector,`${path}.timestampSelector`,allowPlaceholder);
+  if(item.timestampAttribute!==undefined&&(typeof item.timestampAttribute!=="string"||!item.timestampAttribute.trim()))throw new ProfileVerificationSpecConfigError(`${path}.timestampAttribute must be non-empty`);
+  if(item.durationSelector!==undefined&&(typeof item.durationSelector!=="string"||!item.durationSelector.trim()))throw new ProfileVerificationSpecConfigError(`${path}.durationSelector must be non-empty`);
+  if(item.durationAttribute!==undefined&&(typeof item.durationAttribute!=="string"||!item.durationAttribute.trim()))throw new ProfileVerificationSpecConfigError(`${path}.durationAttribute must be non-empty`);
+  if(item.windowLeadSeconds!==undefined&&(!Number.isInteger(item.windowLeadSeconds)||(item.windowLeadSeconds as number)<0||(item.windowLeadSeconds as number)>3600))throw new ProfileVerificationSpecConfigError(`${path}.windowLeadSeconds must be an integer between 0 and 3600`);
+  return{
+    captionSelectors,timestampSelector,
+    ...(typeof item.timestampAttribute==="string"?{timestampAttribute:item.timestampAttribute}:{}),
+    ...(typeof item.durationSelector==="string"?{durationSelector:item.durationSelector}:{}),
+    ...(typeof item.durationAttribute==="string"?{durationAttribute:item.durationAttribute}:{}),
+    ...(typeof item.windowLeadSeconds==="number"?{windowLeadSeconds:item.windowLeadSeconds}:{})
+  };
+}
 function parseSpec(value:unknown,path:string,allowPlaceholder:boolean):ProfileVerificationSpec{
   if(!value||typeof value!=="object")throw new ProfileVerificationSpecConfigError(`${path} must be an object`);
   const item=value as Record<string,unknown>;
@@ -42,10 +67,19 @@ function parseSpec(value:unknown,path:string,allowPlaceholder:boolean):ProfileVe
   if(item.postLinkSelector!==undefined&&(typeof item.postLinkSelector!=="string"||!item.postLinkSelector.trim()))throw new ProfileVerificationSpecConfigError(`${path}.postLinkSelector must be non-empty`);
   if((item.postListUrlTemplate===undefined)!==(item.postLinkSelector===undefined))throw new ProfileVerificationSpecConfigError(`${path} must set postListUrlTemplate and postLinkSelector together`);
   if(item.postOpenLimit!==undefined&&(!Number.isInteger(item.postOpenLimit)||(item.postOpenLimit as number)<1||(item.postOpenLimit as number)>10))throw new ProfileVerificationSpecConfigError(`${path}.postOpenLimit must be an integer between 1 and 10`);
+  const captionMatch=item.captionMatch===undefined?undefined:parseCaptionMatch(item.captionMatch,`${path}.captionMatch`,allowPlaceholder);
+  // Exactly one matching rule per spec: a marker text locator, or marker-free caption equality.
+  // Both at once would leave it unclear which one a VERIFIED came from.
+  if(captionMatch===undefined&&item.postMatchLocators===undefined)throw new ProfileVerificationSpecConfigError(`${path} must set postMatchLocators or captionMatch`);
+  if(captionMatch!==undefined&&item.postMatchLocators!==undefined)throw new ProfileVerificationSpecConfigError(`${path} must not set postMatchLocators together with captionMatch`);
+  // The caption renders on the post page, never on the grid, so marker-free matching cannot work
+  // without a list to walk.
+  if(captionMatch!==undefined&&(item.postListUrlTemplate===undefined||item.postLinkSelector===undefined))throw new ProfileVerificationSpecConfigError(`${path}.captionMatch requires postListUrlTemplate and postLinkSelector`);
   return{
     platform:item.platform,bootstrapUrl:item.bootstrapUrl,profileUrlTemplate:item.profileUrlTemplate,
     profileReadyLocators:locators(item.profileReadyLocators,`${path}.profileReadyLocators`,allowPlaceholder),
-    postMatchLocators:locators(item.postMatchLocators,`${path}.postMatchLocators`,allowPlaceholder),
+    ...(item.postMatchLocators!==undefined?{postMatchLocators:locators(item.postMatchLocators,`${path}.postMatchLocators`,allowPlaceholder)}:{}),
+    ...(captionMatch!==undefined?{captionMatch}:{}),
     ...(typeof item.permalinkAttribute==="string"?{permalinkAttribute:item.permalinkAttribute}:{}),
     ...(typeof item.postListUrlTemplate==="string"?{postListUrlTemplate:item.postListUrlTemplate}:{}),
     ...(typeof item.postLinkSelector==="string"?{postLinkSelector:item.postLinkSelector}:{}),

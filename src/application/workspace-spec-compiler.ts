@@ -80,6 +80,9 @@ export function postingProfile(channel: WorkspaceChannelSpec, format: WorkspaceC
 }
 
 function payloadTemplate(channel: WorkspaceChannelSpec, format: WorkspaceChannelFormatSpec): { copy: CopyProfile; payload: Record<string, unknown> } {
+  // Operator decision (2026-09-03): production posts carry no visible marker. `verificationMarker`
+  // therefore defaults to false and only a spec that explicitly asks for it gets the tail; every
+  // other route is verified by caption equality on the post page.
   const marker = format.verificationMarker ? "\n\n[FV:{contentId}]" : "";
   const captionTemplate = format.captionTemplate ?? (channel.platform === "youtube" ? undefined : `{filename}${marker}`);
   const titleTemplate = format.titleTemplate ?? (channel.platform === "youtube" ? "{filename}" : undefined);
@@ -179,21 +182,56 @@ function preservedCalibratedEntry(path: string, collection: "probes" | "specs", 
   return entry;
 }
 
+/** Where the account's own newest posts are listed, and what a link to one looks like there. */
+function postListNavigation(channel: WorkspaceChannelSpec): { postListUrlTemplate: string; postLinkSelector: string; postOpenLimit: number } {
+  if (channel.platform === "instagram") return { postListUrlTemplate: `${profileUrl(channel)}reels/`, postLinkSelector: 'a[href*="/reel/"], a[href*="/p/"]', postOpenLimit: 3 };
+  if (channel.platform === "tiktok") return { postListUrlTemplate: profileUrl(channel), postLinkSelector: 'a[href*="/video/"]', postOpenLimit: 3 };
+  return { postListUrlTemplate: profileUrl(channel), postLinkSelector: 'a[href*="/shorts/"], a[href*="/watch?v="]', postOpenLimit: 3 };
+}
+
+/**
+ * How the copy and the publish time are read off an opened post page. These are templates, not
+ * proven contracts: they ship UNVERIFIED and the qualification run recalibrates them. Where a
+ * surface has no timestamp with a time of day (TikTok renders a bare date), the verifier reports
+ * an inconclusive observation instead of guessing -- that is the intended fail-closed behaviour
+ * until someone calibrates a better selector against the live page.
+ */
+function captionMatchTemplate(channel: WorkspaceChannelSpec): Record<string, unknown> {
+  if (channel.platform === "instagram") {
+    return { captionSelectors: ["article h1", "main h1", "h1"], timestampSelector: "time[datetime]", timestampAttribute: "datetime", durationSelector: "video" };
+  }
+  if (channel.platform === "tiktok") {
+    return {
+      captionSelectors: ['[data-e2e="browser-video-desc"]', '[data-e2e="video-desc"]'],
+      timestampSelector: '[data-e2e="browser-nickname"] span:last-child',
+      timestampAttribute: "text",
+      durationSelector: "video"
+    };
+  }
+  return {
+    captionSelectors: ["#title h1", "h1.ytd-watch-metadata", ".ytShortsVideoTitleViewModelShortsVideoTitle", 'meta[itemprop="name"]'],
+    timestampSelector: 'meta[itemprop="uploadDate"], meta[itemprop="datePublished"]',
+    timestampAttribute: "content",
+    durationSelector: "video"
+  };
+}
+
 function verificationSpecTemplate(channel: WorkspaceChannelSpec): Record<string, unknown> {
+  // Marker matching survives only while every format on the channel actually plants the marker.
+  // As soon as one format posts without it, the whole channel verifies by caption equality --
+  // the marker text is part of the posted caption anyway, so a marker route still matches.
+  const markerOnly = channel.formats.every((format) => format.verificationMarker);
   return {
     platform: channel.platform,
     bootstrapUrl: bootstrapUrl(channel),
     profileUrlTemplate: profileUrl(channel),
     profileReadyLocators: [{ kind: "css", value: "main, [role=\"main\"]" }],
-    postMatchLocators: [{ kind: "text", value: "{contentId}", exact: false }],
     permalinkAttribute: "href",
-    // Instagram's profile grid renders no captions, and reels without share-to-feed only
-    // exist under the reels tab: the marker is only readable on the opened post page.
-    ...(channel.platform === "instagram" ? {
-      postListUrlTemplate: `${profileUrl(channel)}reels/`,
-      postLinkSelector: 'a[href*="/reel/"], a[href*="/p/"]',
-      postOpenLimit: 3
-    } : {})
+    ...(markerOnly ? { postMatchLocators: [{ kind: "text", value: "{contentId}", exact: false }] } : { captionMatch: captionMatchTemplate(channel) }),
+    // The caption renders on the opened post page, never on the grid: Instagram's grid shows
+    // thumbnails only, and a reel without share-to-feed exists solely under the reels tab.
+    // Marker matching on Instagram needed the same walk, so it keeps it.
+    ...(markerOnly && channel.platform !== "instagram" ? {} : postListNavigation(channel))
   };
 }
 

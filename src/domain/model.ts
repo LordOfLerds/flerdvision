@@ -76,7 +76,15 @@ export type EvidenceKind =
   | "profile_media_match"
   | "manual_confirmation"
   | "manual_not_published"
-  | "negative_profile_check";
+  | "negative_profile_check"
+  /**
+   * The surface was reachable and was read, but what it showed proves neither publication nor
+   * absence: several posts in the window carry the same copy, the caption could not be read at
+   * all, or the post timestamps are too coarse to place a post inside the window. It is
+   * deliberately NOT `negative_profile_check`: a non-observation must never feed the
+   * conservative retry quorum.
+   */
+  | "inconclusive_profile_check";
 
 export interface VerificationEvidence {
   evidenceId: UUID;

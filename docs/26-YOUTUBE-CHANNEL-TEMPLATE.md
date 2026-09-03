@@ -70,8 +70,10 @@ Rules the code enforces:
   `["AUDIENCE", "VISIBILITY"]` for youtube and `AutonomousSurfaceSettings.enrich()` ensures
   exactly those two. Do not set it and expect an effect; leave comments at the Studio default.
 - `verificationMarker` appends `[FV:{contentId}]` to the **caption** template only, which
-  youtube does not have. If a marker is wanted it must be put into `titleTemplate` by hand —
-  but see §5 before relying on marker-based verification for a private short.
+  youtube does not have; leave it at its default `false`. YouTube is verified marker-free: the
+  verifier opens the channel's newest shorts and requires one of them, published inside the run's
+  own publish window, to carry exactly this `titleTemplate` as its title — see §5 for what a
+  private short does and does not make visible.
 
 ## 2. Operator prerequisites (existing channel)
 

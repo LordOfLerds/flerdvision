@@ -42,6 +42,14 @@ Only then can reconciliation return `SAFE_TO_RETRY`, which transitions to `RETRY
 
 An authorized human operator may explicitly record `manual_not_published`; this is an auditable operator action and can authorize `SAFE_TO_RETRY`. AI may never generate that evidence.
 
+## Inconclusive observations
+
+`inconclusive_profile_check` records "the surface was read and it proves nothing": several posts in
+the verification window carry the same copy, no caption could be read at all, or the post
+timestamps are too coarse to place a post inside the window. It is negative in the sense of "not a
+publication signal", but it is deliberately **not** part of the negative quorum: a non-observation
+must never accumulate into `SAFE_TO_RETRY`. Such a run stays `UNCERTAIN` and needs a human.
+
 ## Profile verifier safety
 
 `DeclarativeProfileVerificationCollector` requires a known profile-ready marker before it can emit negative evidence. Failure to load the profile or unknown UI state throws/collects an error and cannot be interpreted as publication absence.

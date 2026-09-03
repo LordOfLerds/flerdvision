@@ -35,6 +35,24 @@ export interface VerificationEvidenceCollectorPort {
   collect(intent: PublicationIntent, attempt: PublishAttempt): Promise<readonly VerificationEvidence[]>;
 }
 
+/** What the run actually posted, as far as it can be reconstructed deterministically. */
+export interface ExpectedPublishedCopy {
+  /** Caption exactly as typed into the surface (copy plus hashtags), for caption platforms. */
+  caption?: string;
+  /** Title exactly as typed into the surface, for title platforms (YouTube). */
+  title?: string;
+  /** Duration of the uploaded file in seconds, used only to disambiguate equal captions. */
+  mediaDurationSeconds?: number;
+}
+
+/**
+ * Marker-free verification needs the copy the run posted. It is resolved from the same payload
+ * source the publisher used, never from what the platform page happens to show.
+ */
+export interface ExpectedPublicationCopyPort {
+  expected(intent: PublicationIntent, attempt: PublishAttempt): Promise<ExpectedPublishedCopy>;
+}
+
 export interface FinalActionInvocationResult {
   invokedAt: Instant;
   finishedAt: Instant;

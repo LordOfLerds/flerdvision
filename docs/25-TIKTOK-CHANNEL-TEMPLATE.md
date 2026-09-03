@@ -20,9 +20,9 @@ test account; the `key` is stable and becomes part of every derived ID):
       "type": "tiktok",
       "times": ["13:00"],
       "sourceMatch": ["tiktok"],
-      "captionTemplate": "{filenameText} {filenameHashtags}\n\n[FV:{contentId}]",
+      "captionTemplate": "{filenameText} {filenameHashtags}",
       "hashtags": [],
-      "verificationMarker": true,
+      "verificationMarker": false,
       "requirement": "REQUIRED",
       "settings": {
         "visibility": "only_you",
@@ -51,8 +51,10 @@ test account; the `key` is stable and becomes part of every derived ID):
   when a missing TikTok source folder must not block the rest of the workspace.
 - `sourceMatch: ["tiktok"]` selects the Drive/local source folder whose name matches; the test
   folder must contain harmless test media only.
-- `verificationMarker: true` plus the `[FV:{contentId}]` caption tail is what deterministic
-  verification greps for; do not remove it.
+- `verificationMarker: false` is the production default: the post carries no visible marker.
+  Verification opens the channel's newest videos and requires one of them, published inside the
+  run's own publish window, to carry exactly this caption. Setting it to `true` restores the old
+  `[FV:{contentId}]` caption tail and the marker matcher.
 - `captionTemplate` uses the two filename variables, not the raw `{filename}`: the caption is
   written into the Drive filename and TikTok is the platform that carries the hashtags. See
   "Caption from the filename" below.
@@ -81,7 +83,8 @@ is collapsed. Nothing else is rewritten -- dashes and casing are the operator's 
 
 TikTok therefore uses `{filenameText} {filenameHashtags}`; Instagram (`docs/27`) uses only
 `{filenameText}`, so one Drive file serves both. A file without hashtags leaves an empty
-`{filenameHashtags}` and a trailing space before the marker, which the platform ignores.
+`{filenameHashtags}` and a trailing space, which the platform ignores and which the caption
+comparison in verification collapses away.
 `tests/r16-filename-template-payloads.test.mjs` renders the shipped example through the real
 compiler and resolver and pins this split.
 

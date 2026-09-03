@@ -13,12 +13,14 @@ import { resolveChromiumExecutablePath } from "../browser/resolve-chromium.js";
 import { calibratedSessionProbeFor, loadSessionProbeConfigFile } from "../browser/session-probe-config.js";
 import { JsonDistributionConfigurationStore } from "../distribution/json-config-store.js";
 import { SqliteDistributionProvenanceStore } from "../distribution/sqlite-provenance.js";
+import { SqliteDistributionRuntimeStateStore } from "../distribution/sqlite-runtime-state.js";
 import { SqlitePlatformSurfaceStore } from "../distribution/sqlite-surface-store.js";
 import { workspaceDriveAccessTokenProvider } from "../ingress/google-drive/workspace-drive-token.js";
 import { WorkspaceMediaMaterializer } from "../publish/workspace-media-materializer.js";
 import { WorkspacePublicationPayloadResolver } from "../publish/workspace-payload-resolver.js";
 import { SqliteControlPlaneStore } from "../storage/sqlite.js";
 import { LocalVerificationArtifactSink } from "../verify/artifacts.js";
+import { PayloadExpectedPublicationCopy } from "../verify/expected-copy.js";
 import { WorkspaceProfileVerificationCollector } from "../verify/workspace-profile.js";
 import { RetainedSurfaceFinalActionInvoker, RetainedSurfacePublishSessionRegistry, SurfacePublishPreparationService } from "./surface-publish-session.js";
 
@@ -34,6 +36,7 @@ export class WorkspaceSurfacePublisher {
   private readonly control:SqliteControlPlaneStore;
   private readonly provenance:SqliteDistributionProvenanceStore;
   private readonly surfaces:SqlitePlatformSurfaceStore;
+  private readonly runtimeState:SqliteDistributionRuntimeStateStore;
 
   constructor(options:WorkspaceSurfacePublisherOptions){
     if(!options.releaseSha.trim())throw new Error("Workspace Surface Publisher requires releaseSha");
@@ -46,9 +49,13 @@ export class WorkspaceSurfacePublisher {
     const payloads=this.payloads=new WorkspacePublicationPayloadResolver(payloadPath,this.control),drive=workspaceDriveAccessTokenProvider({configDir:layout.configDir,env}),media=new WorkspaceMediaMaterializer(config,drive,resolve(layout.mediaCacheDir,"publisher")),prepareArtifacts=new LocalPrepareArtifactSink(resolve(layout.evidenceDir,"publisher"));
     this.prepare=new SurfacePublishPreparationService(this.control,context,this.surfaces,chromium,locks,probe,payloads,media,prepareArtifacts,this.registry,{releaseSha:options.releaseSha,ownerId,headless:options.headless??true,now});
     this.finalAction=new RetainedSurfaceFinalActionInvoker(this.registry,now);
-    const verification=new WorkspaceProfileVerificationCollector(this.control,chromium,locks,new LocalVerificationArtifactSink(resolve(layout.evidenceDir,"verification")),layout.configDir,`${ownerId}:verification`,options.headless??true,now);
+    // Marker-free verification compares the caption on the post page against the copy this very
+    // resolver produced for the publisher; the runtime state adds the ffprobe duration that only
+    // ever disambiguates two posts with the same caption.
+    const expectedCopy=new PayloadExpectedPublicationCopy(payloads,this.runtimeState=new SqliteDistributionRuntimeStateStore(layout.databasePath));
+    const verification=new WorkspaceProfileVerificationCollector(this.control,chromium,locks,new LocalVerificationArtifactSink(resolve(layout.evidenceDir,"verification")),layout.configDir,`${ownerId}:verification`,options.headless??true,now,expectedCopy);
     this.reconciliation=new ReconciliationService(this.control,[verification],new CompositeReconciliationPolicy(),now);
   }
 
-  async close():Promise<void>{await this.registry.closeAll();this.surfaces.close();this.provenance.close();this.control.close();}
+  async close():Promise<void>{await this.registry.closeAll();this.surfaces.close();this.runtimeState.close();this.provenance.close();this.control.close();}
 }

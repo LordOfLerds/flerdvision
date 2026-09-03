@@ -106,3 +106,24 @@ export function requiredCapabilitiesForIntent(intent: PublicationIntent): readon
   }
   return base;
 }
+
+/**
+ * The exact text a caption-bearing surface receives: the rendered caption plus the configured
+ * hashtags. Publishing and verification MUST derive the posted copy from this one function --
+ * marker-free verification compares the caption read back from the post page against it, so a
+ * second, slightly different composition would silently turn every verified post into
+ * `PUBLISH_UNCERTAIN`.
+ */
+export function composePostedCaption(payload: PublicationPayload): string | undefined {
+  if (payload.caption === undefined) return undefined;
+  const tags = (payload.hashtags ?? []).map((tag) => `#${tag}`);
+  return [payload.caption, ...tags].filter(Boolean).join(tags.length ? " " : "");
+}
+
+/**
+ * Comparison form for post copy: whitespace collapsed (platforms re-wrap and re-indent what they
+ * render), case preserved (case is content, and two posts differing only in case are two posts).
+ */
+export function collapsePostedText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
