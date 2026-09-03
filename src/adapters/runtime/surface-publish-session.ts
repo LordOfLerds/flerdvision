@@ -14,6 +14,7 @@ import type { FinalActionInvokerPort, PublishAttemptStorePort } from "../../doma
 import { BrowserCalibrationRecorder } from "../browser/calibration-recorder.js";
 import { BrowserDomUiDriver } from "../browser/dom-ui-driver.js";
 import { SafePlatformExecutionRunner } from "../browser/platform-execution-runner.js";
+import { beginScreencast, type RunRecording } from "../browser/screencast-recorder.js";
 
 export class SurfacePublishSessionError extends Error {}
 type SurfacePublishStore = PublicationIntentStorePort & PublishAttemptStorePort & BrowserIdentityStorePort & IngressStorePort;
@@ -46,17 +47,23 @@ export class SurfacePublishPreparationService {
     const identity=identities[0]!;if(identity.platform!==record.intent.platform)throw new SurfacePublishSessionError("Browser identity platform differs from publication intent");
     const plan=buildPlatformExecutionPlan(context,surface.contract),probe=this.sessionProbe(record.intent),payload=await this.payloads.resolve(record.intent),content=this.store.getContentItem(record.intent.contentId)?.item;if(!content)throw new SurfacePublishSessionError(`Content ${record.intent.contentId} not found`);
     if(!alreadyClaimed)this.store.transitionIntent(intentIdValue,"PREPARING",startedAt,actor,"surface_prepare_started");
-    let lock:BrowserProfileLock|null=null,page:BrowserPageSessionPort|undefined,materialized:LocalMediaArtifact|undefined,retained=false;
+    let lock:BrowserProfileLock|null=null,page:BrowserPageSessionPort|undefined,materialized:LocalMediaArtifact|undefined,retained=false,recording:RunRecording|null=null;
     const close=async()=>{try{if(page)await page.close().catch(()=>{});}finally{try{if(materialized&&this.media.release)await this.media.release(materialized).catch(()=>{});}finally{lock?.release();lock=null;}}};
     try{
-      lock=this.profileLocks.acquire(identity,this.options.ownerId,startedAt);page=await this.browser.launch(identity,{headless:this.options.headless??true,initialUrl:"about:blank"});await new BrowserSessionHealthService(this.store,probe).check(identity.identityId,page,this.now(),actor);new AccountIdentityGuard(this.store).assertReady(identity.identityId);materialized=await this.media.materialize(content);
+      lock=this.profileLocks.acquire(identity,this.options.ownerId,startedAt);page=await this.browser.launch(identity,{headless:this.options.headless??true,initialUrl:"about:blank"});
+      // Optional evidence only, started as soon as there is a browser to record and always
+      // stopped again below: the whole prepare leg -- login readback, upload, every setting --
+      // ends up in one MP4 beside this intent's screenshots. Nothing here can fail the prepare.
+      recording=await beginScreencast(page,this.artifacts.recordingDirectory?.(record.intent),`screencast-prepare-${record.intent.platform}`);
+      await new BrowserSessionHealthService(this.store,probe).check(identity.identityId,page,this.now(),actor);new AccountIdentityGuard(this.store).assertReady(identity.identityId);materialized=await this.media.materialize(content);
       const caption=payload.caption!==undefined?[payload.caption,...(payload.hashtags??[]).map(tag=>`#${tag}`)].filter(Boolean).join(payload.hashtags?.length?" ":""):undefined;
       const execution=await new SafePlatformExecutionRunner(page,this.artifacts,this.now).execute(plan,identity,{mediaPath:materialized.localPath,...(caption!==undefined?{caption}:{}),...(payload.title!==undefined?{title:payload.title}:{})});
       if(!execution.reachedFinalActionBoundary||execution.finalActionInvoked)throw new SurfacePublishSessionError("Surface preparation did not stop safely at final boundary");if(execution.environmentFingerprint!==surface.contract.environment.fingerprint)throw new SurfacePublishSessionError("Surface environment changed during preparation");
-      const attempt:PublishAttempt={attemptId:attemptId(intentIdValue,startedAt),intentId:intentIdValue,browserIdentityId:identity.identityId,releaseSha:this.options.releaseSha,startedAt,finishedAt:new Date(this.now()).toISOString(),result:"prepared",mediaSha256:materialized.sha256,preparationArtifactRefs:[...execution.artifactRefs],reachedFinalActionBoundary:true};
+      const recordedPath=await recording?.stop()??null;recording=null;
+      const attempt:PublishAttempt={attemptId:attemptId(intentIdValue,startedAt),intentId:intentIdValue,browserIdentityId:identity.identityId,releaseSha:this.options.releaseSha,startedAt,finishedAt:new Date(this.now()).toISOString(),result:"prepared",mediaSha256:materialized.sha256,preparationArtifactRefs:[...execution.artifactRefs,...(recordedPath?[recordedPath]:[])],reachedFinalActionBoundary:true};
       const capturePage=page,captureIdentity=identity,capture=async(label:string):Promise<readonly string[]>=>{try{return await this.artifacts.captureBoundary(capturePage,record.intent,captureIdentity,label,this.now());}catch{return[];}};
       const storedAttempt=this.store.recordPreparedAttempt(attempt,actor),retainedSession:RetainedSurfacePublishSession={attempt:storedAttempt,intent:record.intent,identityId:identity.identityId,surfaceContractId:surface.contract.contractId,environmentFingerprint:surface.contract.environment.fingerprint,session:page,finalActionLocators:finalLocators(plan),capture,close};this.registry.add(retainedSession);retained=true;return storedAttempt;
-    }catch(error){if(!retained)await close();const current=this.store.getIntent(intentIdValue);if(current?.state==="PREPARING")this.store.transitionIntent(intentIdValue,"BLOCKED",new Date(this.now()).toISOString(),actor,`surface_prepare_failed:${error instanceof Error?error.message:String(error)}`);throw error;}
+    }catch(error){await recording?.stop();if(!retained)await close();const current=this.store.getIntent(intentIdValue);if(current?.state==="PREPARING")this.store.transitionIntent(intentIdValue,"BLOCKED",new Date(this.now()).toISOString(),actor,`surface_prepare_failed:${error instanceof Error?error.message:String(error)}`);throw error;}
   }
 }
 

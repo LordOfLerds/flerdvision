@@ -8,6 +8,7 @@ import { assertOriginalAudio, AudioIntegrityViolationError } from "./audio-integ
 import { BrowserCalibrationRecorder } from "./calibration-recorder.js";
 import { BrowserDomUiDriver, UiActionExecutionError } from "./dom-ui-driver.js";
 import { humanPacing, type HumanPacing } from "./human-pacing.js";
+import { beginScreencast } from "./screencast-recorder.js";
 import { visibilityLabels } from "./autonomous-surface-settings.js";
 import { surfaceExecutionBootstrapUrl } from "./surface-bootstrap.js";
 
@@ -155,9 +156,26 @@ export class SafePlatformExecutionRunner {
     return`${action.stepKey}=${after}`;
   }
 
+  /**
+   * A replay is the leg a human later has to judge -- did the surface behave the way the
+   * contract says? An optional screencast of it lands next to this run's screenshots and in the
+   * same artifact list. It is recorded fail-open and can never affect the execution itself.
+   */
   async execute(plan:PlatformExecutionPlan,identity:BrowserIdentity,input:SafePlatformExecutionInput):Promise<SafePlatformExecutionResult>{
+    const artifactRefs:string[]=[];
+    const recording=await beginScreencast(this.session,this.artifacts.recordingDirectory?.(plan.intent),`screencast-surface-replay-${plan.intent.platform}`);
+    try{
+      return await this.executeInternal(plan,identity,input,artifactRefs);
+    }finally{
+      // The returned result holds this very array, so a late push still reaches the caller.
+      const recorded=await recording?.stop();
+      if(recorded)artifactRefs.push(recorded);
+    }
+  }
+
+  private async executeInternal(plan:PlatformExecutionPlan,identity:BrowserIdentity,input:SafePlatformExecutionInput,artifactRefs:string[]):Promise<SafePlatformExecutionResult>{
     if(identity.accountId!==plan.intent.accountId||identity.platform!==plan.intent.platform)throw new UiActionExecutionError("Execution identity does not match plan account/platform");
-    const finalLocators=this.finalLocators(plan),artifactRefs:string[]=[],journal:SafeExecutionJournalEntry[]=[];
+    const finalLocators=this.finalLocators(plan),journal:SafeExecutionJournalEntry[]=[];
     // The replay must start on the exact page the exploration recorded its contract from; see
     // surfaceExecutionBootstrapUrl for why a divergent bootstrap can never replay on TikTok.
     await this.session.navigate(surfaceExecutionBootstrapUrl(plan.intent.platform));
