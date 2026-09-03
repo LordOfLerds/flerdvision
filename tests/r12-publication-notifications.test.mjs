@@ -21,7 +21,7 @@ test("a verified outcome carries permalink, screenshot path and the bare handle"
     screenshotPath: "/evidence/post.png"
   }, "2026-08-30T20:00:00.000Z");
   assert.equal(message.severity, "INFO");
-  assert.match(message.subject, /Post verifiziert · \d{2}:\d{2} · lordoflerds · Instagram/);
+  assert.match(message.subject, /✅ Post verifiziert · \d{2}:\d{2} · lordoflerds \(Instagram\)/);
   assert.equal(message.metadata.permalink, "https://www.instagram.com/lordoflerds/reel/x/");
   assert.equal(message.metadata.screenshotPath, "/evidence/post.png");
 });
@@ -32,6 +32,7 @@ test("an uncertain outcome is an ERROR that names the freeze and never claims su
   assert.match(message.subject, /UNSICHER/);
   assert.match(message.body, /eingefroren/);
   assert.match(message.body, /kein automatischer Neuversuch/);
+  assert.match(message.body, /Was jetzt: npm run flerdvision -- verify --run-id run-1/);
 });
 
 test("notify enqueues durably, dispatches immediately, and swallows channel failures", async () => {
@@ -72,8 +73,8 @@ test("the private-e2e verify path reports the outcome with permalink and screens
 
 test("the autonomous due path reports bundled outcomes through the same channel", () => {
   const due = readFileSync(new URL("../src/adapters/runtime/authorized-due-execution.ts", import.meta.url).pathname, "utf8");
-  assert.match(due, /outcomes\.push\(this\.outcomeInput\(claim\.record\.intent,attempt\.attemptId,"VERIFIED"/);
-  assert.match(due, /outcomes\.push\(this\.outcomeInput\(claim\.record\.intent,attempt\.attemptId,"UNCERTAIN"/);
+  assert.match(due, /outcomes\.push\(await this\.outcomeInput\(claim\.record\.intent,attempt\.attemptId,"VERIFIED"/);
+  assert.match(due, /outcomes\.push\(await this\.outcomeInput\(claim\.record\.intent,attempt\.attemptId,"UNCERTAIN"/);
   assert.match(due, /notifyPublicationOutcomes\(this\.store/);
   const runtime = readFileSync(new URL("../src/application/headless-autonomous-runtime.ts", import.meta.url).pathname, "utf8");
   assert.match(runtime, /notificationAdapters: \[\.\.\.\(telegramAdapterFromEnv\(env\)/);
@@ -85,10 +86,10 @@ test("a same-slot wave becomes one message naming every channel and platform", (
     { intent, runId: "r", outcome: "VERIFIED", permalink: "https://x/ig", timeZone: "Europe/Vienna" },
     { intent: second, runId: "r", outcome: "VERIFIED", permalink: "https://x/tt", screenshotPath: "/e/tt.png", timeZone: "Europe/Vienna" }
   ], "2026-08-31T12:00:00.000Z");
-  assert.match(message.subject, /\d{2}:\d{2}-Welle · 2 Posts verifiziert/);
-  assert.match(message.body, /lordoflerds · Instagram — https:\/\/x\/ig/);
-  assert.match(message.body, /lordoflerds · TikTok — https:\/\/x\/tt/);
-  assert.equal(message.metadata.screenshotPath, "/e/tt.png");
+  assert.match(message.subject, /✅ \d{2}:\d{2}-Welle · 2 Posts · verifiziert/);
+  assert.match(message.body, /✅ lordoflerds \(Instagram\) · Reel · https:\/\/x\/ig/);
+  assert.match(message.body, /✅ lordoflerds \(TikTok\) · Reel · https:\/\/x\/tt/);
+  assert.deepEqual(message.metadata.screenshotPaths, ["/e/tt.png"]);
   assert.equal(message.severity, "INFO");
 });
 
@@ -99,8 +100,8 @@ test("a wave with a failure is an ERROR and marks the failing entry", () => {
     { intent: second, runId: "r", outcome: "UNCERTAIN", timeZone: "Europe/Vienna" }
   ], "2026-08-31T12:00:00.000Z");
   assert.equal(message.severity, "ERROR");
-  assert.match(message.subject, /mit Problemen/);
-  assert.match(message.body, /🛑 x · TikTok/);
+  assert.match(message.subject, /1 mit Problemen/);
+  assert.match(message.body, /🛑 x \(TikTok\)/);
 });
 
 test("grouping sends singles as detailed messages and multi-slot groups as waves", async () => {
@@ -126,7 +127,31 @@ test("grouping sends singles as detailed messages and multi-slot groups as waves
 
 test("messages prefer the spec channel display name over the bare handle", () => {
   const message = publicationOutcomeMessage({ intent, runId: "r", outcome: "VERIFIED", channelName: "LordOfLerds Instagram", timeZone: "Europe/Vienna" }, "2026-08-31T12:00:00.000Z");
-  assert.match(message.subject, /LordOfLerds Instagram · Instagram/);
+  assert.match(message.subject, /LordOfLerds Instagram \(Instagram\)/);
   const runtime = readFileSync(new URL("../src/application/headless-autonomous-runtime.ts", import.meta.url).pathname, "utf8");
-  assert.match(runtime, /channelNames: Object\.fromEntries\(selected\.map/);
+  assert.match(runtime, /const channelNames = Object\.fromEntries\(selected\.map/);
+});
+
+test("a wave names the video, its hashtags and the next slot, and caps the album at ten photos", () => {
+  const outcomes = Array.from({ length: 12 }, (_value, index) => ({
+    intent: { ...intent, intentId: `intent:i${index}` },
+    runId: "r", outcome: "VERIFIED", timeZone: "Europe/Vienna",
+    channelName: `Kanal ${index}`, videoLabel: "Sonnenuntergang am See", hashtags: "#nature",
+    caption: "Sonnenuntergang am See", screenshotPath: `/e/${index}.png`
+  }));
+  const message = publicationWaveMessage(outcomes, "2026-08-31T12:00:00.000Z", { nextSlot: { timeLocal: "18:00", channelNames: ["Clips"] } });
+  assert.match(message.body, /„Sonnenuntergang am See“ · #nature/);
+  assert.match(message.body, /⏭️ Als Nächstes: 18:00 · Clips/);
+  assert.equal(message.metadata.screenshotPaths.length, 10);
+});
+
+test("a failing wave entry states the reason and the operator's next move", () => {
+  const failing = { ...intent, intentId: "intent:bad", platform: "tiktok", accountId: "account:tiktok:clips" };
+  const message = publicationWaveMessage([
+    { intent, runId: "r", outcome: "VERIFIED", timeZone: "Europe/Vienna", channelName: "Reels" },
+    { intent: failing, runId: "r", outcome: "UNCERTAIN", timeZone: "Europe/Vienna", channelName: "Clips", reason: "Die Plattform hat den Upload abgelehnt.", nextStep: "Datei in Drive ersetzen." }
+  ], "2026-08-31T12:00:00.000Z");
+  assert.match(message.body, /🛑 Clips \(TikTok\)/);
+  assert.match(message.body, /Die Plattform hat den Upload abgelehnt\./);
+  assert.match(message.body, /Was jetzt: Datei in Drive ersetzen\./);
 });

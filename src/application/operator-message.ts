@@ -186,6 +186,21 @@ export function germanDayLabel(businessDate: string): string {
   return `${WEEKDAYS[date.getUTCDay()]} ${Number(match[3])}. ${MONTHS[Number(match[2]) - 1]}`;
 }
 
+const PLATFORM_LABEL: Readonly<Record<string, string>> = { instagram: "Instagram", tiktok: "TikTok", youtube: "YouTube" };
+const FORMAT_LABEL: Readonly<Record<string, string>> = {
+  reel: "Reel", trial_reel: "Test-Reel", tiktok: "TikTok-Video", short: "Short", story: "Story", unknown: "Video"
+};
+
+/** "instagram" -> "Instagram". The operator never sees the platform token. */
+export function germanPlatformLabel(platform: string): string {
+  return PLATFORM_LABEL[platform] ?? platform;
+}
+
+/** "trial_reel" -> "Test-Reel". The operator never sees the format token. */
+export function germanFormatLabel(format: string): string {
+  return FORMAT_LABEL[format] ?? "Video";
+}
+
 export function germanState(state: string): string {
   return GERMAN_STATE[state] ?? state.toLocaleLowerCase("de-AT").replace(/_/g, " ");
 }
