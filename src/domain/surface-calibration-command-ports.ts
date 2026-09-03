@@ -19,6 +19,7 @@ export interface SurfaceCalibrationRouteStatus {
   contractStatus:"MISSING"|PlatformSurfaceContractStatus;
   contractId?:string;
   replayPasses:number;
+  requiredReplays?:number;
   steps:readonly SurfaceCalibrationStepStatus[];
 }
 

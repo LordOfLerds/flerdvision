@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { WorkspaceQualificationSyncService } from "../dist/application/workspace-qualification-sync.js";
+import { computeSurfaceFingerprint } from "../dist/application/surface-fingerprint.js";
+
+const SURFACE=computeSurfaceFingerprint();
 
 const run={runId:"run:luca",releaseSha:"release-123",stage:"LUCA_MAC",workspaceId:"luca",hostFingerprint:"mac",createdAt:"2026-08-27T08:00:00.000Z",createdBy:"tester",status:"ACTIVE"};
 const routes=[
@@ -8,7 +11,7 @@ const routes=[
   {routeId:"tt-route",displayName:"TT",laneId:"lane-main",accountId:"tt",platform:"tiktok",postingProfileId:"tt-public",copyProfileId:"copy",schedulePolicyId:"default",requirement:"REQUIRED",enabled:true}
 ];
 function stored(){return{revision:1,updatedAt:"2026-08-27T08:00:00.000Z",config:{sources:[{connectionId:"source",displayName:"Drive",kind:"google_drive",rootRef:"root",enabled:true,disposition:{mode:"database_only",leavePartialUntouched:true,leaveBlockedUntouched:true}}],lanes:[{laneId:"lane-main",connectionId:"source",displayName:"Main",folderRef:"folder",folderPath:"/Main",interpretation:{kind:"flat"},enabled:true}],postingProfiles:[],copyProfiles:[],routes,activationCursors:[]},schedulePolicies:{},planningPolicy:{contentOrder:"FILENAME_NUMERIC_PREFIX",lateArrival:"NEXT_AVAILABLE_SLOT",overflow:"BACKLOG_NEXT_DAY"},runtimePolicy:{readiness:{timeZone:"Europe/Vienna",morningSummaryLocalTime:"08:00",preSlotWarningMinutes:45,preSlotEscalationMinutes:15,completionSummaryLocalTime:"18:00",quietOnNormalSuccess:true},sourcePolling:{timeZone:"Europe/Vienna",activeWindowStartLocal:"06:00",activeWindowEndLocal:"19:00",activeIntervalMinutes:5,idleIntervalMinutes:30,pollImmediatelyOnStartup:true},mediaCache:{retentionHoursAfterComplete:24}}};}
-function routeTest(routeId,releaseSha="release-123",extra={}){return{routeId,sourcePassed:true,sessionPassed:true,identityPassed:true,prepareOnlyPasses:3,secretLivePassed:false,verificationPassed:true,cleanupPassed:false,releaseSha,surfaceContractId:`surface-${routeId}`,...extra};}
+function routeTest(routeId,surfaceFingerprint=SURFACE,extra={}){return{routeId,sourcePassed:true,sessionPassed:true,identityPassed:true,prepareOnlyPasses:1,secretLivePassed:false,verificationPassed:true,cleanupPassed:false,releaseSha:"release-123",surfaceFingerprint,surfaceContractId:`surface-${routeId}`,...extra};}
 function snapshot(overrides={}){return{
   plan:{planId:"plan",businessDate:"2026-08-27",generatedAt:"2026-08-27T08:05:00.000Z",deliveries:[],gaps:[],backlog:[]},
   accounts:[{accountId:"ig",platform:"instagram",expectedHandle:"ig",enabled:true},{accountId:"tt",platform:"tiktok",expectedHandle:"tt",enabled:true}],
@@ -45,10 +48,16 @@ test("sync records only gates proven by current durable workspace evidence",asyn
   assert.equal(h.gates.every(gate=>gate.artifactRefs.length>0),true);
 });
 
-test("old release route tests cannot qualify prepare or route execution",async()=>{
-  const old=snapshot({routeTests:[routeTest("ig-route","old-release"),routeTest("tt-route","old-release")]});
+test("route tests from a different surface fingerprint cannot qualify prepare or route execution",async()=>{
+  const old=snapshot({routeTests:[routeTest("ig-route","surface-from-another-build"),routeTest("tt-route","surface-from-another-build")]});
   const report=await harness(old).service.sync(run.runId,"2026-08-27T08:10:00.000Z","sync");
-  for(const gate of ["ROUTE_QUALIFICATION","INSTAGRAM_PREPARE","TIKTOK_PREPARE","SECRET_E2E"])assert.equal(report.recordedGates.includes(gate),false,`${gate} must not use old release evidence`);
+  for(const gate of ["ROUTE_QUALIFICATION","INSTAGRAM_PREPARE","TIKTOK_PREPARE","SECRET_E2E"])assert.equal(report.recordedGates.includes(gate),false,`${gate} must not use evidence from another surface build`);
+});
+
+test("a release SHA that differs from the run does not invalidate current surface evidence",async()=>{
+  const otherRelease=snapshot({routeTests:[routeTest("ig-route",SURFACE,{releaseSha:"release-from-yesterday"}),routeTest("tt-route",SURFACE,{releaseSha:"release-from-yesterday"})]});
+  const report=await harness(otherRelease).service.sync(run.runId,"2026-08-27T08:10:00.000Z","sync");
+  for(const gate of ["ROUTE_QUALIFICATION","INSTAGRAM_PREPARE","TIKTOK_PREPARE"])assert.ok(report.recordedGates.includes(gate),`${gate} must survive an unrelated commit`);
 });
 
 test("legacy migration gap blocks PROGRAM_ROUTING and stale host evidence blocks source/identity",async()=>{
@@ -62,13 +71,13 @@ test("legacy migration gap blocks PROGRAM_ROUTING and stale host evidence blocks
   assert.equal(report.recordedGates.includes("BROWSER_IDENTITY"),false);
 });
 
-test("SECRET_E2E and VERIFICATION_CLEANUP require both Instagram and TikTok on the exact release",async()=>{
-  const igOnly=snapshot({routeTests:[routeTest("ig-route","release-123",{secretLivePassed:true,cleanupPassed:true}),routeTest("tt-route")]});
+test("SECRET_E2E and VERIFICATION_CLEANUP require both Instagram and TikTok on the current surface",async()=>{
+  const igOnly=snapshot({routeTests:[routeTest("ig-route",SURFACE,{secretLivePassed:true,cleanupPassed:true}),routeTest("tt-route")]});
   let report=await harness(igOnly).service.sync(run.runId,"2026-08-27T08:10:00.000Z","sync");
   assert.equal(report.recordedGates.includes("SECRET_E2E"),false);
   assert.equal(report.recordedGates.includes("VERIFICATION_CLEANUP"),false);
 
-  const both=snapshot({routeTests:[routeTest("ig-route","release-123",{secretLivePassed:true,cleanupPassed:true}),routeTest("tt-route","release-123",{secretLivePassed:true,cleanupPassed:true})]});
+  const both=snapshot({routeTests:[routeTest("ig-route",SURFACE,{secretLivePassed:true,cleanupPassed:true}),routeTest("tt-route",SURFACE,{secretLivePassed:true,cleanupPassed:true})]});
   report=await harness(both).service.sync(run.runId,"2026-08-27T08:10:00.000Z","sync");
   assert.ok(report.recordedGates.includes("SECRET_E2E"));
   assert.ok(report.recordedGates.includes("VERIFICATION_CLEANUP"));

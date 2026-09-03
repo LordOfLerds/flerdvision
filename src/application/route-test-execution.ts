@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { E2EGateResult } from "../domain/e2e.js";
 import type { RouteTestExecutionAdapterPort, RouteTestEvidenceKey, RouteTestEvidenceRecord, RouteTestEvidenceStorePort, ExecutableRouteTestKey } from "../domain/route-test-ports.js";
 import type { RouteTestReadiness } from "../domain/route-test-readiness.js";
+import { currentSurfaceFingerprintOrUndefined } from "./surface-fingerprint.js";
 
 export class RouteTestExecutionError extends Error {}
 
@@ -17,6 +18,7 @@ const CONTRACT_BOUND = new Set<RouteTestEvidenceKey>(["SURFACE","PREPARE_ONLY","
 
 export interface RouteReadinessScope {
   releaseSha?: string;
+  surfaceFingerprint?: string;
   surfaceRecordedAt?: string;
   surfaceContractId?: string;
 }
@@ -43,12 +45,13 @@ export class RouteTestExecutionService {
     if (testKey === "CLEANUP" && !passed(existing,"SECRET_LIVE")) throw new RouteTestExecutionError("Cleanup may run only after canonical secret-live E2E evidence exists on this release");
     const result=await this.runner.run(routeId,testKey,checkedAt);
     if(scope.surfaceContractId&&CONTRACT_BOUND.has(testKey)&&result.surfaceContractId!==scope.surfaceContractId)throw new RouteTestExecutionError(`Route test ${testKey} executed against surface ${result.surfaceContractId??"NONE"}, expected ${scope.surfaceContractId}`);
-    return this.store.record({ evidenceId:id(routeId,testKey,checkedAt,result.summary), routeId, testKey, status:result.passed?"PASS":"FAIL", checkedAt, releaseSha,...(result.surfaceContractId?{surfaceContractId:result.surfaceContractId}:{}),summary:result.summary, artifactRefs:[...result.artifactRefs] });
+    const surfaceFingerprint=scope.surfaceFingerprint??currentSurfaceFingerprintOrUndefined();
+    return this.store.record({ evidenceId:id(routeId,testKey,checkedAt,result.summary), routeId, testKey, status:result.passed?"PASS":"FAIL", checkedAt, releaseSha,...(surfaceFingerprint?{surfaceFingerprint}:{}),...(result.surfaceContractId?{surfaceContractId:result.surfaceContractId}:{}),summary:result.summary, artifactRefs:[...result.artifactRefs] });
   }
 
   readiness(routeId: string, scope:RouteReadinessScope={}): RouteTestReadiness {
     const records=scoped(this.store.list(routeId),scope);
-    return{routeId,sourcePassed:passed(records,"SOURCE"),sessionPassed:passed(records,"SESSION"),identityPassed:passed(records,"IDENTITY"),prepareOnlyPasses:records.filter((r)=>r.testKey==="PREPARE_ONLY"&&r.status==="PASS").length,secretLivePassed:passed(records,"SECRET_LIVE"),verificationPassed:passed(records,"VERIFICATION"),cleanupPassed:passed(records,"CLEANUP"),...(scope.releaseSha?{releaseSha:scope.releaseSha}:{}),...(scope.surfaceContractId?{surfaceContractId:scope.surfaceContractId}:{})};
+    return{routeId,sourcePassed:passed(records,"SOURCE"),sessionPassed:passed(records,"SESSION"),identityPassed:passed(records,"IDENTITY"),prepareOnlyPasses:records.filter((r)=>r.testKey==="PREPARE_ONLY"&&r.status==="PASS").length,secretLivePassed:passed(records,"SECRET_LIVE"),verificationPassed:passed(records,"VERIFICATION"),cleanupPassed:passed(records,"CLEANUP"),...(scope.releaseSha?{releaseSha:scope.releaseSha}:{}),...(scope.surfaceFingerprint?{surfaceFingerprint:scope.surfaceFingerprint}:{}),...(scope.surfaceContractId?{surfaceContractId:scope.surfaceContractId}:{})};
   }
 
   assertSecretLiveUsesPrivateE2E(): never { throw new RouteTestExecutionError("SECRET_LIVE cannot be executed by RouteTestExecutionService; start the canonical PrivateE2E run and one-shot permit flow instead"); }
@@ -57,8 +60,11 @@ export class RouteTestExecutionService {
 function mapGate(gate: E2EGateResult): RouteTestEvidenceKey | null {if(gate.gate==="PREPARE_ONLY_REPLAY")return"PREPARE_ONLY";if(gate.gate==="PRIVATE_PUBLISH")return"SECRET_LIVE";if(gate.gate==="VERIFICATION")return"VERIFICATION";if(gate.gate==="CLEANUP")return"CLEANUP";return null;}
 export class RouteE2EGateBridge {
   constructor(private readonly store: RouteTestEvidenceStorePort) {}
-  recordGate(routeId: string, gate: E2EGateResult, releaseSha: string, surfaceContractId?:string): RouteTestEvidenceRecord | null {
+  recordGate(routeId: string, gate: E2EGateResult, releaseSha: string, surfaceContractId?:string, surfaceFingerprint?:string): RouteTestEvidenceRecord | null {
     const testKey=mapGate(gate);if(!testKey)return null;
-    return this.store.record({evidenceId:id(routeId,testKey,gate.checkedAt,gate.gateResultId),routeId,testKey,status:gate.status==="PASS"?"PASS":"FAIL",checkedAt:gate.checkedAt,releaseSha,...(surfaceContractId?{surfaceContractId}:{}),summary:`Private E2E ${gate.gate}: ${gate.summary}`,artifactRefs:[...gate.artifactRefs]});
+    // Private E2E evidence is read back under the surface fingerprint like every other route
+    // test; without it a real private post would keep reading as "not run".
+    const fingerprint=surfaceFingerprint??currentSurfaceFingerprintOrUndefined();
+    return this.store.record({evidenceId:id(routeId,testKey,gate.checkedAt,gate.gateResultId),routeId,testKey,status:gate.status==="PASS"?"PASS":"FAIL",checkedAt:gate.checkedAt,releaseSha,...(fingerprint?{surfaceFingerprint:fingerprint}:{}),...(surfaceContractId?{surfaceContractId}:{}),summary:`Private E2E ${gate.gate}: ${gate.summary}`,artifactRefs:[...gate.artifactRefs]});
   }
 }

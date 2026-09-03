@@ -11,6 +11,8 @@ import { resolveFfprobeExecutablePath } from "../adapters/media/resolve-ffprobe.
 import { SqliteControlPlaneStore } from "../adapters/storage/sqlite.js";
 import type { RouteTestEvidenceRecord } from "../domain/route-test-ports.js";
 import { loadWorkspaceSpecFile } from "./headless-bootstrap.js";
+import { germanReplayProgress, resolveQualificationReplays } from "./qualification-policy.js";
+import { currentSurfaceFingerprintOrUndefined, describeSurfaceFingerprint, surfaceFingerprintMatches } from "./surface-fingerprint.js";
 import { accountIdForChannel, identityIdForChannel } from "./workspace-spec-compiler.js";
 import { workspaceRuntimeLayout } from "./workspaces.js";
 
@@ -31,11 +33,19 @@ export interface HeadlessChannelStatus {
     readyAssets: number;
     surfaceStatus: string;
     prepareOnlyPasses: number;
+    requiredPrepareOnlyPasses: number;
+    prepareOnlyLabel: string;
     verificationPassed: boolean;
+    /** Informational audit value only; a differing release SHA never blocks any more. */
     releaseMatches: boolean;
+    qualifiedReleaseSha?: string;
+    qualifiedSurfaceFingerprint?: string;
+    surfaceFingerprintMatches: boolean;
+    surfaceFingerprintLabel: string;
     privateE2EPassed: boolean;
     cleanupPassedAfterPrivateE2E: boolean;
     blockers: readonly string[];
+    warnings: readonly string[];
     readyForAutonomousPublish: boolean;
   }[];
 }
@@ -45,6 +55,7 @@ export interface HeadlessDoctorReport {
   workspaceId: string;
   ownerEmail: string;
   releaseSha: string;
+  surfaceFingerprint?: string;
   checks: readonly DoctorCheck[];
   channels: readonly HeadlessChannelStatus[];
   overall: DoctorStatus;
@@ -89,13 +100,22 @@ export function inspectHeadlessWorkspace(input: {
   checks.push({ key: "database", status: existsSync(layout.databasePath) ? "PASS" : "FAIL", detail: layout.databasePath });
   checks.push({ key: "distribution_config", status: existsSync(resolve(layout.configDir, "distribution.json")) ? "PASS" : "FAIL", detail: resolve(layout.configDir, "distribution.json") });
   checks.push({ key: "release_sha", status: input.releaseSha.trim() !== "" && input.releaseSha !== "UNSET_RELEASE_SHA" ? "PASS" : "FAIL", detail: input.releaseSha || "missing" });
+  // Qualification is bound to the surface code, not to the release: this is the value every
+  // readiness decision below compares against.
+  const currentFingerprint = currentSurfaceFingerprintOrUndefined();
+  const requiredReplays = resolveQualificationReplays(env);
+  checks.push({
+    key: "surface_fingerprint",
+    status: currentFingerprint ? "PASS" : "FAIL",
+    detail: currentFingerprint ? `Oberflächen-Fingerabdruck ${describeSurfaceFingerprint(currentFingerprint)} · Release ${input.releaseSha || "unbekannt"}` : "Oberflächen-Fingerabdruck nicht lesbar; zuerst bauen"
+  });
   if (spec.source.kind === "google_drive") {
     const credential = existsSync(layout.configDir) ? new FileDriveCredentialStore(layout.configDir).read() : null;
     checks.push({ key: "drive_auth", status: credential ? "PASS" : "FAIL", detail: credential ? `connected ${credential.connectedAt}` : "Run drive-auth for this workspace" });
   } else checks.push({ key: "local_source", status: existsSync(resolve(spec.source.root)) ? "PASS" : "FAIL", detail: resolve(spec.source.root) });
 
   if (!existsSync(layout.databasePath) || !existsSync(resolve(layout.configDir, "distribution.json"))) {
-    return { schemaVersion: 1, checkedAt, workspaceId: spec.workspace.id, ownerEmail: spec.workspace.ownerEmail, releaseSha: input.releaseSha, checks, channels: [], overall: worst(checks.map((check) => check.status)) };
+    return { schemaVersion: 1, checkedAt, workspaceId: spec.workspace.id, ownerEmail: spec.workspace.ownerEmail, releaseSha: input.releaseSha, ...(currentFingerprint ? { surfaceFingerprint: currentFingerprint } : {}), checks, channels: [], overall: worst(checks.map((check) => check.status)) };
   }
 
   const config = new JsonDistributionConfigurationStore(resolve(layout.configDir, "distribution.json")).load();
@@ -120,8 +140,9 @@ export function inspectHeadlessWorkspace(input: {
         const surface = surfaces.latestContract(accountId, route.postingProfileId)?.contract;
         const readyAssets = assets.filter((item) => item.asset.laneId === route.laneId && item.asset.state === "READY").length;
         const releaseMatches = readiness?.releaseSha === input.releaseSha;
+        const fingerprintMatches = surfaceFingerprintMatches(readiness?.surfaceFingerprint, currentFingerprint);
         const records = routeEvidence.list(route.routeId).filter((record) =>
-          record.releaseSha === input.releaseSha &&
+          surfaceFingerprintMatches(record.surfaceFingerprint, currentFingerprint) &&
           Boolean(surface) &&
           record.surfaceContractId === surface!.contractId
         );
@@ -139,27 +160,40 @@ export function inspectHeadlessWorkspace(input: {
         if (!surface || surface.status !== "CALIBRATED") blockers.push("surface_not_calibrated");
         if (!readiness) blockers.push("route_readiness_missing");
         else {
-          if (!releaseMatches) blockers.push("route_release_stale");
+          // The release SHA is audit information only. Blocking on it invalidated every channel
+          // on commits that cannot change what the browser sees; the surface fingerprint is the
+          // value that actually decides whether a qualification still describes reality.
+          if (!fingerprintMatches) blockers.push("surface_fingerprint_stale");
           if (!readiness.sourcePassed) blockers.push("source_not_proven");
           if (!readiness.sessionPassed) blockers.push("session_not_proven");
           if (!readiness.identityPassed) blockers.push("identity_not_proven");
-          if (readiness.prepareOnlyPasses < 3) blockers.push("prepare_only_lt_3");
+          if (readiness.prepareOnlyPasses < requiredReplays) blockers.push("prepare_only_replays_missing");
           if (!readiness.verificationPassed) blockers.push("verification_surface_not_proven");
           if (surface && readiness.surfaceContractId !== surface.contractId) blockers.push("surface_evidence_stale");
         }
-        if (!privateE2EPassed) blockers.push("private_e2e_missing");
-        if (!cleanupPassedAfterPrivateE2E) blockers.push("private_e2e_cleanup_missing_or_stale");
+        // Operator decision 2026-09-03: the first scheduled slot is the first post, so a private
+        // test post is no longer a gate for autonomous publishing. It stays reported as a warning
+        // for whoever wants to run it.
+        const warnings: string[] = [];
+        if (!privateE2EPassed || !cleanupPassedAfterPrivateE2E) warnings.push("private_e2e_not_run");
         return {
           routeId: route.routeId,
           format: profile?.format ?? "unknown",
           readyAssets,
           surfaceStatus: surface?.status ?? "MISSING",
           prepareOnlyPasses: readiness?.prepareOnlyPasses ?? 0,
+          requiredPrepareOnlyPasses: requiredReplays,
+          prepareOnlyLabel: germanReplayProgress(readiness?.prepareOnlyPasses ?? 0, requiredReplays),
           verificationPassed: readiness?.verificationPassed ?? false,
           releaseMatches,
+          ...(readiness?.releaseSha ? { qualifiedReleaseSha: readiness.releaseSha } : {}),
+          ...(readiness?.surfaceFingerprint ? { qualifiedSurfaceFingerprint: readiness.surfaceFingerprint } : {}),
+          surfaceFingerprintMatches: fingerprintMatches,
+          surfaceFingerprintLabel: `Oberflächen-Fingerabdruck ${readiness?.surfaceFingerprint ? describeSurfaceFingerprint(readiness.surfaceFingerprint) : "fehlt"}: ${fingerprintMatches ? "passt" : "veraltet"}${fingerprintMatches ? "" : ` (aktuell ${currentFingerprint ? describeSurfaceFingerprint(currentFingerprint) : "unbekannt"})`}`,
           privateE2EPassed,
           cleanupPassedAfterPrivateE2E,
           blockers,
+          warnings,
           readyForAutonomousPublish: blockers.length === 0
         };
       });
@@ -180,10 +214,10 @@ export function inspectHeadlessWorkspace(input: {
       checks.push({
         key: `channel:${channel.channelKey}`,
         status: channel.routes.length > 0 && ready === channel.routes.length ? "PASS" : channel.accountRegistered && channel.identityRegistered ? "WARN" : "FAIL",
-        detail: `${channel.latestSessionState}; ${ready}/${channel.routes.length} routes autonomous-ready${ready === channel.routes.length ? "" : `; blockers=${[...new Set(channel.routes.flatMap((route) => route.blockers))].join(",")}`}`
+        detail: `${channel.latestSessionState}; ${ready}/${channel.routes.length} routes autonomous-ready${ready === channel.routes.length ? "" : `; blockers=${[...new Set(channel.routes.flatMap((route) => route.blockers))].join(",")}`}${(() => { const warnings = [...new Set(channel.routes.flatMap((route) => route.warnings))]; return warnings.length > 0 ? `; warnings=${warnings.join(",")}` : ""; })()}`
       });
     }
-    return { schemaVersion: 1, checkedAt, workspaceId: spec.workspace.id, ownerEmail: spec.workspace.ownerEmail, releaseSha: input.releaseSha, checks, channels, overall: worst(checks.map((check) => check.status)) };
+    return { schemaVersion: 1, checkedAt, workspaceId: spec.workspace.id, ownerEmail: spec.workspace.ownerEmail, releaseSha: input.releaseSha, ...(currentFingerprint ? { surfaceFingerprint: currentFingerprint } : {}), checks, channels, overall: worst(checks.map((check) => check.status)) };
   } finally {
     routeEvidence.close();
     surfaces.close();
