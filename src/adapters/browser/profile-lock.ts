@@ -123,7 +123,9 @@ export class DurableBrowserProfileLockAdapter implements BrowserProfileLockPort 
   constructor(
     private readonly leases: LeaseStorePort,
     private readonly local: BrowserProfileLockPort,
-    private readonly ttlSeconds = 14_400
+    private readonly ttlSeconds = 14_400,
+    /** A living holder proves it is alive this often; silence past the store's stale bound frees the lease. */
+    private readonly heartbeatIntervalMs = 60_000
   ) {}
 
   acquire(identity: BrowserIdentity, ownerId: string, now: Instant): BrowserProfileLock {
@@ -141,6 +143,14 @@ export class DurableBrowserProfileLockAdapter implements BrowserProfileLockPort 
     }
 
     let released = false;
+    // Runs do not heartbeat on their own; the lock does it for them so a live run keeps its
+    // lease fresh and a killed one goes silent -- exactly the signal the store's takeover reads.
+    const pulse = setInterval(() => {
+      if (released) return;
+      try { this.leases.heartbeatLease(resourceKey, ownerId, new Date().toISOString(), this.ttlSeconds, actor); } catch { /* the next explicit heartbeat reports the loss */ }
+    }, this.heartbeatIntervalMs);
+    const timer = pulse as unknown as { unref?: () => void };
+    if (typeof timer.unref === "function") timer.unref();
     return {
       identityId: identity.identityId,
       ownerId,
@@ -153,6 +163,7 @@ export class DurableBrowserProfileLockAdapter implements BrowserProfileLockPort 
       release: () => {
         if (released) return;
         released = true;
+        clearInterval(pulse);
         try {
           localLock.release();
         } finally {

@@ -866,6 +866,9 @@ function channelSourceBindingFromRow(row: ChannelSourceBindingRow): StoredChanne
   };
 }
 
+/** A worker lease without a heartbeat for this long belongs to a dead owner and may be taken over. */
+export const LEASE_STALE_AFTER_SECONDS = 900;
+
 export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressStorePort, BrowserIdentityStorePort, PlatformCapabilityStorePort, PublishAttemptStorePort, VerificationStorePort, OperationsStorePort, RepairStorePort, E2EStorePort, ChannelSourceBindingStorePort {
   private readonly db: DatabaseSync;
 
@@ -1776,7 +1779,13 @@ export class SqliteControlPlaneStore implements ControlPlaneStorePort, IngressSt
     return this.transaction(() => {
       const timestamp = asIso(now);
       const existing = this.getLease(resourceKey);
-      if (existing && existing.expiresAt > timestamp && existing.ownerId !== ownerId) return null;
+      // A lease is proof of a living owner only while that owner keeps heartbeating. A run that
+      // was killed never releases and never heartbeats again; its four-hour TTL then locks the
+      // profile for nobody. Silence longer than LEASE_STALE_AFTER_SECONDS is treated as death and
+      // the lease may be taken over -- a hung owner that wakes up later fails its next heartbeat.
+      const lastSign = existing ? (existing.heartbeatAt ?? existing.acquiredAt) : undefined;
+      const stale = Boolean(existing && lastSign && addSeconds(lastSign, LEASE_STALE_AFTER_SECONDS) <= timestamp);
+      if (existing && existing.expiresAt > timestamp && existing.ownerId !== ownerId && !stale) return null;
 
       const expiresAt = addSeconds(timestamp, ttlSeconds);
       if (existing) {
