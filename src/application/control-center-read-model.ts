@@ -23,6 +23,8 @@ export interface AttentionItem {
   accountId?: string;
   assetId?: string;
   slotKey?: string;
+  /** Wall-clock time of the slot ("14:00") -- what the operator reads, never the slot key. */
+  slotLocalTime?: string;
   deepLink: string;
 }
 

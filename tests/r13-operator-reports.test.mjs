@@ -96,9 +96,10 @@ test("evening report once per day and the weekly report only on Sundays", async 
     assert.equal(result.eveningSent, true);
     assert.equal(result.weeklySent, true);
     const evening = f.sent.find((text) => text.startsWith("🌙"));
-    assert.match(evening, /🌙 Tagesabschluss · So 30\. Aug · ⚠️/);
-    assert.match(evening, /✅ 1\/2 verifiziert/);
-    assert.match(evening, /⚠️ Clips · „Video unbekannt“ · geplant/);
+    // The subject is the report: how many of the day's planned posts actually went live.
+    assert.match(evening, /🌙 Tagesabschluss · So 30\. Aug · 1 von 2 geplanten Posts sind live · ⚠️/);
+    assert.match(evening, /Heute veröffentlicht:/);
+    assert.match(evening, /⚠️ 17:00 · Clips · „Video unbekannt“ · geplant/);
     const weekly = f.sent.find((text) => text.startsWith("📅"));
     assert.match(weekly, /📅 Wochenbericht · Mo 24\. Aug – So 30\. Aug/);
     assert.match(weekly, /✅ 2 verifiziert/);
@@ -107,6 +108,52 @@ test("evening report once per day and the weekly report only on Sundays", async 
 
     const again = await f.service.tick("2026-08-30T19:00:00Z");
     assert.deepEqual([again.eveningSent, again.weeklySent], [false, false]);
+  } finally { f.close(); }
+});
+
+test("the evening report waits for the day's last slot instead of reporting it as missing", async () => {
+  const f = fixture();
+  try {
+    // 20:31 local, but the day's last slot is 17:00 local -- already past, so it goes out.
+    const late = await f.service.tick("2026-08-30T18:31:00Z");
+    assert.equal(late.eveningSent, true);
+  } finally { f.close(); }
+
+  const g = fixture();
+  try {
+    // Same evening hour, but the last slot of the day only runs at 22:00 local.
+    g.intents[1] = { ...g.intents[1], intent: { ...g.intents[1].intent, scheduledFor: "2026-08-30T20:00:00Z" } };
+    const early = await g.service.tick("2026-08-30T18:31:00Z");
+    assert.deepEqual([early.eveningSent, early.eveningWaitingForLastSlot], [false, true]);
+    assert.equal(g.sent.filter((text) => text.startsWith("🌙")).length, 0);
+
+    const after = await g.service.tick("2026-08-30T20:05:00Z");
+    assert.equal(after.eveningSent, true);
+  } finally { g.close(); }
+});
+
+test("a day with nothing planned says so plainly", async () => {
+  const f = fixture();
+  try {
+    f.intents.length = 0;
+    await f.service.tick("2026-08-30T18:31:00Z");
+    const evening = f.sent.find((text) => text.startsWith("🌙"));
+    assert.match(evening, /🌙 Tagesabschluss · So 30\. Aug · nichts geplant/);
+    assert.match(evening, /Heute war für keinen Kanal ein Post geplant\./);
+    assert.doesNotMatch(evening, /0 von 0/);
+  } finally { f.close(); }
+});
+
+test("every published post in the evening report carries its permalink", async () => {
+  const f = fixture();
+  try {
+    f.intents[0] = { ...f.intents[0], state: "VERIFIED" };
+    f.stores.control.getVerifiedPublication = (intentId) =>
+      intentId === "i1" ? { permalink: "https://www.instagram.com/reel/ABC/" } : null;
+    await f.service.tick("2026-08-30T18:31:00Z");
+    const evening = f.sent.find((text) => text.startsWith("🌙"));
+    assert.match(evening, /✅ 09:30 · Reels · „Video unbekannt“/);
+    assert.match(evening, /https:\/\/www\.instagram\.com\/reel\/ABC\//);
   } finally { f.close(); }
 });
 

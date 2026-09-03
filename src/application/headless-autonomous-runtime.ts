@@ -10,7 +10,10 @@ import type { PublishContext } from "../domain/ports.js";
 import { AuthorizedRuntimeDueExecutionAdapter } from "../adapters/runtime/authorized-due-execution.js";
 import { telegramAdapterFromEnv } from "../adapters/notify/telegram.js";
 import { TelegramOperatorService } from "./telegram-operator-runtime.js";
+import { JsonDistributionConfigurationStore } from "../adapters/distribution/json-config-store.js";
 import { SqliteOperatorStateStore } from "../adapters/storage/sqlite-operator-state.js";
+import { withDriveFolders } from "./operator-plan-view.js";
+import { workspaceRuntimeLayout } from "./workspaces.js";
 import { inspectHeadlessWorkspace } from "./headless-status.js";
 import { resolveQualificationReplays } from "./qualification-policy.js";
 import { currentSurfaceFingerprintOrUndefined, surfaceFingerprintMatches } from "./surface-fingerprint.js";
@@ -78,6 +81,17 @@ function assertExactSurfaceQualification(base: WorkspaceDistributionRuntime, all
   }
 }
 
+/**
+ * Best effort: a workspace whose configuration cannot be read still runs, it just cannot offer
+ * the Drive folder links. Never a reason to refuse to start.
+ */
+function distributionConfigOrUndefined(runtimeRoot: string, workspaceId: string) {
+  try {
+    const layout = workspaceRuntimeLayout(resolve(runtimeRoot), workspaceId);
+    return new JsonDistributionConfigurationStore(resolve(layout.configDir, "distribution.json")).load();
+  } catch { return undefined; }
+}
+
 export interface HeadlessAutonomousRuntimeOptions {
   specPath: string;
   releaseSha: string;
@@ -113,7 +127,10 @@ function composeAutonomousRuntime(options: HeadlessAutonomousRuntimeOptions): Au
   const allowedAccountIds: ReadonlySet<string> = new Set(selected.map(accountIdForChannel));
   const env = options.env ?? process.env;
   const ownerId = options.ownerId ?? `${spec.workspace.id}:headless-autonomous`;
-  const operatorChannels = selected.map((channel) => ({ key: channel.key, name: channel.name, platform: channel.platform, accountId: accountIdForChannel(channel) }));
+  const operatorChannels = withDriveFolders(
+    selected.map((channel) => ({ key: channel.key, name: channel.name, platform: channel.platform, accountId: accountIdForChannel(channel) })),
+    distributionConfigOrUndefined(spec.workspace.runtimeRoot, spec.workspace.id)
+  );
   const base = new WorkspaceDistributionRuntime({
     runtimeRoot: spec.workspace.runtimeRoot,
     workspaceId: spec.workspace.id,

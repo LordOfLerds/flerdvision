@@ -26,6 +26,13 @@ export function planReadinessAttention(input: {
   const out: TimedAttentionItem[] = [];
   const morningAt = instantForLocalDateTime(input.businessDate, policy.morningSummaryLocalTime, policy.timeZone);
 
+  // A lane that feeds exactly one channel lends the message its channel -- and with it the Drive
+  // folder link. A shared lane stays unattributed rather than naming the wrong account.
+  const soleAccountForLane = (laneId: string): string | undefined => {
+    const accounts = [...new Set(input.stored.config.routes.filter((route) => route.enabled && route.laneId === laneId).map((route) => route.accountId))];
+    return accounts.length === 1 ? accounts[0] : undefined;
+  };
+
   if (due(input.now, morningAt)) {
     for (const lane of input.demand.lanes.filter((item) => item.status !== "ENOUGH")) {
       const severity: AttentionItem["severity"] = lane.status === "MISSING" ? "ACTION_REQUIRED" : "WARNING";
@@ -40,6 +47,7 @@ export function planReadinessAttention(input: {
           kind: "MORNING_CONTENT",
           title: lane.status === "MISSING" ? "Content für heute fehlt" : "Content für heute noch nicht vollständig bereit",
           impact,
+          ...(soleAccountForLane(lane.laneId) ? { accountId: soleAccountForLane(lane.laneId)! } : {}),
           deepLink: `/sources?lane=${encodeURIComponent(lane.laneId)}`
         }
       });
@@ -74,6 +82,7 @@ export function planReadinessAttention(input: {
           routeId: route.routeId,
           accountId: route.accountId,
           slotKey: slot.key,
+          slotLocalTime: slot.localTime,
           deepLink: `/routes/${encodeURIComponent(route.routeId)}`
         }
       });
@@ -90,6 +99,7 @@ export function planReadinessAttention(input: {
           routeId: route.routeId,
           accountId: route.accountId,
           slotKey: slot.key,
+          slotLocalTime: slot.localTime,
           deepLink: `/routes/${encodeURIComponent(route.routeId)}`
         }
       });

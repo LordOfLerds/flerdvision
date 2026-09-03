@@ -4,6 +4,7 @@ import type { AttentionItem, AttentionSeverity } from "./control-center-read-mod
 import {
   germanAttention,
   germanPlatformLabel,
+  isContentKind,
   isSessionKind,
   renderOperatorMessage
 } from "./operator-message.js";
@@ -59,16 +60,21 @@ export function notificationForAttention(
         : "INFO";
   const channel = attention.accountId ? policy.channels?.find((item) => item.accountId === attention.accountId) : undefined;
   const session = isSessionKind(attention.kind);
+  const content = isContentKind(attention.kind);
+  // An unknown kind falls back to the item's own title: a real sentence beats an invented one.
   const meaning = germanAttention(attention.kind);
   const rendered = renderOperatorMessage("ATTENTION", {
     badge: SEVERITY_BADGE[attention.severity],
-    headline: meaning.meaning,
+    headline: meaning?.meaning ?? attention.title,
     reason: attention.impact,
-    nextStep: meaning.action,
+    ...(meaning ? { nextStep: meaning.action } : {}),
+    ...(attention.slotLocalTime ? { slotLocal: attention.slotLocalTime } : {}),
     ...(channel ? { channelName: channel.name, platformLabel: germanPlatformLabel(channel.platform) } : {}),
     // A login command only helps when the fix IS a login; anything else gets its own next step.
     ...(session && channel ? { channelKey: channel.key } : {}),
-    ...(session && policy.remoteScreenUrl?.trim() ? { remoteScreenUrl: policy.remoteScreenUrl.trim() } : {})
+    ...(session && policy.remoteScreenUrl?.trim() ? { remoteScreenUrl: policy.remoteScreenUrl.trim() } : {}),
+    // "Put a video in Drive" is only actionable with the folder it means.
+    ...(content && channel?.driveFolderUrl ? { driveFolderUrl: channel.driveFolderUrl } : {})
   });
   const message: NotificationMessage = {
     notificationId: `notification:${stableId(`attention|${attention.attentionId}`)}`,

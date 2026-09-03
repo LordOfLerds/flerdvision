@@ -67,6 +67,19 @@ test("morning content shortage becomes one deterministic attention item",()=>{
   assert.equal(attention.length,1);
   assert.equal(attention[0].attention.kind,"MORNING_CONTENT");
   assert.equal(attention[0].attention.severity,"ACTION_REQUIRED");
+  // Two channels share this lane, so the message names neither rather than the wrong one.
+  assert.equal(attention[0].attention.accountId,undefined);
+});
+
+test("a lane that feeds exactly one channel lends the morning message that channel",()=>{
+  const configuration=stored();
+  configuration.config.routes=configuration.config.routes.filter((route)=>route.routeId==="ig-route");
+  const demand=projectContentDemand(configuration,[],"2026-08-27");
+  const plan={planId:"p",businessDate:"2026-08-27",generatedAt:"2026-08-27T06:00:00.000Z",deliveries:[],gaps:[],backlog:[]};
+  const attention=planReadinessAttention({now:"2026-08-27T06:05:00.000Z",businessDate:"2026-08-27",stored:configuration,demand,plan});
+  // Without the account the message cannot name the channel, and without the channel it cannot
+  // offer the Drive folder the operator is being asked to fill.
+  assert.equal(attention[0].attention.accountId,"ig-account");
 });
 
 test("replanning preserves a reserved assignment and suppresses a replacement in the same route slot",()=>{

@@ -60,6 +60,8 @@ export interface OperatorMessageContext {
   nextStep?: string;
   /** noVNC/remote-screen URL for a manual re-login. */
   remoteScreenUrl?: string;
+  /** The channel's own Google-Drive folder -- the place the operator drops a video. */
+  driveFolderUrl?: string;
   /** Raw run id -- used ONLY inside a literal operator command. */
   runId?: string;
   /** Raw channel key -- used ONLY inside a literal operator command. */
@@ -82,6 +84,9 @@ export interface OperatorMessage {
 
 export const OPERATOR_MESSAGE_MAX_CHARS = 4000;
 
+/** One indent width for every nested line, so a list never renders ragged. */
+export const OPERATOR_INDENT = "   ";
+
 /** German words for every persisted state the operator could otherwise see raw. */
 const GERMAN_STATE: Readonly<Record<string, string>> = {
   PLANNED: "geplant", READY: "bereit", SCHEDULED: "geplant", PREPARING: "wird vorbereitet",
@@ -98,39 +103,50 @@ const GERMAN_STATE: Readonly<Record<string, string>> = {
 /** German meaning of every incident kind: what it is, said in one noun phrase. */
 const GERMAN_INCIDENT: Readonly<Record<string, { meaning: string; effect: string; nextStep: string }>> = {
   AUTH_REQUIRED: { meaning: "Der Kanal ist abgemeldet", effect: "Für diesen Kanal wird nichts veröffentlicht.", nextStep: "Im Remote-Browser neu einloggen, danach /fortsetzen." },
-  MORNING_CONTENT: { meaning: "Für heute fehlen Videos", effect: "Slots ohne Video bleiben leer.", nextStep: "Videos in den Drive-Ordner des Kanals legen — sie werden beim nächsten Scan geplant." },
-  PRE_SLOT_CONTENT: { meaning: "Ein Slot hat kein Video", effect: "Dieser Slot bleibt leer, die anderen laufen weiter.", nextStep: "Ein Video in den Drive-Ordner legen; ist es rechtzeitig bereit, wird es noch geplant." },
-  PRE_SLOT_ESCALATION: { meaning: "Ein Slot ist gleich fällig und noch ohne Video", effect: "Der Slot wird ausfallen.", nextStep: "Jetzt ein Video in Drive legen oder den Slot bewusst leer lassen — nichts weiter nötig." },
+  MORNING_CONTENT: { meaning: "Für heute fehlen Videos", effect: "Slots ohne Video bleiben leer.", nextStep: "Ein Video in den Drive-Ordner dieses Kanals legen — der nächste Scan plant es ein." },
+  PRE_SLOT_CONTENT: { meaning: "Ein Slot hat kein Video", effect: "Dieser Slot bleibt leer, die anderen laufen weiter.", nextStep: "Ein Video in den Drive-Ordner dieses Kanals legen; ist es rechtzeitig bereit, wird es noch geplant." },
+  PRE_SLOT_ESCALATION: { meaning: "Ein Slot ist gleich fällig und noch ohne Video", effect: "Der Slot wird ausfallen.", nextStep: "Jetzt ein Video in den Drive-Ordner dieses Kanals legen oder den Slot bewusst leer lassen." },
   CHALLENGE: { meaning: "Die Plattform verlangt eine Sicherheitsabfrage", effect: "Für diesen Kanal wird nichts veröffentlicht.", nextStep: "Abfrage im Remote-Browser selbst lösen, danach /fortsetzen." },
-  IDENTITY_MISMATCH: { meaning: "Im Browser ist das falsche Konto angemeldet", effect: "Posten ist gesperrt, damit nichts im falschen Konto landet.", nextStep: "Richtiges Konto einloggen und den Kanal prüfen." },
+  IDENTITY_MISMATCH: { meaning: "Im Browser ist das falsche Konto angemeldet", effect: "Posten ist gesperrt, damit nichts im falschen Konto landet.", nextStep: "Im Remote-Browser das richtige Konto einloggen, danach /fortsetzen." },
   MISSED_WINDOW: { meaning: "Ein Slot ist verstrichen, ohne dass gepostet wurde", effect: "Der Post von heute fällt aus.", nextStep: "Nichts tun — der nächste Slot läuft normal weiter." },
-  PUBLISH_UNCERTAIN: { meaning: "Nach dem Klick ist unklar, ob der Post online ist", effect: "Dieser Post ist eingefroren — kein automatischer Neuversuch.", nextStep: "Im Terminal prüfen, bevor irgendetwas wiederholt wird." },
-  SOURCE_BLOCKED: { meaning: "Eine Datei aus Drive lässt sich nicht verwenden", effect: "Für diese Datei entsteht kein Post.", nextStep: "Datei in Drive ersetzen — der Slot bleibt frei." },
-  PLATFORM_CAPABILITY_MISSING: { meaning: "Die Plattform-Oberfläche kann den nötigen Schritt nicht", effect: "Diese Route postet nicht.", nextStep: "Route neu kalibrieren, bevor sie wieder läuft." },
-  BROWSER_UNREACHABLE: { meaning: "Der Browser ist nicht erreichbar", effect: "Es wird nichts veröffentlicht.", nextStep: "Den Rechner bzw. den Dienst prüfen." },
-  UI_UNKNOWN: { meaning: "Die Oberfläche der Plattform sieht anders aus als kalibriert", effect: "Der Vorgang wurde abgebrochen, bevor etwas passiert ist.", nextStep: "Route neu kalibrieren." },
-  UPLOAD_REJECTED: { meaning: "Die Plattform hat den Upload abgelehnt", effect: "Dieser Post ist nicht online.", nextStep: "Datei prüfen und in Drive ersetzen." },
-  POLICY_WARNING: { meaning: "Die Plattform meldet einen Richtlinien-Hinweis", effect: "Posten ist für diesen Kanal gesperrt.", nextStep: "Hinweis im Konto selbst ansehen — nichts automatisch wiederholen." },
-  COPYRIGHT_WARNING: { meaning: "Die Plattform meldet ein Urheberrechts-Problem", effect: "Posten ist für diesen Kanal gesperrt.", nextStep: "Hinweis im Konto selbst ansehen — nichts automatisch wiederholen." },
-  ACCOUNT_WARNING: { meaning: "Die Plattform warnt das Konto", effect: "Posten ist für diesen Kanal gesperrt.", nextStep: "Kontostatus selbst prüfen, bevor wieder gepostet wird." },
-  SYSTEM_ERROR: { meaning: "Ein interner Fehler ist aufgetreten", effect: "Der betroffene Schritt wurde abgebrochen.", nextStep: "Im Terminal /doctor ausführen." }
+  // A post past the irreversible boundary is frozen by design. The honest operator action is to
+  // leave it alone; naming a diagnostic here only invited the retry that must never happen.
+  PUBLISH_UNCERTAIN: { meaning: "Nach dem Klick ist unklar, ob der Post online ist", effect: "Dieser Post ist eingefroren — kein automatischer Neuversuch.", nextStep: "Nichts tun — der Post bleibt eingefroren, bis er von Hand geprüft ist." },
+  SOURCE_BLOCKED: { meaning: "Eine Datei aus Drive lässt sich nicht verwenden", effect: "Für diese Datei entsteht kein Post.", nextStep: "Die Datei im Drive-Ordner durch eine brauchbare ersetzen — der Slot bleibt bis dahin frei." },
+  PLATFORM_CAPABILITY_MISSING: { meaning: "Die Plattform-Oberfläche kann den nötigen Schritt nicht", effect: "Diese Route postet nicht.", nextStep: "Warten — dieser Kanal bleibt pausiert, bis die Route wieder freigegeben ist." },
+  BROWSER_UNREACHABLE: { meaning: "Der Browser ist nicht erreichbar", effect: "Es wird nichts veröffentlicht.", nextStep: "Warten — der Dienst versucht es erneut; bleibt es dabei, den Server neu starten." },
+  UI_UNKNOWN: { meaning: "Die Oberfläche der Plattform sieht anders aus als kalibriert", effect: "Der Vorgang wurde abgebrochen, bevor etwas passiert ist.", nextStep: "Warten — dieser Kanal bleibt pausiert, bis die Route wieder freigegeben ist." },
+  UPLOAD_REJECTED: { meaning: "Die Plattform hat den Upload abgelehnt", effect: "Dieser Post ist nicht online.", nextStep: "Die Datei im Drive-Ordner durch eine andere ersetzen." },
+  POLICY_WARNING: { meaning: "Die Plattform meldet einen Richtlinien-Hinweis", effect: "Posten ist für diesen Kanal gesperrt.", nextStep: "Den Hinweis im Konto selbst ansehen — es wird nichts automatisch wiederholt." },
+  COPYRIGHT_WARNING: { meaning: "Die Plattform meldet ein Urheberrechts-Problem", effect: "Posten ist für diesen Kanal gesperrt.", nextStep: "Den Hinweis im Konto selbst ansehen — es wird nichts automatisch wiederholt." },
+  ACCOUNT_WARNING: { meaning: "Die Plattform warnt das Konto", effect: "Posten ist für diesen Kanal gesperrt.", nextStep: "Den Kontostatus selbst prüfen, bevor wieder gepostet wird." },
+  SYSTEM_ERROR: { meaning: "Ein interner Fehler ist aufgetreten", effect: "Der betroffene Schritt wurde abgebrochen.", nextStep: "Warten — der Dienst versucht es im nächsten Durchlauf erneut." }
 };
 
 /** German meaning + action for every attention kind the read model produces. */
 const GERMAN_ATTENTION: Readonly<Record<string, { meaning: string; action: string }>> = {
-  ROUTE_BLOCKED: { meaning: "Eine Route kann nicht posten", action: "Route im Terminal prüfen — der Slot bleibt sonst leer." },
-  ROUTE_NEEDS_TEST: { meaning: "Eine Route ist noch nicht freigegeben", action: "Qualifikationslauf im Terminal starten." },
+  ROUTE_BLOCKED: { meaning: "Eine Route kann nicht posten", action: "Warten — dieser Kanal bleibt pausiert, bis die Route wieder freigegeben ist." },
+  ROUTE_NEEDS_TEST: { meaning: "Eine Route ist noch nicht freigegeben", action: "Warten — dieser Kanal postet erst nach seinem Freigabelauf." },
   BACKLOG: { meaning: "Ein Video wartet länger als geplant", action: "Nichts tun — es rutscht in den nächsten freien Slot." },
   ACCOUNT_SLOT_CONFLICT: { meaning: "Zwei Posts zielen auf denselben Kanal zur selben Zeit", action: "Einen der beiden Slots verschieben." },
-  NO_CONTENT: { meaning: "Für einen Slot fehlt ein Video", action: "Video in Drive ablegen — der Slot bleibt sonst leer." },
-  NO_READY_CONTENT: { meaning: "Für einen Slot ist noch kein Video fertig", action: "Video in Drive ablegen — der Slot bleibt sonst leer." },
+  NO_CONTENT: { meaning: "Für einen Slot fehlt ein Video", action: "Ein Video in den Drive-Ordner dieses Kanals legen — der Slot bleibt sonst leer." },
+  NO_READY_CONTENT: { meaning: "Für einen Slot ist noch kein Video fertig", action: "Ein Video in den Drive-Ordner dieses Kanals legen — der Slot bleibt sonst leer." },
   SESSION_UNHEALTHY: { meaning: "Ein Kanal ist abgemeldet", action: "Im Remote-Browser neu einloggen." },
   AUTH_REQUIRED: { meaning: "Ein Kanal ist abgemeldet", action: "Im Remote-Browser neu einloggen." },
-  MORNING_CONTENT: { meaning: "Für heute fehlen Videos", action: "Videos in den Drive-Ordner des Kanals legen." },
-  PRE_SLOT_CONTENT: { meaning: "Ein Slot hat kein Video", action: "Video in Drive legen, sonst bleibt der Slot leer." },
-  PRE_SLOT_ESCALATION: { meaning: "Ein Slot ist gleich fällig und noch ohne Video", action: "Video in Drive legen oder den Slot leer lassen." },
+  MORNING_CONTENT: { meaning: "Für heute fehlen Videos", action: "Ein Video in den Drive-Ordner dieses Kanals legen." },
+  PRE_SLOT_CONTENT: { meaning: "Ein Slot hat kein Video", action: "Ein Video in den Drive-Ordner dieses Kanals legen, sonst bleibt der Slot leer." },
+  PRE_SLOT_ESCALATION: { meaning: "Ein Slot ist gleich fällig und noch ohne Video", action: "Jetzt ein Video in den Drive-Ordner dieses Kanals legen oder den Slot leer lassen." },
   CHALLENGE: { meaning: "Ein Kanal verlangt eine Sicherheitsabfrage", action: "Abfrage im Remote-Browser selbst lösen." }
 };
+
+/**
+ * Kinds whose remedy is a file in Drive. A message for one of these carries the channel's own
+ * folder link, because "put a video in Drive" without naming the folder is a riddle.
+ */
+const CONTENT_KINDS = new Set([
+  "MORNING_CONTENT", "PRE_SLOT_CONTENT", "PRE_SLOT_ESCALATION", "NO_CONTENT", "NO_READY_CONTENT",
+  "BACKLOG", "SOURCE_BLOCKED", "UPLOAD_REJECTED"
+]);
 
 /** Attention/incident kinds whose fix is a login, not a config change. */
 const SESSION_KINDS = new Set(["SESSION_UNHEALTHY", "AUTH_REQUIRED", "CHALLENGE", "IDENTITY_MISMATCH"]);
@@ -229,12 +245,27 @@ export function germanIncident(kind: string): { meaning: string; effect: string;
   return GERMAN_INCIDENT[kind] ?? GERMAN_INCIDENT.SYSTEM_ERROR!;
 }
 
-export function germanAttention(kind: string): { meaning: string; action: string } {
-  return GERMAN_ATTENTION[kind] ?? { meaning: "Etwas braucht deine Aufmerksamkeit", action: "Im Terminal /doctor ausführen." };
+/**
+ * Undefined for an unknown kind on purpose: "Etwas braucht deine Aufmerksamkeit" told the
+ * operator nothing, so the caller falls back to the item's own title instead of a placeholder.
+ */
+export function germanAttention(kind: string): { meaning: string; action: string } | undefined {
+  return GERMAN_ATTENTION[kind];
 }
 
 export function isSessionKind(kind: string): boolean {
   return SESSION_KINDS.has(kind);
+}
+
+/** True when the operator fixes this by putting (or replacing) a file in the channel's Drive folder. */
+export function isContentKind(kind: string): boolean {
+  return CONTENT_KINDS.has(kind);
+}
+
+/** The one place a Drive folder id becomes the link the operator taps. */
+export function driveFolderUrl(folderId: string | undefined): string | undefined {
+  const id = folderId?.trim();
+  return id && /^[A-Za-z0-9_-]{10,}$/.test(id) ? `https://drive.google.com/drive/folders/${id}` : undefined;
 }
 
 const ID_PREFIX = /\b(?:account|intent|incident|asset|route|content|attention|notification|browser|identity|lane|observation|publication|attempt|check|profile|workspace|delivery|contract|copy|creator)\s*:\s*[A-Za-z0-9_.@:\/-]+/g;
@@ -310,10 +341,21 @@ function nextSlotLine(next: OperatorNextSlot | undefined): string | undefined {
   return names.length > 0 ? `⏭️ Als Nächstes: ${time} · ${names.join(", ")}` : `⏭️ Als Nächstes: ${time}`;
 }
 
+/**
+ * Sanitising trims, which silently ate every intentional indent and made single checklist rows
+ * hang out of line. The caller's leading whitespace is normalised to one indent and re-applied.
+ */
+function safeIndented(line: string): string | undefined {
+  const indented = /^[ \t]+/.test(line);
+  const value = safe(line);
+  if (value === undefined) return undefined;
+  return indented ? `${OPERATOR_INDENT}${value}` : value;
+}
+
 function sectionLines(context: OperatorMessageContext): string[] {
   const lines: string[] = [];
   for (const section of context.sections ?? []) {
-    const rendered = section.lines.map((line) => safe(line)).filter((line): line is string => Boolean(line));
+    const rendered = section.lines.map((line) => safeIndented(line)).filter((line): line is string => Boolean(line));
     if (rendered.length === 0) continue;
     lines.push("");
     const heading = safe(section.heading);
@@ -329,7 +371,13 @@ function block(lines: readonly (string | undefined)[]): string {
 }
 
 function ownLines(context: OperatorMessageContext): string[] {
-  return (context.lines ?? []).map((line) => safe(line)).filter((line): line is string => Boolean(line));
+  return (context.lines ?? []).map((line) => safeIndented(line)).filter((line): line is string => Boolean(line));
+}
+
+/** "📁 Video hier ablegen: <link>" -- the remedy and the place it happens, on one line. */
+function driveLine(context: OperatorMessageContext): string | undefined {
+  const url = context.driveFolderUrl?.trim();
+  return url ? `📁 Video hier ablegen: ${url}` : undefined;
 }
 
 function postHeader(context: OperatorMessageContext): string[] {
@@ -353,27 +401,31 @@ function waveEntryLines(entry: OperatorMessageContext): string[] {
   const lines = [head];
   if (!verified) {
     const reason = safe(entry.reason);
-    if (reason) lines.push(`   ${reason}`);
+    if (reason) lines.push(`${OPERATOR_INDENT}${reason}`);
     const nextStep = safe(entry.nextStep);
-    if (nextStep) lines.push(`   Was jetzt: ${nextStep}`);
+    if (nextStep) lines.push(`${OPERATOR_INDENT}Was jetzt: ${nextStep}`);
   }
   return lines;
 }
 
+/**
+ * Every checklist row has the same shape: badge, time, channel, video on line one, the caption
+ * on line two, the link on line three. A row that indents differently stops reading as a list,
+ * which is exactly what happened to the one entry that carried no caption.
+ */
 function planEntryLines(entry: OperatorMessageContext): string[] {
   const head = join([
-    `${entry.badge ?? "⬜"} ${safe(entry.slotLocal) ?? ""}`.trim(),
-    channelLabel(entry),
+    `${entry.badge ?? "⬜"} ${join([safe(entry.slotLocal), channelLabel(entry)])}`.trim(),
     quoted(entry.videoLabel),
     safe(entry.statusLabel)
   ]);
   const lines = [head];
   const copy = copyLine(entry);
-  if (copy) lines.push(`     ${copy}`);
+  if (copy) lines.push(`${OPERATOR_INDENT}${copy}`);
   const reason = safe(entry.reason);
-  if (reason) lines.push(`     ${reason}`);
-  const permalink = safe(entry.permalink);
-  if (permalink) lines.push(`     ${permalink}`);
+  if (reason) lines.push(`${OPERATOR_INDENT}${reason}`);
+  const link = safe(entry.permalink) ?? entry.driveFolderUrl?.trim();
+  if (link) lines.push(`${OPERATOR_INDENT}${link}`);
   return lines;
 }
 
@@ -424,6 +476,8 @@ function build(kind: OperatorMessageKind, context: OperatorMessageContext): Oper
       return {
         subject: `📋 ${safe(context.planLabel) ?? "Tagesplan"}`,
         body: block([
+          // A day with nothing scheduled says so in the first line, above the channel list.
+          safe(context.headline),
           ...(entries.length === 0 ? ["Keine Posts geplant."] : entries.flatMap(planEntryLines)),
           nextSlotLine(context.nextSlot),
           ...sectionLines(context),
@@ -433,13 +487,16 @@ function build(kind: OperatorMessageKind, context: OperatorMessageContext): Oper
     case "ATTENTION": {
       const key = context.channelKey?.trim();
       const remote = context.remoteScreenUrl?.trim();
+      // Subject = when, where, what. "Etwas braucht deine Aufmerksamkeit" was unreadable in a
+      // notification list; "⚠️ 14:00 · LucaE71 (TikTok) · Ein Slot hat kein Video" is not.
       return {
-        subject: `${context.badge ?? "⚠️"} ${safe(context.headline) ?? "Aufmerksamkeit nötig"}`,
+        subject: `${context.badge ?? "⚠️"} ${join([safe(context.slotLocal), channelLabel(context), safe(context.headline)])}`.trim(),
         body: block([
           safe(context.reason),
           optionalJoin([channelLabel(context), safe(context.slotLocal) ? `${safe(context.slotLocal)} Uhr` : undefined]),
           quoted(context.videoLabel) ? `🎬 ${quoted(context.videoLabel)}` : undefined,
           safe(context.nextStep) ? `Was jetzt: ${safe(context.nextStep)}` : undefined,
+          driveLine(context),
           remote ? `Login im Remote-Browser: ${remote}` : undefined,
           !remote && key ? `Login im Terminal: ${command(`npm run flerdvision -- login --channel ${key}`)}` : undefined
         ])
@@ -447,13 +504,14 @@ function build(kind: OperatorMessageKind, context: OperatorMessageContext): Oper
     }
     case "INCIDENT":
       return {
-        subject: `${context.badge ?? "⚠️"} ${safe(context.headline) ?? "Störung"}`,
+        subject: `${context.badge ?? "⚠️"} ${join([safe(context.slotLocal), channelLabel(context), safe(context.headline) ?? "Störung"])}`.trim(),
         body: block([
           safe(context.reason),
           optionalJoin([channelLabel(context), safe(context.slotLocal) ? `${safe(context.slotLocal)} Uhr` : undefined]),
           quoted(context.videoLabel) ? `🎬 ${quoted(context.videoLabel)}` : undefined,
           safe(context.statusLabel),
-          safe(context.nextStep) ? `Was jetzt: ${safe(context.nextStep)}` : undefined
+          safe(context.nextStep) ? `Was jetzt: ${safe(context.nextStep)}` : undefined,
+          driveLine(context)
         ])
       };
     case "DAY_END":
@@ -462,6 +520,8 @@ function build(kind: OperatorMessageKind, context: OperatorMessageContext): Oper
         subject: join([
           kind === "DAY_END" ? "🌙 Tagesabschluss" : "📅 Wochenbericht",
           safe(context.planLabel),
+          // "2 von 2 geplanten Posts sind live" belongs in the subject: it is the whole report.
+          safe(context.headline),
           kind === "DAY_END" ? (context.ok ? "✅" : "⚠️") : undefined
         ]),
         body: block([...ownLines(context), ...sectionLines(context), nextSlotLine(context.nextSlot)])
