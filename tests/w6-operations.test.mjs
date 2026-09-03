@@ -245,17 +245,56 @@ test("human_actions and notification_messages are immutable at database level", 
   } finally { raw.close(); rmSync(runtime.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });
 
-test("blocked missed-window reason still projects an incident after MissedWindowGuard already changed state", async () => {
+test("waived missed-window reason still projects an incident after MissedWindowGuard already changed state", async () => {
   const { MissedWindowGuard } = await import("../dist/application/scheduler.js");
   const store = new SqliteControlPlaneStore(":memory:");
   try {
     registerBrowser(store);
     createScheduledIntent(store, "intent:missed", "2026-08-26T07:00:00Z");
-    const blocked = new MissedWindowGuard(store).blockMissed("2026-08-26T07:31:00Z", actor);
-    assert.deepEqual(blocked, ["intent:missed"]);
-    const result = new OperationsIncidentProjector(store).project("2026-08-26T07:31:01Z", actor);
+    // 07:00 target + the 4h default catch-up window, plus one minute past the deadline.
+    const waived = new MissedWindowGuard(store).waiveMissed("2026-08-26T11:01:00Z", actor);
+    assert.deepEqual(waived, ["intent:missed"]);
+    assert.equal(store.getIntent("intent:missed")?.state, "WAIVED");
+    const result = new OperationsIncidentProjector(store).project("2026-08-26T11:01:01Z", actor);
     assert.equal(result.created, 1);
     assert.equal(store.listIncidents()[0].kind, "MISSED_WINDOW");
+  } finally { store.close(); }
+});
+
+test("a resolved catch-up-expired MISSED_WINDOW incident is never auto-reopened by a later cycle", async () => {
+  const { MissedWindowGuard } = await import("../dist/application/scheduler.js");
+  const { HumanRecoveryService } = await import("../dist/application/operations.js");
+  const store = new SqliteControlPlaneStore(":memory:");
+  try {
+    registerBrowser(store);
+    createScheduledIntent(store, "intent:missed", "2026-08-26T07:00:00Z");
+    new MissedWindowGuard(store).waiveMissed("2026-08-26T11:01:00Z", actor);
+    const firstPass = new OperationsIncidentProjector(store).project("2026-08-26T11:01:01Z", actor);
+    assert.equal(firstPass.created, 1);
+    const incidentId = firstPass.createdIncidentIds[0];
+    new HumanRecoveryService(store).resolveIncident(incidentId, "2026-08-26T11:05:00Z", "operator-a", "seen, nothing to do");
+    assert.equal(store.getIncident(incidentId).status, "RESOLVED");
+    // WAIVED is terminal: the intent sits in listIntents(["WAIVED"]) forever, so a naive rescan
+    // would otherwise regenerate the same fingerprint and reopen the resolved incident.
+    const secondPass = new OperationsIncidentProjector(store).project("2026-08-27T09:00:00Z", actor);
+    assert.equal(secondPass.created, 0);
+    assert.equal(secondPass.refreshed, 0);
+    assert.equal(store.getIncident(incidentId).status, "RESOLVED");
+  } finally { store.close(); }
+});
+
+test("a missed window still inside catch-up does not yet project an incident", async () => {
+  const { MissedWindowGuard } = await import("../dist/application/scheduler.js");
+  const store = new SqliteControlPlaneStore(":memory:");
+  try {
+    registerBrowser(store);
+    createScheduledIntent(store, "intent:missed", "2026-08-26T07:00:00Z");
+    // 31 minutes late: window missed, but well inside the 4h default catch-up grace period.
+    const waived = new MissedWindowGuard(store).waiveMissed("2026-08-26T07:31:00Z", actor);
+    assert.deepEqual(waived, []);
+    assert.equal(store.getIntent("intent:missed")?.state, "SCHEDULED");
+    const result = new OperationsIncidentProjector(store).project("2026-08-26T07:31:01Z", actor);
+    assert.equal(result.created, 0);
   } finally { store.close(); }
 });
 

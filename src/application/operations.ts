@@ -23,7 +23,13 @@ import type {
   NotificationMessage,
   OperationalGateDecision
 } from "../domain/operations.js";
-import { businessDateForInstant, DEFAULT_SCHEDULING_POLICY } from "../domain/scheduling.js";
+import {
+  businessDateForInstant,
+  DEFAULT_SCHEDULING_POLICY,
+  isWithinCatchUp,
+  MISSED_WINDOW_WAIVE_REASON,
+  type SchedulingPolicy
+} from "../domain/scheduling.js";
 
 function stableId(prefix: string, value: string): string {
   const digest = createHash("sha256").update(value).digest("hex").slice(0, 24);
@@ -105,7 +111,10 @@ export interface OperationsProjectionReport {
 }
 
 export class OperationsIncidentProjector {
-  constructor(private readonly store: ProjectionStore) {}
+  constructor(
+    private readonly store: ProjectionStore,
+    private readonly policy: SchedulingPolicy = DEFAULT_SCHEDULING_POLICY
+  ) {}
 
   project(now: Instant, actor: Actor = { type: "system", id: "operations-projector" }): OperationsProjectionReport {
     const candidates: IncidentCandidate[] = [];
@@ -147,20 +156,56 @@ export class OperationsIncidentProjector {
       }));
     }
 
+    // Safety net only: in the normal flow MissedWindowGuard.waiveMissed already moves anything
+    // past its catch-up deadline out of SCHEDULED before this projector runs (DUE_EXECUTION
+    // precedes OPERATIONS in one runtime cycle). This still catches a reservation stuck in
+    // SCHEDULED past catch-up when that guard never ran at all (e.g. the R0 frozen due adapter).
+    // Anything still inside its catch-up grace period is left alone -- it is still a live
+    // candidate for DueWorkClaimer.claimNext, not yet an incident.
     for (const reservation of this.store.listMissedReservations(timestamp)) {
       const record = this.store.getIntent(reservation.intentId);
       if (!record || record.state !== "SCHEDULED") continue;
+      if (isWithinCatchUp(reservation.targetAt, this.policy, timestamp)) continue;
       candidates.push(incidentCandidate({
         kind: "MISSED_WINDOW",
         severity: "ERROR",
         title: "Posting window missed",
-        summary: `Intent ${reservation.intentId} missed slot ${reservation.slotKey}; no catch-up publish is allowed automatically.`,
+        summary: `Intent ${reservation.intentId} missed slot ${reservation.slotKey} and its catch-up window has also elapsed without being claimed.`,
         observedAt: timestamp,
         intentId: reservation.intentId,
         accountId: reservation.accountId,
         platform: reservation.platform,
         metadata: { windowEndAt: reservation.windowEndAt, slotKey: reservation.slotKey }
       }));
+    }
+
+    // Primary path: MissedWindowGuard.waiveMissed already transitioned the intent to WAIVED with
+    // the fixed catch-up-expired reason. Same fingerprint (kind + intentId) as the safety-net
+    // loop above, so the two coalesce into exactly one incident regardless of which one fires.
+    // WAIVED is terminal -- unlike BLOCKED/PUBLISH_UNCERTAIN the underlying record never leaves
+    // this query, so re-running createOrRefreshIncident on every future cycle would otherwise
+    // reopen an incident an operator already resolved forever. There is nothing left for anyone
+    // to do once an intent is WAIVED, so a resolved incident here stays resolved.
+    const resolvedFingerprints = new Set(this.store.listIncidents(["RESOLVED"]).map((incident) => incident.fingerprint));
+    for (const record of this.store.listIntents(["WAIVED"])) {
+      const events = this.store.listEvents("publication_intent", record.intent.intentId);
+      const waivedEvent = [...events].reverse().find((event) => event.toState === "WAIVED");
+      const reason = typeof waivedEvent?.payload.reason === "string" ? waivedEvent.payload.reason : "";
+      if (reason !== MISSED_WINDOW_WAIVE_REASON) continue;
+      const reservation = this.store.getReservationForIntent(record.intent.intentId);
+      const candidate = incidentCandidate({
+        kind: "MISSED_WINDOW",
+        severity: "ERROR",
+        title: "Posting window missed",
+        summary: `Intent ${record.intent.intentId} missed its posting window; the catch-up window elapsed with no attempt, so it was waived automatically.`,
+        observedAt: waivedEvent?.occurredAt ?? record.updatedAt,
+        intentId: record.intent.intentId,
+        accountId: record.intent.accountId,
+        platform: record.intent.platform,
+        ...(reservation ? { metadata: { windowEndAt: reservation.windowEndAt, slotKey: reservation.slotKey } } : {})
+      });
+      if (resolvedFingerprints.has(candidate.fingerprint)) continue;
+      candidates.push(candidate);
     }
 
     for (const identity of this.store.listBrowserIdentities()) {
