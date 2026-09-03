@@ -1,3 +1,5 @@
+import { setTimeout as sleep } from "node:timers/promises";
+import { tagMadeForKidsOption, readMadeForKids } from "./made-for-kids.js";
 import type { BrowserIdentity } from "../../domain/browser-identity.js";
 import type { BrowserPageSessionPort } from "../../domain/browser-identity-ports.js";
 import type { PlatformExecutionAction, PlatformExecutionPlan } from "../../domain/platform-execution.js";
@@ -80,6 +82,16 @@ export class SafePlatformExecutionRunner {
     })()`);
   }
 
+  /** The made-for-kids answer is found by meaning, exactly as the exploration found it. */
+  private async answerAudience(action:PlatformExecutionAction,madeForKids:boolean,finalLocators:readonly UiLocator[]):Promise<string>{
+    if(await readMadeForKids(this.session,madeForKids))return `madeForKids=${String(madeForKids)} already selected`;
+    const tagged=await tagMadeForKidsOption(this.session,madeForKids);
+    const locators=tagged?[{kind:"css",value:'[data-flerdvision-exact="1"]'} as UiLocator,...action.locators]:action.locators;
+    await this.driver.click(locators,10_000,finalLocators);
+    await sleep(800);
+    if(!await readMadeForKids(this.session,madeForKids))throw new UiActionExecutionError(`Made-for-kids declaration did not take: expected madeForKids=${String(madeForKids)}`);
+    return `madeForKids=${String(madeForKids)}`;
+  }
   private async ensureBoolean(action:PlatformExecutionAction,expected:boolean,finalLocators:readonly UiLocator[]):Promise<string>{
     // Operator provenance, same rule the exploration follows: a setting the canonical spec never
     // asked for carries the platform's default, so a control that cannot be proven is not a
@@ -221,6 +233,9 @@ export class SafePlatformExecutionRunner {
       }else if(action.operation==="SELECT_ENUM"){
         if(typeof action.expectedValue!=="string")throw new UiActionExecutionError(`Enum action ${action.stepKey} has no string expectedValue`);
         detail=await this.selectEnum(action,action.expectedValue,finalLocators);
+      }else if(action.operation==="ANSWER_AUDIENCE"){
+        if(typeof action.expectedValue!=="boolean")throw new UiActionExecutionError(`Audience action ${action.stepKey} has no boolean expectedValue`);
+        detail=await this.answerAudience(action,action.expectedValue,finalLocators);
       }else throw new UiActionExecutionError(`Unsupported execution operation: ${action.operation}`);
       journal.push({stepKey:action.stepKey,operation:action.operation,outcome:"PASS",detail});
     }

@@ -19,6 +19,11 @@ function actionFor(step:SurfaceContractStep,context:DistributionPostingContext):
     if(p.platform!=="tiktok"&&p.platform!=="youtube")throw new Error("Visibility step is not valid for this posting profile");
     return{stepKey:step.stepKey,operation:"SELECT_ENUM",locators:locators(step),settingKey:"visibility",expectedValue:p.visibility};
   }
+  if(step.stepKey==="AUDIENCE"){
+    if(p.platform!=="youtube")throw new Error("Audience step requires a YouTube profile");
+    if(p.madeForKids===undefined)throw new Error("Audience step requires settings.madeForKids in the canonical spec");
+    return{stepKey:step.stepKey,operation:"ANSWER_AUDIENCE",locators:locators(step),settingKey:"madeForKids",expectedValue:p.madeForKids};
+  }
   if(step.stepKey==="COMMENTS")return{stepKey:step.stepKey,operation:"ENSURE_BOOLEAN",locators:locators(step),settingKey:"commentsEnabled",expectedValue:booleanExpected(step,p.commentsEnabled),operatorDemanded:demanded(p,"commentsEnabled")};
   if(step.stepKey==="DUET"){if(p.platform!=="tiktok")throw new Error("Duet step requires TikTok profile");return{stepKey:step.stepKey,operation:"ENSURE_BOOLEAN",locators:locators(step),settingKey:"duetEnabled",expectedValue:booleanExpected(step,p.duetEnabled),operatorDemanded:demanded(p,"duetEnabled")};}
   if(step.stepKey==="STITCH"){if(p.platform!=="tiktok")throw new Error("Stitch step requires TikTok profile");return{stepKey:step.stepKey,operation:"ENSURE_BOOLEAN",locators:locators(step),settingKey:"stitchEnabled",expectedValue:booleanExpected(step,p.stitchEnabled),operatorDemanded:demanded(p,"stitchEnabled")};}
