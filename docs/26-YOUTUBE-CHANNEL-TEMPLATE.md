@@ -22,12 +22,14 @@ The compiler accepts exactly one YouTube format type: **`short`**
       "type": "short",
       "times": ["14:00"],
       "sourceMatch": ["youtube", "shorts"],
-      "titleTemplate": "{filename}",
+      "titleTemplate": "{filenameText}",
+      "descriptionTemplate": "{filenameHashtags}",
       "hashtags": [],
       "verificationMarker": false,
       "requirement": "REQUIRED",
       "settings": {
-        "visibility": "private"
+        "visibility": "private",
+        "madeForKids": false
       }
     }
   ]
@@ -46,15 +48,27 @@ Rules the code enforces:
     even start a private E2E run when the compiled posting profile's visibility is not
     `"private"`. The compiler default for an unset youtube visibility is `"public"` — never
     leave it unset.
+- `settings.madeForKids` is **mandatory**. Studio blocks its whole upload wizard on the
+  audience question ("Wurde dieses Video speziell für Kinder erstellt? (erforderlich)"); it is a
+  legal statement about the content, so the code has no default: the explorer answers the radio
+  from this value and proves the answer by readback, and `AutonomousSurfaceSettings.enrich()`
+  stops the run with "YouTube requires the made-for-kids declaration" when it is unset
+  (`tests/r15-youtube-audience.test.mjs`).
 - `handle` is the channel's `@handle` without the `@` (normalized by `normalizeSocialHandle`).
-- YouTube intents require a **title**; the compiler defaults `titleTemplate` to `{filename}` and
-  leaves `captionTemplate` undefined for youtube. `descriptionTemplate` is accepted by the spec
-  but currently only stored in the copy payload (no Studio description field is filled by the
-  explorer — see §4).
+- YouTube intents require a **title**. The caption lives in the Drive filename
+  (`07_Testwelle Mi 1830 TikTok #flerdvision #test.mp4`), and the resolver splits it into
+  `{filenameText}` (`Testwelle Mi 1830 TikTok`: sort prefix, extension and hashtags removed) and
+  `{filenameHashtags}` (`#flerdvision #test`) -- see `docs/25-TIKTOK-CHANNEL-TEMPLATE.md`,
+  "Caption from the filename". The template above posts the wording as the title and keeps the
+  hashtags in `descriptionTemplate`. The compiler still defaults an unset `titleTemplate` to the
+  raw `{filename}`, which carries the sort prefix and the extension: always set it explicitly.
+  `descriptionTemplate` is accepted, compiled into the copy payload and rendered by the resolver,
+  but the explorer fills **no Studio description field today** (see §4) -- the hashtags reach
+  YouTube only once that step exists. Do not move them into the title to work around it.
 - `settings.commentsEnabled` is accepted by the validator for youtube but is **not replayed**:
   `platformSettingOrder()` in `src/application/autonomous-surface-contract.ts` returns only
-  `["VISIBILITY"]` for youtube and `AutonomousSurfaceSettings.enrich()` only ensures visibility.
-  Do not set it and expect an effect; leave comments at the Studio default.
+  `["AUDIENCE", "VISIBILITY"]` for youtube and `AutonomousSurfaceSettings.enrich()` ensures
+  exactly those two. Do not set it and expect an effect; leave comments at the Studio default.
 - `verificationMarker` appends `[FV:{contentId}]` to the **caption** template only, which
   youtube does not have. If a marker is wanted it must be put into `titleTemplate` by hand —
   but see §5 before relying on marker-based verification for a private short.
@@ -72,13 +86,16 @@ Rules the code enforces:
 - **Multi-channel Google accounts (brand channels):** Studio opens the last-used channel. If the
   Google account owns several channels, the human must switch to the exact target channel during
   login. The identity probe must then prove the exact channel — see §6.
-- **Audience default ("made for kids"):** set the channel-level default in Studio beforehand
-  (Settings → Channel → Advanced settings → "No, set this channel as not made for kids" or the
-  per-video variant with a sensible default). The upload dialog's Details step contains a
-  **required audience radio** ("No, it's not made for kids" / „Nein, es ist nicht speziell für
-  Kinder") that the autonomous explorer has **no step for**; with a channel default it arrives
-  pre-selected and the flow does not depend on an uncalibrated click. Without it, Studio blocks
-  saving. This is the single most likely first-run blocker.
+- **Audience ("made for kids"):** declare it in the spec (`settings.madeForKids`, §1). The
+  explorer carries an `AUDIENCE` step that clicks exactly the declared answer on the Details
+  step's required radio and reads it back; a channel-level Studio default is no longer needed,
+  and an unset value stops the run before any upload.
+- **Daily upload limit:** an unverified channel gets a handful of uploads per day, and every
+  qualification run consumes one. Studio does not report the exhausted limit as an error; it
+  writes "Tägliches Upload-Limit erreicht" into the dialog and greys the details form. The run
+  now stops with `Platform refused this account: "Tägliches Upload-Limit erreicht"`
+  (`src/adapters/browser/platform-refusal.ts`); wait 24 h or verify the channel at
+  `youtube.com/verify`, and run qualifications sparingly.
 
 ## 3. Studio upload dialog — expected step chain vs. code
 
@@ -134,9 +151,8 @@ explorer (`src/adapters/browser/autonomous-surface-explorer.ts`) models this gen
    (duplicate DOM ids). `querySelector` order makes this land on the title today; that is
    incidental, not proven. Verify the accessible name of the real title field (observed
    historically as "Titel hinzufügen…"/"Add a title…" variants) and prefer it.
-3. **Audience radio** (see §2) — no explorer step exists; mitigated by the channel default, but
-   the Details-step DOM should be captured during first qualification to decide whether a
-   fail-closed readback step is needed.
+3. **Audience radio** — resolved: the `AUDIENCE` step answers it from `settings.madeForKids`
+   with readback proof (see §1/§2). The description field remains unfilled (see §1).
 4. **Visibility radio.** `visibilityControlLocators()`/`visibilityLabels()` in
    `src/adapters/browser/autonomous-surface-settings.ts` know "Private"/"Privat" and generic
    combobox/radio patterns; Studio renders the visibility step as a radio group

@@ -20,7 +20,7 @@ test account; the `key` is stable and becomes part of every derived ID):
       "type": "tiktok",
       "times": ["13:00"],
       "sourceMatch": ["tiktok"],
-      "captionTemplate": "{filename}\n\n[FV:{contentId}]",
+      "captionTemplate": "{filenameText} {filenameHashtags}\n\n[FV:{contentId}]",
       "hashtags": [],
       "verificationMarker": true,
       "requirement": "REQUIRED",
@@ -53,6 +53,37 @@ test account; the `key` is stable and becomes part of every derived ID):
   folder must contain harmless test media only.
 - `verificationMarker: true` plus the `[FV:{contentId}]` caption tail is what deterministic
   verification greps for; do not remove it.
+- `captionTemplate` uses the two filename variables, not the raw `{filename}`: the caption is
+  written into the Drive filename and TikTok is the platform that carries the hashtags. See
+  "Caption from the filename" below.
+
+## Caption from the filename
+
+The operator writes the caption into the Drive filename, hashtags included, and numbers the
+files so they sort into posting order:
+
+```text
+07_Testwelle Mi 1830 TikTok #flerdvision #test.mp4
+```
+
+`src/adapters/publish/workspace-payload-resolver.ts` (`filenameParts`) splits that one name into
+two template variables; `{filename}` stays available but carries the sort prefix and the
+extension and must not be posted:
+
+| variable             | value for the file above            |
+|----------------------|-------------------------------------|
+| `{filenameText}`     | `Testwelle Mi 1830 TikTok`          |
+| `{filenameHashtags}` | `#flerdvision #test`                |
+
+Rules: a leading `NN_` (one to three digits plus underscore) is stripped as ordering, the
+extension is stripped, every `#tag` anywhere in the name is moved out of the wording, whitespace
+is collapsed. Nothing else is rewritten -- dashes and casing are the operator's wording.
+
+TikTok therefore uses `{filenameText} {filenameHashtags}`; Instagram (`docs/27`) uses only
+`{filenameText}`, so one Drive file serves both. A file without hashtags leaves an empty
+`{filenameHashtags}` and a trailing space before the marker, which the platform ignores.
+`tests/r16-filename-template-payloads.test.mjs` renders the shipped example through the real
+compiler and resolver and pins this split.
 
 ## Zero-viewer contract for the test account
 

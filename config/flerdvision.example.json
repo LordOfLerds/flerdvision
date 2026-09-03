@@ -25,7 +25,7 @@
           "type": "reel",
           "times": ["12:00", "19:00"],
           "sourceMatch": ["instagram", "reels"],
-          "captionTemplate": "{filename}\n\n[FV:{contentId}]",
+          "captionTemplate": "{filenameText}\n\n[FV:{contentId}]",
           "hashtags": [],
           "verificationMarker": true,
           "requirement": "REQUIRED",
@@ -47,7 +47,7 @@
           "type": "tiktok",
           "times": ["13:00", "20:00"],
           "sourceMatch": ["tiktok"],
-          "captionTemplate": "{filename}\n\n[FV:{contentId}]",
+          "captionTemplate": "{filenameText} {filenameHashtags}\n\n[FV:{contentId}]",
           "hashtags": [],
           "verificationMarker": true,
           "requirement": "REQUIRED",
@@ -56,6 +56,28 @@
             "commentsEnabled": true,
             "duetEnabled": true,
             "stitchEnabled": true
+          }
+        }
+      ]
+    },
+    {
+      "key": "youtube-flerdvision",
+      "name": "Flerdvision YouTube",
+      "platform": "youtube",
+      "handle": "flerdvision",
+      "formats": [
+        {
+          "type": "short",
+          "times": ["14:00"],
+          "sourceMatch": ["youtube", "shorts"],
+          "titleTemplate": "{filenameText}",
+          "descriptionTemplate": "{filenameHashtags}",
+          "hashtags": [],
+          "verificationMarker": false,
+          "requirement": "REQUIRED",
+          "settings": {
+            "visibility": "private",
+            "madeForKids": false
           }
         }
       ]
