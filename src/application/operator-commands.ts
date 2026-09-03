@@ -81,7 +81,14 @@ export class OperatorCommandService {
     if (!argument) return `⚠️ Kanal fehlt. ${verb} <kanal>. Verfügbar: ${this.channelList()}`;
     const normalized = argument.toLocaleLowerCase("en-US");
     if (normalized === "alle" || normalized === "*") return { scopeKey: "*", channelKey: "alle", label: "ALLE Kanäle" };
-    const channel = this.deps.channels.find((item) => item.key.toLocaleLowerCase("en-US") === normalized);
+    // The chat accepts the key, the key without its platform prefix (that is how the sanitized
+    // messages print it: "tiktok-clips" → "clips"), or the channel's display name. A person
+    // types what they read; a printed "/fortsetzen clips" must work.
+    const short = (key: string) => key.toLocaleLowerCase("en-US").replace(/^(instagram|tiktok|youtube)-/, "");
+    const matches = this.deps.channels.filter((item) =>
+      item.key.toLocaleLowerCase("en-US") === normalized || short(item.key) === normalized || item.name.toLocaleLowerCase("en-US") === normalized);
+    if (matches.length > 1) return `⚠️ „${argument}“ ist mehrdeutig. Verfügbar: ${this.channelList()}`;
+    const channel = matches[0];
     if (!channel) return `⚠️ Unbekannter Kanal „${argument}“. Verfügbar: ${this.channelList()}`;
     return { scopeKey: channel.accountId, channelKey: channel.key, label: `${channel.name} (${germanPlatformLabel(channel.platform)})` };
   }
