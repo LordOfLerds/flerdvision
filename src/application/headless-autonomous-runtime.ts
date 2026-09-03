@@ -7,13 +7,13 @@ import { loadWorkspaceSpecFile } from "./headless-bootstrap.js";
 import { accountIdForChannel } from "./workspace-spec-compiler.js";
 import type { PublicationIntent } from "../domain/model.js";
 import type { PublishContext } from "../domain/ports.js";
-import type { RouteTestEvidenceRecord } from "../domain/route-test-ports.js";
-import { SqliteRouteTestEvidenceStore } from "../adapters/distribution/sqlite-route-test-evidence.js";
 import { AuthorizedRuntimeDueExecutionAdapter } from "../adapters/runtime/authorized-due-execution.js";
 import { telegramAdapterFromEnv } from "../adapters/notify/telegram.js";
 import { TelegramOperatorService } from "./telegram-operator-runtime.js";
 import { SqliteOperatorStateStore } from "../adapters/storage/sqlite-operator-state.js";
 import { inspectHeadlessWorkspace } from "./headless-status.js";
+import { resolveQualificationReplays } from "./qualification-policy.js";
+import { currentSurfaceFingerprintOrUndefined, surfaceFingerprintMatches } from "./surface-fingerprint.js";
 import { WorkspaceDistributionRuntime } from "../adapters/runtime/workspace-distribution-runtime.js";
 import { WorkspaceSurfacePublisher } from "../adapters/runtime/workspace-surface-publisher.js";
 import { filenameParts } from "../adapters/publish/workspace-payload-resolver.js";
@@ -30,44 +30,43 @@ function localSlot(instant: string, timeZone: string): string {
   try { return new Intl.DateTimeFormat("de-AT", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(instant)); }
   catch { return instant.slice(11, 16); }
 }
-function latest(records: readonly RouteTestEvidenceRecord[], key: RouteTestEvidenceRecord["testKey"]): RouteTestEvidenceRecord | undefined {
-  return records.filter((record) => record.testKey === key && record.status === "PASS").sort((a, b) => a.checkedAt.localeCompare(b.checkedAt)).at(-1);
-}
-function assertExactReleaseQualification(base: WorkspaceDistributionRuntime, allowedAccountIds: ReadonlySet<string>, releaseSha: string): void {
+/**
+ * Autonomous publishing requires that the surface code the route was qualified against is the
+ * surface code that is about to drive the browser. It deliberately does NOT require the private
+ * E2E post any more: the operator decision of 2026-09-03 is that the first scheduled slot is the
+ * first post, and the private E2E stays available for whoever wants to run it.
+ */
+function assertExactSurfaceQualification(base: WorkspaceDistributionRuntime, allowedAccountIds: ReadonlySet<string>, env: Record<string, string | undefined>): void {
   const config = base.config.load();
-  const evidence = new SqliteRouteTestEvidenceStore(base.layout.databasePath);
-  try {
-    for (const accountId of allowedAccountIds) {
-      const identities = base.control.listBrowserIdentities().map((record) => record.identity).filter((identity) => identity.accountId === accountId && identity.enabled);
-      if (identities.length !== 1) throw new Error(`Autonomous account ${accountId} requires exactly one enabled browser identity; found ${identities.length}`);
-      const health = base.control.latestSessionHealth(identities[0]!.identityId);
-      if (health?.state !== "HEALTHY") throw new Error(`Autonomous account ${accountId} session is not HEALTHY`);
-      const routes = config.config.routes.filter((route) => route.enabled && route.accountId === accountId);
-      if (routes.length === 0) throw new Error(`Autonomous account ${accountId} has no enabled routes`);
-      for (const route of routes) {
-        const readiness = base.state.latestRouteTestReadiness(route.routeId)?.readiness;
-        const surface = base.surfaces.latestContract(accountId, route.postingProfileId)?.contract;
-        const reasons: string[] = [];
-        if (!readiness) reasons.push("route_readiness_missing");
-        else {
-          if (readiness.releaseSha !== releaseSha) reasons.push("route_release_stale");
-          if (!readiness.sourcePassed) reasons.push("source_not_proven");
-          if (!readiness.sessionPassed) reasons.push("session_not_proven");
-          if (!readiness.identityPassed) reasons.push("identity_not_proven");
-          if (readiness.prepareOnlyPasses < 3) reasons.push("prepare_only_lt_3");
-          if (!readiness.verificationPassed) reasons.push("verification_surface_not_proven");
-        }
-        if (!surface || surface.status !== "CALIBRATED") reasons.push("surface_not_calibrated");
-        else if (readiness?.surfaceContractId !== surface.contractId) reasons.push("surface_evidence_stale");
-        const records = evidence.list(route.routeId).filter((record) => record.releaseSha === releaseSha && Boolean(surface) && record.surfaceContractId === surface!.contractId);
-        const secretLive = latest(records, "SECRET_LIVE");
-        const cleanup = latest(records, "CLEANUP");
-        if (!secretLive) reasons.push("private_e2e_missing");
-        if (!cleanup || (secretLive && cleanup.checkedAt <= secretLive.checkedAt)) reasons.push("private_e2e_cleanup_missing_or_stale");
-        if (reasons.length > 0) throw new Error(`Route ${route.routeId} is not autonomous-release-qualified: ${reasons.join(", ")}`);
+  const currentFingerprint = currentSurfaceFingerprintOrUndefined();
+  const requiredReplays = resolveQualificationReplays(env);
+  for (const accountId of allowedAccountIds) {
+    const identities = base.control.listBrowserIdentities().map((record) => record.identity).filter((identity) => identity.accountId === accountId && identity.enabled);
+    if (identities.length !== 1) throw new Error(`Autonomous account ${accountId} requires exactly one enabled browser identity; found ${identities.length}`);
+    const health = base.control.latestSessionHealth(identities[0]!.identityId);
+    if (health?.state !== "HEALTHY") throw new Error(`Autonomous account ${accountId} session is not HEALTHY`);
+    const routes = config.config.routes.filter((route) => route.enabled && route.accountId === accountId);
+    if (routes.length === 0) throw new Error(`Autonomous account ${accountId} has no enabled routes`);
+    for (const route of routes) {
+      const readiness = base.state.latestRouteTestReadiness(route.routeId)?.readiness;
+      const surface = base.surfaces.latestContract(accountId, route.postingProfileId)?.contract;
+      const reasons: string[] = [];
+      if (!readiness) reasons.push("route_readiness_missing");
+      else {
+        // The release SHA stays recorded evidence; only the surface fingerprint decides whether
+        // the qualification still describes the code that is about to drive the browser.
+        if (!surfaceFingerprintMatches(readiness.surfaceFingerprint, currentFingerprint)) reasons.push("surface_fingerprint_stale");
+        if (!readiness.sourcePassed) reasons.push("source_not_proven");
+        if (!readiness.sessionPassed) reasons.push("session_not_proven");
+        if (!readiness.identityPassed) reasons.push("identity_not_proven");
+        if (readiness.prepareOnlyPasses < requiredReplays) reasons.push("prepare_only_replays_missing");
+        if (!readiness.verificationPassed) reasons.push("verification_surface_not_proven");
       }
+      if (!surface || surface.status !== "CALIBRATED") reasons.push("surface_not_calibrated");
+      else if (readiness?.surfaceContractId !== surface.contractId) reasons.push("surface_evidence_stale");
+      if (reasons.length > 0) throw new Error(`Route ${route.routeId} is not autonomous-surface-qualified: ${reasons.join(", ")}`);
     }
-  } finally { evidence.close(); }
+  }
 }
 
 export interface HeadlessAutonomousRuntimeOptions {
@@ -116,7 +115,7 @@ function composeAutonomousRuntime(options: HeadlessAutonomousRuntimeOptions): Au
   });
   let publisher: WorkspaceSurfacePublisher | undefined;
   try {
-    assertExactReleaseQualification(base, allowedAccountIds, options.releaseSha);
+    assertExactSurfaceQualification(base, allowedAccountIds, env);
     publisher = new WorkspaceSurfacePublisher({
       runtimeRoot: spec.workspace.runtimeRoot,
       workspaceId: spec.workspace.id,
@@ -201,8 +200,8 @@ function composeAutonomousRuntime(options: HeadlessAutonomousRuntimeOptions): Au
  * Real autonomous composition. It reuses the canonical source/planner/intent/disposition/ops ports
  * but replaces the deliberately frozen due phase with the hardened authorized worker.
  * Construction never authorizes anything: caller must provide exact release, explicit channel
- * allowlist and the independent final-publish hard gate. Every allowed route must also have an
- * exact-release private E2E post and cleanup receipt for its current surface contract.
+ * allowlist and the independent final-publish hard gate. Every allowed route must also be
+ * qualified against the exact surface fingerprint that is about to drive the browser.
  */
 export class HeadlessAutonomousRuntime {
   private readonly base: WorkspaceDistributionRuntime;
@@ -211,6 +210,7 @@ export class HeadlessAutonomousRuntime {
   private readonly timeZone: string;
   readonly allowedAccountIds: ReadonlySet<string>;
   private readonly releaseSha: string;
+  private readonly env: Record<string, string | undefined>;
   private readonly operator?: TelegramOperatorService;
   private readonly operatorState?: SqliteOperatorStateStore;
 
@@ -222,12 +222,13 @@ export class HeadlessAutonomousRuntime {
     this.timeZone = composition.timeZone;
     this.allowedAccountIds = composition.allowedAccountIds;
     this.releaseSha = options.releaseSha;
+    this.env = options.env ?? process.env;
     if (composition.operator) this.operator = composition.operator;
     if (composition.operatorState) this.operatorState = composition.operatorState;
   }
 
   async runOnce(now = new Date().toISOString()): Promise<RuntimeCycleReport> {
-    assertExactReleaseQualification(this.base, this.allowedAccountIds, this.releaseSha);
+    assertExactSurfaceQualification(this.base, this.allowedAccountIds, this.env);
     const report = await this.supervisor.runCycle(new Date(now).toISOString(), businessDate(now, this.timeZone));
     // Checklist edits, reports and session alarms ride each cycle; the service contains its own
     // Telegram failures and must never break the publishing cycle it narrates.

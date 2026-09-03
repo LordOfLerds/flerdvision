@@ -81,7 +81,7 @@ const doctorReport = {
   ],
   channels: [
     { channelKey: "reels", platform: "instagram", accountId: channels[0].accountId, identityId: "browser:b1", accountRegistered: true, identityRegistered: true, latestSessionState: "HEALTHY", sessionProbeCalibrated: true, routes: [{ routeId: "route:r1", format: "reel", readyAssets: 1, surfaceStatus: "CALIBRATED", prepareOnlyPasses: 3, verificationPassed: true, releaseMatches: true, privateE2EPassed: true, cleanupPassedAfterPrivateE2E: true, blockers: [], readyForAutonomousPublish: true }] },
-    { channelKey: "clips", platform: "tiktok", accountId: channels[1].accountId, identityId: "browser:b2", accountRegistered: true, identityRegistered: true, latestSessionState: "AUTH_REQUIRED", sessionProbeCalibrated: true, routes: [{ routeId: "route:r2", format: "tiktok", readyAssets: 0, surfaceStatus: "CALIBRATED", prepareOnlyPasses: 1, verificationPassed: false, releaseMatches: true, privateE2EPassed: false, cleanupPassedAfterPrivateE2E: false, blockers: ["session_not_healthy", "no_ready_asset", "prepare_only_lt_3"], readyForAutonomousPublish: false }] }
+    { channelKey: "clips", platform: "tiktok", accountId: channels[1].accountId, identityId: "browser:b2", accountRegistered: true, identityRegistered: true, latestSessionState: "AUTH_REQUIRED", sessionProbeCalibrated: true, routes: [{ routeId: "route:r2", format: "tiktok", readyAssets: 0, surfaceStatus: "CALIBRATED", prepareOnlyPasses: 1, verificationPassed: false, releaseMatches: true, privateE2EPassed: false, cleanupPassedAfterPrivateE2E: false, blockers: ["session_not_healthy", "no_ready_asset", "prepare_only_replays_missing"], warnings: ["private_e2e_not_run"], readyForAutonomousPublish: false }] }
   ]
 };
 

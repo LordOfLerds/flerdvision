@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import type { QualificationOperatorPort, QualificationOperatorStatus } from "../../domain/qualification-operator-ports.js";
 import type { WorkspaceQualificationSyncReport } from "../../application/workspace-qualification-sync.js";
 import { ReleaseQualificationService } from "../../application/release-qualification.js";
+import { currentSurfaceFingerprintOrUndefined, describeSurfaceFingerprint } from "../../application/surface-fingerprint.js";
 import { JsonWorkspaceRegistry } from "../workspace/json-registry.js";
 import { WorkspaceQualificationSyncAdapter } from "./workspace-qualification-sync.js";
 
@@ -23,7 +24,10 @@ export class WorkspaceQualificationOperator implements QualificationOperatorPort
 
   status():QualificationOperatorStatus{
     if(!this.runId)return{available:false,reason:`No ACTIVE qualification run for workspace ${this.options.workspaceId} on release ${this.options.releaseSha}. Start one with the host installer/qualification CLI.`};
-    return{available:true,reason:"Active host qualification run is bound to this exact workspace/release.",runId:this.runId,checklist:this.release.checklist(this.runId)};
+    // The host run stays release-bound (release-strict host order); the route evidence inside it
+    // follows the surface fingerprint, so the operator sees both values in one status line.
+    const fingerprint=currentSurfaceFingerprintOrUndefined();
+    return{available:true,reason:`Active host qualification run is bound to this exact workspace/release. Oberflächen-Fingerabdruck ${fingerprint?describeSurfaceFingerprint(fingerprint):"unbekannt"}.`,runId:this.runId,checklist:this.release.checklist(this.runId)};
   }
 
   async sync(now:string,operatorId:string):Promise<WorkspaceQualificationSyncReport>{

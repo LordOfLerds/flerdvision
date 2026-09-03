@@ -240,10 +240,20 @@ filename" — identisch für jeden Kanal, jede Plattform.
 
 ## Typische Fehler
 
-**`route_release_stale`** (in `doctor`-Blockers und beim autonomen Lauf): die Qualifikation
-(Schritt 4) wurde auf einem älteren Git-SHA bestanden als dem aktuellen HEAD. Jeder neue Commit
-entwertet eine vorher bestandene Qualifikation — das ist Absicht, nicht ein Bug. Fix: Schritt 4
-(`demo --channel <key>`) auf dem aktuellen `$FLERDVISION_RELEASE_SHA` wiederholen.
+**`surface_fingerprint_stale`** (in `doctor`-Blockers und beim autonomen Lauf): die Qualifikation
+(Schritt 4) lief gegen anderen Oberflächen-Code als den, der jetzt den Browser steuert. Der
+Fingerabdruck ist der sha256 über die gebauten Dateien, die die Oberfläche wirklich bedienen
+(`dist/adapters/browser/**`, `dist/adapters/publish/**`, Execution-Plan, Surface-Contract,
+`platform-ui`, `platform-execution`) — ein Commit an Benachrichtigungen, Doku oder Planer
+entwertet also **keine** bestandene Qualifikation mehr. Der Release-SHA wird weiter mitgeschrieben
+(`releaseMatches`, `qualifiedReleaseSha`), blockiert aber nichts. Fix: Schritt 4
+(`demo --channel <key>`) wiederholen. Qualifikationen ohne Fingerabdruck (vor dieser Änderung
+aufgezeichnet) gelten als veraltet.
+
+Standardmäßig läuft **ein** Trockenlauf pro Qualifikation (`1/1 Trockenlauf`);
+`FLERDVISION_QUALIFICATION_REPLAYS` setzt die Zahl hoch, wenn eine Oberfläche verdächtig ist.
+Der private Testpost (`private_e2e_not_run`) ist seit 2026-09-03 nur noch ein Hinweis und
+blockiert den Daemon nicht mehr: der erste geplante Slot ist der erste Post.
 
 **Upload-Limit-Refusal** (v.a. YouTube): Studio meldet ein erschöpftes Tageslimit nicht als
 Fehler, sondern schreibt „Tägliches Upload-Limit erreicht" in den Dialog und sperrt das Formular.
@@ -258,5 +268,5 @@ erfolgreich gewesen, oder auf ein anderes Konto umgeschaltet). Sichtbar in `doct
 `latestSessionState` oder als offener Incident. Fix: Schritt 3 (`login --channel <key>`)
 wiederholen — niemals Cookies/Session-Dateien von Hand bearbeiten oder ersetzen.
 
-Keiner dieser drei Fehler ist ein Grund, `legacy:control-center`, `legacy:setup-ui` oder eine der
+Keiner dieser Fehler ist ein Grund, `legacy:control-center`, `legacy:setup-ui` oder eine der
 anderen Legacy-Oberflächen zu verwenden (`CLAUDE.md`, Abschnitt "Current headless product path").

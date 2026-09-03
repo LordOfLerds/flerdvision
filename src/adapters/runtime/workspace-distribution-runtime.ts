@@ -8,6 +8,7 @@ import { RuntimeDistributionDispositionAdapter } from "../../application/runtime
 import { RuntimeSupervisor } from "../../application/runtime-supervisor.js";
 import { PollingRuntimeSourceScanAdapter } from "../../application/runtime-polling-source.js";
 import { PersistedRouteExecutionQualificationGate } from "../../application/route-execution-qualification.js";
+import { resolveQualificationReplays } from "../../application/qualification-policy.js";
 import { VerifiedMediaCacheMaintenance } from "../../application/verified-media-cache-maintenance.js";
 import { EffectiveConfigurationChangeService } from "../../application/effective-configuration-change.js";
 import { EffectiveConfigurationPlannerDecorator } from "../../application/effective-config-planner-decorator.js";
@@ -110,7 +111,7 @@ export class WorkspaceDistributionRuntime {
     const commitmentAdapter=new PersistedPlanningCommitmentAdapter(this.state,this.provenance,this.control),persistedPlanner=new PersistedDistributionPlannerAdapter(this.config,this.state,commitmentAdapter),provenanceService=new DistributionPlanProvenanceService(this.config,this.provenance),provenancedPlanner=new ProvenancedRuntimePlannerAdapter(persistedPlanner,provenanceService),effectiveService=new EffectiveConfigurationChangeService(this.effectiveChanges,this.config,()=>this.control.listSocialAccounts().map(record=>record.account));
     this.planner=new EffectiveConfigurationPlannerDecorator(effectiveService,provenancedPlanner);
 
-    const releaseSha=options.releaseSha??env.FLERDVISION_RELEASE_SHA??"UNSET_RELEASE_SHA",qualification=new PersistedRouteExecutionQualificationGate(this.config,this.state,this.surfaces,releaseSha),materializer=new DistributionIntentMaterializer(this.control,this.config,this.provenance,qualification);
+    const releaseSha=options.releaseSha??env.FLERDVISION_RELEASE_SHA??"UNSET_RELEASE_SHA",qualification=new PersistedRouteExecutionQualificationGate(this.config,this.state,this.surfaces,releaseSha,{replays:resolveQualificationReplays(env)}),materializer=new DistributionIntentMaterializer(this.control,this.config,this.provenance,qualification);
     this.intents=new RuntimeDistributionIntentMaterializerAdapter(materializer);
 
     this.lease=new ControlPlaneRuntimeCycleLeaseAdapter(this.control,options.workspaceId);

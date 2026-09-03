@@ -7,6 +7,7 @@ import { mkdtempSync } from "node:fs";
 import { initializeWorkspaceRuntime } from "../dist/application/workspaces.js";
 import { JsonDistributionConfigurationStore } from "../dist/adapters/distribution/json-config-store.js";
 import { WorkspaceDistributionRuntime } from "../dist/adapters/runtime/workspace-distribution-runtime.js";
+import { computeSurfaceFingerprint } from "../dist/application/surface-fingerprint.js";
 
 function sourceConfig(sourceRoot){return{
   sources:[{connectionId:"local",displayName:"Demo source",kind:"local_folder",rootRef:sourceRoot,enabled:true,disposition:{mode:"database_only",leavePartialUntouched:true,leaveBlockedUntouched:true}}],
@@ -48,18 +49,19 @@ test("workspace source flows forward to SCHEDULED intent and traces back to loca
     assert.equal(asset.scheduledBusinessDate,"2026-08-27");
 
     // A route only becomes execution-qualified once it has been test-qualified: source, session
-    // and identity proven, three prepare-only replays, verification, and a CALIBRATED surface
-    // contract on the same release. That is the chain the real E2E walks by hand; the vertical
-    // under test here is source -> plan -> intent, so the qualification is seeded rather than
-    // performed.
+    // and identity proven, the configured prepare-only replays, verification, and a CALIBRATED
+    // surface contract for the exact surface fingerprint that is about to drive the browser.
+    // That is the chain the real E2E walks by hand; the vertical under test here is
+    // source -> plan -> intent, so the qualification is seeded rather than performed.
     runtime.surfaces.recordContract({
       contractId:"contract-ig",accountId:"ig-test",platform:"instagram",format:"reel",postingProfileId:"ig-normal",
       environment:{browserFamily:"chromium",browserMajor:140,language:"de-AT",timeZone:"Europe/Vienna",viewportWidth:1280,viewportHeight:900,deviceScaleFactor:1,fingerprint:"env"},
       steps:[],status:"CALIBRATED",createdAt:"2026-08-27T05:30:00.000Z",calibratedAt:"2026-08-27T05:30:00.000Z"
     },"2026-08-27T05:30:00.000Z");
     runtime.state.putRouteTestReadiness({
-      routeId:"route-ig",sourcePassed:true,sessionPassed:true,identityPassed:true,prepareOnlyPasses:3,
-      secretLivePassed:false,verificationPassed:true,cleanupPassed:false,releaseSha:"test-release",surfaceContractId:"contract-ig"
+      routeId:"route-ig",sourcePassed:true,sessionPassed:true,identityPassed:true,prepareOnlyPasses:1,
+      secretLivePassed:false,verificationPassed:true,cleanupPassed:false,releaseSha:"test-release",
+      surfaceFingerprint:computeSurfaceFingerprint(),surfaceContractId:"contract-ig"
     },"2026-08-27T06:06:30.000Z");
 
     const plan=await runtime.planner.ensureDailyPlan("2026-08-27","2026-08-27T06:07:00.000Z");

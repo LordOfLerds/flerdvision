@@ -151,15 +151,15 @@ const GERMAN_BLOCKER: Readonly<Record<string, string>> = {
   no_ready_asset: "kein fertiges Video",
   surface_not_calibrated: "Oberfläche nicht kalibriert",
   route_readiness_missing: "Qualifikation fehlt",
-  route_release_stale: "Qualifikation ist veraltet",
+  surface_fingerprint_stale: "Oberflächen-Fingerabdruck veraltet",
   source_not_proven: "Quelle nicht nachgewiesen",
   session_not_proven: "Login nicht nachgewiesen",
   identity_not_proven: "Konto nicht nachgewiesen",
-  prepare_only_lt_3: "zu wenige Trockenläufe",
+  prepare_only_replays_missing: "zu wenige Trockenläufe",
   verification_surface_not_proven: "Prüfung nicht nachgewiesen",
   surface_evidence_stale: "Nachweis ist veraltet",
-  private_e2e_missing: "privater Testpost fehlt",
-  private_e2e_cleanup_missing_or_stale: "Aufräumen nach dem Testpost fehlt"
+  // Informational since 2026-09-03: the private test post no longer gates autonomous publishing.
+  private_e2e_not_run: "privater Testpost nicht gelaufen"
 };
 
 /** Doctor check keys as German nouns. */
@@ -170,6 +170,7 @@ const GERMAN_DOCTOR_CHECK: Readonly<Record<string, string>> = {
   database: "Datenbank",
   distribution_config: "Konfiguration",
   release_sha: "Release",
+  surface_fingerprint: "Oberflächen-Fingerabdruck",
   drive_auth: "Google-Drive-Zugang",
   local_source: "Lokaler Quellordner"
 };
