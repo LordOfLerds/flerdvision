@@ -21,10 +21,38 @@ interface CdpEnvelope {
 /** The page refused a protocol-set file; callers may fall back to the file-chooser flow. */
 export class FileInputRejectedError extends Error {}
 
-class CdpClient {
+export type CdpEventHandler = (params: Record<string, unknown>) => void;
+
+/** The subset of a WebSocket the client relies on; tests drive it with an in-memory fake. */
+export interface CdpSocketLike {
+  addEventListener(type: "message" | "close", listener: (event: { data?: unknown }) => void): void;
+  send(data: string): void;
+  close(): void;
+}
+
+export class CdpClient {
   private nextId = 1;
   private readonly pending = new Map<number, { resolve: (value: Record<string, unknown>) => void; reject: (error: Error) => void }>();
   private readonly eventWaiters = new Map<string, Array<{ resolve: (params: Record<string, unknown>) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>>();
+  private readonly listeners = new Map<string, Set<CdpEventHandler>>();
+
+  /**
+   * Standing subscription to a CDP event, for streams rather than one-shot waits: the screencast
+   * delivers a frame per event for as long as it runs. A throwing handler is isolated so one bad
+   * subscriber can never take a protocol call (or another subscriber) down with it.
+   */
+  on(method: string, handler: CdpEventHandler): void {
+    const handlers = this.listeners.get(method) ?? new Set<CdpEventHandler>();
+    handlers.add(handler);
+    this.listeners.set(method, handlers);
+  }
+
+  off(method: string, handler: CdpEventHandler): void {
+    const handlers = this.listeners.get(method);
+    if (!handlers) return;
+    handlers.delete(handler);
+    if (handlers.size === 0) this.listeners.delete(method);
+  }
 
   /** Waits for one CDP event. Needed for protocol flows that are event-driven, e.g. the file chooser. */
   waitForEvent(method: string, timeoutMs: number): Promise<Record<string, unknown>> {
@@ -43,7 +71,7 @@ class CdpClient {
     });
   }
 
-  private constructor(private readonly socket: WebSocket) {
+  private constructor(private readonly socket: CdpSocketLike) {
     socket.addEventListener("message", (event) => {
       let envelope: CdpEnvelope;
       try {
@@ -54,10 +82,13 @@ class CdpClient {
       if (typeof envelope.id !== "number") {
         const method = (envelope as { method?: string }).method;
         if (!method) return;
+        const params = ((envelope as { params?: Record<string, unknown> }).params) ?? {};
+        for (const handler of [...(this.listeners.get(method) ?? [])]) {
+          try { handler(params); } catch {}
+        }
         const waiters = this.eventWaiters.get(method);
         if (!waiters?.length) return;
         this.eventWaiters.delete(method);
-        const params = ((envelope as { params?: Record<string, unknown> }).params) ?? {};
         for (const waiter of waiters) { clearTimeout(waiter.timer); waiter.resolve(params); }
         return;
       }
@@ -91,6 +122,11 @@ class CdpClient {
         reject(new Error(`Failed connecting to Chrome DevTools at ${url}`));
       }, { once: true });
     });
+    return new CdpClient(socket);
+  }
+
+  /** Wraps an already-open socket (or an in-memory fake) without any network handshake. */
+  static fromSocket(socket: CdpSocketLike): CdpClient {
     return new CdpClient(socket);
   }
 
