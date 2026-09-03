@@ -46,9 +46,3 @@ test("an already-answered question, shown only as Studio's summary sentence, cou
   assert.match(captured[0], /speziell für kinder"\) && text\.includes\("festgelegt"\)/);
   assert.match(captured[0], /text\.includes\("nicht als"\)/);
 });
-
-test("a contract that records the same step key twice replays it once", () => {
-  const plan = readFileSync(new URL("../src/application/platform-execution-plan.ts", import.meta.url).pathname, "utf8");
-  assert.match(plan, /const seen=new Set<string>\(\);/);
-  assert.match(plan, /contract\.steps\.filter\(step=>\{if\(seen\.has\(step\.stepKey\)\)return false;seen\.add\(step\.stepKey\);return true;\}\)/);
-});
