@@ -3,10 +3,13 @@
 ## Read order
 1. `docs/00-NORTH-STAR.md`
 2. `docs/22-ENGINEERING-EXECUTION-PROTOCOL.md`
-3. `docs/01-ARCHITECTURE-GRAPH.md`
-4. `docs/02-PORTS-AND-ADAPTERS.md`
-5. `docs/03-STATE-MACHINES.md`
-6. relevant ADRs
+3. **On `rebuild/headless-agentic-v1` while finish issues #4–#7 are open: `docs/FINISH-LINE.md` before choosing or expanding work.** The old audit issue #2 is superseded and is not a current backlog.
+4. `docs/01-ARCHITECTURE-GRAPH.md`
+5. `docs/02-PORTS-AND-ADAPTERS.md`
+6. `docs/03-STATE-MACHINES.md`
+7. relevant ADRs
+
+During finish mode, architecture documents explain the existing system; they do not authorize reopening completed waves. Current work must stay inside #4 -> #5 -> #6 -> #7 unless a reproduced finish-line blocker requires a minimal repair.
 
 ## Non-negotiable invariants
 - Normal user-facing platform UIs are the publishing surface; do not introduce social publishing APIs unless an explicit architecture decision changes this.
@@ -50,6 +53,7 @@
 
 ## Change discipline
 - `docs/22-ENGINEERING-EXECUTION-PROTOCOL.md` is binding for repair/build work in this repository.
+- During finish mode, `docs/FINISH-LINE.md` is additionally binding: reproduce first, one minimal repair, test, read back, rerun the exact live step before any second repair.
 - New external system => new adapter behind an existing/new port, not domain leakage.
 - New state => update state machine, transition tests, graph docs, and incident semantics together.
 - New irreversible behavior => ADR + tests + canary plan.
