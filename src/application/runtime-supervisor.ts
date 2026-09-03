@@ -69,7 +69,7 @@ export class RuntimeSupervisor {
         phases.push({phase:"PLAN",status:"SKIPPED",summary:"Source scan failed; no new planning from untrusted source state"}); heartbeat();
         phases.push({phase:"INTENTS",status:"SKIPPED",summary:"Planning skipped"}); heartbeat();
       }
-      await run("DUE_EXECUTION",()=>this.ports.due.runDue(startedAt),(r)=>`${r.claimed} claimed · ${r.prepared} prepared · ${r.verified} verified · ${r.uncertain} uncertain · ${r.blocked} blocked${r.frozen!==undefined?` · ${r.frozen} held by live freeze`:""}`);
+      await run("DUE_EXECUTION",()=>this.ports.due.runDue(startedAt),(r)=>`${r.claimed} claimed · ${r.prepared} prepared · ${r.verified} verified · ${r.uncertain} uncertain · ${r.blocked} blocked · ${r.waived} waived${r.frozen!==undefined?` · ${r.frozen} held by live freeze`:""}`);
       await run("RECONCILIATION",()=>this.ports.reconciliation.reconcile(startedAt),(r)=>`${r.inspected} inspected · ${r.verified} verified · ${r.safeToRetry} safe-to-retry · ${r.stillUncertain} uncertain`);
       await run("DISPOSITION",()=>this.ports.disposition.applyEligible(startedAt),(r)=>`${r.inspected} inspected · ${r.completed} completed · ${r.externalMutations} external mutations · ${r.manualReview} manual review`);
       await run("OPERATIONS",()=>this.ports.operations.projectAndNotify(startedAt),(r)=>`${r.incidentsCreated} incidents · ${r.notificationsEnqueued} notifications`);

@@ -10,7 +10,17 @@ export interface RuntimeSourceScanReport { observed: number; ready: number; stab
 export interface RuntimeSourceScanPort { scan(now: string): Promise<RuntimeSourceScanReport>; }
 export interface RuntimePlannerPort { ensureDailyPlan(businessDate: string, now: string): Promise<DailyPlan>; }
 export interface RuntimeIntentMaterializerPort { ensureIntents(plan: DailyPlan, now: string): Promise<{ created: number; existing: number; blocked: number; blockedReasons?: readonly string[] }>; }
-export interface RuntimeDueExecutionReport { claimed: number; prepared: number; verified: number; uncertain: number; blocked: number; frozen?: number; }
+export interface RuntimeDueExecutionReport {
+  claimed: number;
+  prepared: number;
+  verified: number;
+  uncertain: number;
+  blocked: number;
+  frozen?: number;
+  /** Intents auto-waived this cycle because their outage catch-up window elapsed unclaimed. */
+  waived: number;
+  waivedIntentIds: readonly string[];
+}
 export interface RuntimeDueExecutionPort { runDue(now: string): Promise<RuntimeDueExecutionReport>; }
 export interface RuntimeReconciliationReport { inspected: number; verified: number; safeToRetry: number; stillUncertain: number; }
 export interface RuntimeReconciliationPort { reconcile(now: string): Promise<RuntimeReconciliationReport>; }

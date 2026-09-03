@@ -8,6 +8,7 @@ import type { PublicationIntent } from "../../domain/model.js";
 import type { OperationalPublishGatePort } from "../../domain/operations-ports.js";
 import type { PublishContext } from "../../domain/ports.js";
 import type { RuntimeDueExecutionPort } from "../../domain/runtime-supervisor-ports.js";
+import { DEFAULT_SCHEDULING_POLICY, type SchedulingPolicy } from "../../domain/scheduling.js";
 import type { FinalActionInvokerPort, PublishAttemptStorePort, VerificationStorePort } from "../../domain/verification-ports.js";
 import type { ReconciliationResult } from "../../application/reconciliation.js";
 
@@ -20,7 +21,7 @@ export interface AuthorizedDuePublisherPort {
 export type AuthorizedPublishContextProvider=(intent:PublicationIntent)=>PublishContext;
 type DueStore=ControlPlaneStorePort & PublishAttemptStorePort & VerificationStorePort & NotificationOutboxPort;
 
-export interface AuthorizedRuntimeDueExecutionOptions {releaseSha:string;ownerId:string;leaseTtlSeconds?:number;maxPerCycle?:number;clock?:()=>string;notificationAdapters?:readonly NotificationPort[];timeZone?:string;launchJitterMaxSeconds?:number;channelNames?:Readonly<Record<string,string>>;}
+export interface AuthorizedRuntimeDueExecutionOptions {releaseSha:string;ownerId:string;leaseTtlSeconds?:number;maxPerCycle?:number;clock?:()=>string;notificationAdapters?:readonly NotificationPort[];timeZone?:string;launchJitterMaxSeconds?:number;channelNames?:Readonly<Record<string,string>>;schedulingPolicy?:SchedulingPolicy;}
 
 /**
  * Fully implemented but intentionally NOT wired into WorkspaceDistributionRuntime while R0 is active.
@@ -44,7 +45,8 @@ export class AuthorizedRuntimeDueExecutionAdapter implements RuntimeDueExecution
     if(!options.ownerId.trim())throw new Error("Authorized due execution requires ownerId");
     this.clock=options.clock??(()=>new Date().toISOString());this.leaseTtlSeconds=options.leaseTtlSeconds??900;this.maxPerCycle=options.maxPerCycle??20;
     if(this.leaseTtlSeconds<60)throw new Error("Authorized due execution lease TTL must be at least 60 seconds");if(this.maxPerCycle<1||this.maxPerCycle>100)throw new Error("Authorized due execution maxPerCycle must be 1..100");
-    this.claimer=new DueWorkClaimer(store,operationalGate);this.missed=new MissedWindowGuard(store);this.finalAction=new DurableFinalActionService(store,publisher.finalAction,this.clock,operationalGate);
+    const schedulingPolicy=options.schedulingPolicy??DEFAULT_SCHEDULING_POLICY;
+    this.claimer=new DueWorkClaimer(store,operationalGate,schedulingPolicy);this.missed=new MissedWindowGuard(store,schedulingPolicy);this.finalAction=new DurableFinalActionService(store,publisher.finalAction,this.clock,operationalGate);
   }
   private context(intent:PublicationIntent):PublishContext{
     const context=this.contextProvider(intent);
@@ -55,7 +57,13 @@ export class AuthorizedRuntimeDueExecutionAdapter implements RuntimeDueExecution
     return context;
   }
   async runDue(now:string){
-    const startedAt=new Date(now).toISOString(),actor:Actor={type:"worker",id:this.options.ownerId};let claimed=0,prepared=0,verified=0,uncertain=0,blocked=this.missed.blockMissed(startedAt,actor).length;
+    const startedAt=new Date(now).toISOString(),actor:Actor={type:"worker",id:this.options.ownerId};
+    // Waive first, before claiming: any reservation still inside its catch-up grace period is
+    // left SCHEDULED so the claim loop below can pick it up like on-time work; only a
+    // reservation whose catch-up window has ALSO expired is waived here (never blocked -- there
+    // is nothing left to recover, see MissedWindowGuard.waiveMissed).
+    const waivedIntentIds=this.missed.waiveMissed(startedAt,actor);
+    let claimed=0,prepared=0,verified=0,uncertain=0,blocked=0;
     const outcomes:PublicationOutcomeNotificationInput[]=[];
     for(let index=0;index<this.maxPerCycle;index++){
       // Allowlist-only eligibility: foreign accounts are another worker's work and must stay
@@ -85,7 +93,7 @@ export class AuthorizedRuntimeDueExecutionAdapter implements RuntimeDueExecution
     // Wave bundling: one message per slot time instead of one ping per platform (operator
     // requirement); single outcomes keep the detailed message.
     await notifyPublicationOutcomes(this.store,this.options.notificationAdapters??[],outcomes,this.clock(),actor);
-    return{claimed,prepared,verified,uncertain,blocked};
+    return{claimed,prepared,verified,uncertain,blocked,waived:waivedIntentIds.length,waivedIntentIds};
   }
 
   /** Operator channels hear every post-boundary outcome; a broken channel never breaks the worker. */
