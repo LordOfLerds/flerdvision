@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { germanIncident, isContentKind, renderOperatorMessage } from "./operator-message.js";
-import type { OperatorChannelRef } from "./operator-plan-view.js";
+import { germanIncident, germanState, isContentKind, renderOperatorMessage } from "./operator-message.js";
+import { isQualificationIncident, type OperatorChannelRef } from "./operator-plan-view.js";
 import type { Actor } from "../domain/control-plane.js";
 import type { BrowserIdentityStorePort } from "../domain/browser-identity-ports.js";
 import type { ControlPlaneStorePort } from "../domain/control-plane-ports.js";
@@ -259,6 +259,77 @@ export class OperationsIncidentProjector {
       if (result.created || result.reopened) alertIncidentIds.push(result.incident.incidentId);
     }
     return { created, refreshed, incidentIds, createdIncidentIds, alertIncidentIds };
+  }
+}
+
+export interface IncidentReconciliationReport {
+  resolved: number;
+  resolvedIncidentIds: readonly string[];
+}
+
+/** Incidents about the posting surface itself; a later verified post for the account clears them. */
+const SURFACE_INCIDENT_KINDS = new Set<IncidentKind>(["PLATFORM_CAPABILITY_MISSING", "UI_UNKNOWN", "UPLOAD_REJECTED"]);
+
+/**
+ * A blocker is a thing to be resolved, not a thing to be collected. The projector opens incidents
+ * from live state but nothing ever closed them again, so /doctor accumulated a standing list of
+ * problems that had been over for days -- and the operator learned to ignore the list.
+ *
+ * This closes an incident exactly when the condition that opened it is demonstrably gone: the
+ * route posted again, the file left BLOCKED, the session is HEALTHY, the intent is VERIFIED. It
+ * writes incident status only. It never transitions an intent, never retries anything, and never
+ * touches PUBLISH_UNCERTAIN unless that publication has since been verified -- an uncertain post
+ * stays frozen exactly as the invariants require.
+ */
+export class IncidentReconciliationService {
+  constructor(
+    private readonly store: ProjectionStore,
+    private readonly operatorId: string = "incident-reconciliation"
+  ) {}
+
+  reconcile(now: Instant, actor: Actor = { type: "system", id: "incident-reconciliation" }): IncidentReconciliationReport {
+    const at = new Date(now).toISOString();
+    const blocked = new Set(this.store.listSourceObservations(["BLOCKED"]).map((record) => record.observation.observationId));
+    const resolvedIncidentIds: string[] = [];
+    for (const incident of this.store.listIncidents(["OPEN", "ACKNOWLEDGED"])) {
+      const note = this.causeGone(incident, blocked);
+      if (!note) continue;
+      this.store.resolveIncident(incident.incidentId, at, this.operatorId, note);
+      resolvedIncidentIds.push(incident.incidentId);
+    }
+    return { resolved: resolvedIncidentIds.length, resolvedIncidentIds };
+  }
+
+  /** The German resolution note, or undefined while the cause is still standing. */
+  private causeGone(incident: Incident, blockedObservations: ReadonlySet<string>): string | undefined {
+    if (isQualificationIncident(incident)) {
+      return "Aus einem Qualifikationslauf entstanden, nicht aus dem laufenden Betrieb.";
+    }
+    if (incident.scope.intentId) {
+      const record = this.store.getIntent(incident.scope.intentId);
+      if (!record) return "Der zugehörige Post existiert nicht mehr.";
+      // A missed window and an uncertain publication are facts about a moment that has passed.
+      // Only an actual verified publication makes them untrue.
+      if (incident.kind === "PUBLISH_UNCERTAIN" || incident.kind === "MISSED_WINDOW") {
+        return record.state === "VERIFIED" ? "Die Veröffentlichung ist inzwischen verifiziert." : undefined;
+      }
+      return record.state === "BLOCKED" ? undefined : `Der Post ist inzwischen ${germanState(record.state)}.`;
+    }
+    if (incident.scope.browserIdentityId) {
+      const health = this.store.latestSessionHealth(incident.scope.browserIdentityId);
+      return health?.state === "HEALTHY" ? "Der Kanal ist wieder angemeldet." : undefined;
+    }
+    if (incident.scope.sourceObservationId) {
+      return blockedObservations.has(incident.scope.sourceObservationId)
+        ? undefined
+        : "Die Datei aus Drive ist nicht mehr blockiert.";
+    }
+    if (incident.scope.accountId && SURFACE_INCIDENT_KINDS.has(incident.kind)) {
+      const posted = this.store.listIntents(["VERIFIED"]).some((record) =>
+        record.intent.accountId === incident.scope.accountId && record.updatedAt > incident.lastObservedAt);
+      return posted ? "Für diesen Kanal ist seither ein Post verifiziert worden." : undefined;
+    }
+    return undefined;
   }
 }
 
@@ -528,10 +599,13 @@ export interface OperationsCycleOptions {
   readinessMinuteLocal?: number;
   completionMinuteLocal?: number;
   timeZone?: string;
+  /** The operator's channels, so an incident message names the channel and its Drive folder. */
+  channels?: readonly OperatorChannelRef[];
 }
 
 export interface OperationsCycleReport {
   projection: OperationsProjectionReport;
+  reconciliation: IncidentReconciliationReport;
   enqueuedIncidentNotifications: number;
   readinessEnqueued: boolean;
   completionEnqueued: boolean;
@@ -552,8 +626,11 @@ export class OperationsCycleService {
   }
 
   run(now: Instant, actor: Actor = { type: "system", id: "operations-cycle" }): OperationsCycleReport {
+    // Close first, then project: a condition that is still live is simply refreshed, and one
+    // that is over stops being reported instead of standing in the operator's list forever.
+    const reconciliation = new IncidentReconciliationService(this.store).reconcile(now, actor);
     const projection = new OperationsIncidentProjector(this.store).project(now, actor);
-    const notifications = new IncidentNotificationService(this.store, this.options.channelKeys);
+    const notifications = new IncidentNotificationService(this.store, this.options.channelKeys, this.options.channels ?? []);
     for (const incidentId of projection.alertIncidentIds) {
       const incident = this.store.getIncident(incidentId);
       if (incident) notifications.enqueueNewIncident(incident, actor);
@@ -572,6 +649,7 @@ export class OperationsCycleService {
     }
     return {
       projection,
+      reconciliation,
       enqueuedIncidentNotifications: projection.alertIncidentIds.length,
       readinessEnqueued,
       completionEnqueued
