@@ -8,7 +8,7 @@ export interface RecoveryReport {
   expiredLeasesReaped: number;
   safePrepareRollbacks: readonly string[];
   uncertainMarked: readonly string[];
-  missedWindowsBlocked: readonly string[];
+  missedWindowsWaived: readonly string[];
   skippedWithActiveLease: readonly string[];
 }
 
@@ -63,12 +63,12 @@ export class RestartRecoveryService {
       }
     }
 
-    const missedWindowsBlocked = new MissedWindowGuard(this.store).blockMissed(now, actor);
+    const missedWindowsWaived = new MissedWindowGuard(this.store).waiveMissed(now, actor);
     return {
       expiredLeasesReaped,
       safePrepareRollbacks,
       uncertainMarked,
-      missedWindowsBlocked,
+      missedWindowsWaived,
       skippedWithActiveLease
     };
   }

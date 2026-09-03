@@ -14,6 +14,12 @@ export interface SchedulingPolicy {
   minimumSpacingMinutes: number;
   overflowAllowed: boolean;
   overflowMinimumSpacingMinutes: number;
+  /**
+   * Outage catch-up (operator decision, binding): a never-attempted intent whose on-time
+   * window (scheduledFor +/- windowMinutes) has already closed may still be claimed until
+   * scheduledFor + catchUpHours. Past that boundary it is waived, never published late.
+   */
+  catchUpHours: number;
 }
 
 export const DEFAULT_SCHEDULING_POLICY: SchedulingPolicy = {
@@ -28,8 +34,12 @@ export const DEFAULT_SCHEDULING_POLICY: SchedulingPolicy = {
   maxPerAccountPerBusinessDate: 4,
   minimumSpacingMinutes: 120,
   overflowAllowed: false,
-  overflowMinimumSpacingMinutes: 240
+  overflowMinimumSpacingMinutes: 240,
+  catchUpHours: 4
 };
+
+/** Transition reason for a SCHEDULED intent waived after its catch-up window elapsed unclaimed. */
+export const MISSED_WINDOW_WAIVE_REASON = "Slot verpasst, Nachholfenster abgelaufen";
 
 export class SchedulingPolicyError extends Error {}
 
@@ -116,6 +126,16 @@ export function addMinutes(instant: Instant, minutes: number): Instant {
 
 export function minutesBetween(a: Instant, b: Instant): number {
   return Math.abs(new Date(a).getTime() - new Date(b).getTime()) / 60_000;
+}
+
+/** End of the outage catch-up grace period for a slot: scheduledFor + policy.catchUpHours. */
+export function catchUpWindowEndAt(scheduledFor: Instant, policy: SchedulingPolicy): Instant {
+  return addMinutes(scheduledFor, policy.catchUpHours * 60);
+}
+
+/** True while `now` is still inside the catch-up grace period for a slot (inclusive of the edge). */
+export function isWithinCatchUp(scheduledFor: Instant, policy: SchedulingPolicy, now: Instant): boolean {
+  return new Date(now).getTime() <= new Date(catchUpWindowEndAt(scheduledFor, policy)).getTime();
 }
 
 export function matchingSlot(intent: PublicationIntent, policy: SchedulingPolicy): SlotDefinition {

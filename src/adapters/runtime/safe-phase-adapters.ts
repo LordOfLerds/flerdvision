@@ -18,7 +18,7 @@ import { DEFAULT_DISTRIBUTION_RUNTIME_POLICY } from "../../domain/distribution-o
 /** R0 safety adapter: observes due work but never acquires a publication lease or changes intent state. */
 export class FrozenRuntimeDueExecutionAdapter implements RuntimeDueExecutionPort {
   constructor(private readonly schedules:ScheduleStorePort){}
-  async runDue(now:string){const frozen=this.schedules.listDueReservations(new Date(now).toISOString()).length;return{claimed:0,prepared:0,verified:0,uncertain:0,blocked:0,frozen};}
+  async runDue(now:string){const frozen=this.schedules.listDueReservations(new Date(now).toISOString()).length;return{claimed:0,prepared:0,verified:0,uncertain:0,blocked:0,frozen,waived:0,waivedIntentIds:[]};}
 }
 
 type RecoveryRuntimeStore=ControlPlaneStorePort & Partial<Pick<PublishAttemptStorePort,"listPublishAttempts"|"markAttemptUncertain">>;

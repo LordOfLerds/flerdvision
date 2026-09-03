@@ -52,9 +52,13 @@ Policy values are configuration/domain data, not embedded in platform adapters:
 
 `Intl.DateTimeFormat` is used to map Vienna local slots to UTC instants. Tests cover both 2026 DST directions.
 
-## No catch-up burst
+## Bounded outage catch-up (E2)
 
-A `SCHEDULED` intent whose window has ended is moved to `BLOCKED` with reason `schedule_window_missed:*`. It is not silently pushed to the next available minute. Future operator policy may explicitly reschedule it; W1 never guesses.
+A `SCHEDULED` intent whose ±`windowMinutes` window has ended is **not** immediately blocked. If it was never attempted (no `publish_attempts` row for the intent at all — see below), it stays a live claim candidate until `scheduledFor + catchUpHours` (policy field, default 4h), subject to the same spacing/cap/kill-switch/allowlist gates as an on-time claim, earliest-overdue-first. It is never silently pushed to the next slot and never reschedules itself past that deadline.
+
+An intent that was ever attempted — even a "prepared" attempt with no final-action click, even one later marked `UNCERTAIN` — is never claimed a second time; `listPublishAttempts(intentId)` is the source of truth, checked before every catch-up claim.
+
+Still `SCHEDULED` once the catch-up deadline passes -> `WAIVED` (reason `Slot verpasst, Nachholfenster abgelaufen`), plus one `MISSED_WINDOW` incident. `WAIVED` is terminal; there is no automatic re-post.
 
 ## Irreversible-boundary recovery
 
@@ -67,7 +71,7 @@ Restart recovery then follows:
 - `VERIFYING` + no live lease -> `PUBLISH_UNCERTAIN`,
 - active lease -> leave untouched,
 - expired leases -> reap first,
-- missed `SCHEDULED` window -> `BLOCKED`.
+- missed `SCHEDULED` window -> stays claimable (catch-up) until `scheduledFor + catchUpHours`, then `WAIVED`, never `BLOCKED`.
 
 `PUBLISH_UNCERTAIN -> READY` is forbidden. Reconciliation must pass through `VERIFYING`; only proven negative evidence may later create a retry path.
 
@@ -96,7 +100,8 @@ The CLI is read-only except `recover`, which applies the documented restart poli
 - four canonical slots pass,
 - fifth future slot is rejected by daily cap,
 - due job is claimed exactly once,
-- missed window blocks instead of catch-up,
+- missed window inside catch-up stays SCHEDULED and claimable; past the catch-up deadline it is WAIVED with exactly one incident,
+- a never-attempted intent is claimable via catch-up; an attempted one never is, even after a restart rollback,
 - pre-final restart safely rolls back,
 - post-boundary restart becomes uncertain,
 - live worker lease is not stolen,

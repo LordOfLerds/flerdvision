@@ -3,10 +3,13 @@ import { jitterSeconds } from "../adapters/browser/human-pacing.js";
 import type { Actor, ScheduleReservation, StoredPublicationIntent } from "../domain/control-plane.js";
 import type { PublicationIntentStorePort, ScheduleStorePort } from "../domain/control-plane-ports.js";
 import type { OperationalPublishGatePort } from "../domain/operations-ports.js";
+import type { PublishAttemptStorePort } from "../domain/verification-ports.js";
 import {
   buildReservation,
   businessDateForInstant,
   DEFAULT_SCHEDULING_POLICY,
+  isWithinCatchUp,
+  MISSED_WINDOW_WAIVE_REASON,
   type SchedulingPolicy
 } from "../domain/scheduling.js";
 
@@ -46,21 +49,42 @@ export interface ClaimedWork {
 
 export class DueWorkClaimer {
   constructor(
-    private readonly store: PublicationIntentStorePort & ScheduleStorePort & {
+    private readonly store: PublicationIntentStorePort & ScheduleStorePort & Pick<PublishAttemptStorePort, "listPublishAttempts"> & {
       acquireLease: import("../domain/control-plane-ports.js").LeaseStorePort["acquireLease"];
       releaseLease: import("../domain/control-plane-ports.js").LeaseStorePort["releaseLease"];
     },
-    private readonly operationalGate?: OperationalPublishGatePort
+    private readonly operationalGate?: OperationalPublishGatePort,
+    private readonly policy: SchedulingPolicy = DEFAULT_SCHEDULING_POLICY
   ) {}
 
   claimNext(ownerId: string, now: Instant, ttlSeconds: number, eligible?: (intent: PublicationIntent) => boolean, jitterMaxSeconds = 0): ClaimedWork | null {
     const workerActor: Actor = { type: "worker", id: ownerId };
     const nowMs = new Date(now).getTime();
-    for (const reservation of this.store.listDueReservations(now)) {
+
+    // Outage catch-up (operator decision, binding): a reservation whose on-time window already
+    // closed stays claimable until scheduledFor + catchUpHours, but ONLY when the intent was
+    // NEVER attempted. listPublishAttempts is the source of truth -- a "prepared" attempt row is
+    // written before the final-action click, so its mere existence already rules out a second
+    // click. Once catch-up also elapses, MissedWindowGuard waives the intent instead.
+    const catchUpReservations = this.store.listMissedReservations(now).filter(
+      (reservation) =>
+        isWithinCatchUp(reservation.targetAt, this.policy, now) &&
+        this.store.listPublishAttempts(reservation.intentId).length === 0
+    );
+    const catchUpReservationIds = new Set(catchUpReservations.map((reservation) => reservation.reservationId));
+    // Earliest overdue first: on-time and catch-up candidates are merged and claimed in target
+    // order, so an outage never lets a later slot jump ahead of an earlier one for the same or a
+    // different account.
+    const candidates = [...this.store.listDueReservations(now), ...catchUpReservations].sort(
+      (a, b) => a.targetAt.localeCompare(b.targetAt) || a.reservationId.localeCompare(b.reservationId)
+    );
+
+    for (const reservation of candidates) {
       // Human launch scatter (operator decision): dueness begins at windowStart, which posted
       // machine-punctually up to 30 minutes early. The launch instant is target plus a
       // deterministic per-intent offset, clamped two minutes before the window closes so the
-      // scatter can never turn into a missed window.
+      // scatter can never turn into a missed window. A catch-up reservation's window has already
+      // closed, so its clamped launch instant is always in the past and jitter never delays it.
       if (jitterMaxSeconds > 0) {
         const offset = jitterSeconds(reservation.intentId, jitterMaxSeconds) * 1000;
         const launchMs = Math.min(new Date(reservation.targetAt).getTime() + offset, new Date(reservation.windowEndAt).getTime() - 120_000);
@@ -70,7 +94,8 @@ export class DueWorkClaimer {
       if (!candidate) continue;
       // A worker must never claim what it may not execute: claiming first and failing the
       // account allowlist after the browser prepare burned foreign due intents to BLOCKED.
-      // Ineligible work stays SCHEDULED for the worker that owns it.
+      // Ineligible work stays SCHEDULED for the worker that owns it. Kill switches, pauses and
+      // account allowlists gate catch-up exactly like an on-time claim.
       if (eligible && !eligible(candidate.intent)) continue;
       if (this.operationalGate && !this.operationalGate.evaluate(candidate.intent).allowed) continue;
       const resourceKey = `publication-intent:${reservation.intentId}`;
@@ -82,7 +107,7 @@ export class DueWorkClaimer {
           "PREPARING",
           now,
           workerActor,
-          "due_work_claimed"
+          catchUpReservationIds.has(reservation.reservationId) ? "due_work_claimed:catch_up" : "due_work_claimed"
         );
         return {
           record,
@@ -100,20 +125,30 @@ export class DueWorkClaimer {
 }
 
 export class MissedWindowGuard {
-  constructor(private readonly store: PublicationIntentStorePort & ScheduleStorePort) {}
+  constructor(
+    private readonly store: PublicationIntentStorePort & ScheduleStorePort,
+    private readonly policy: SchedulingPolicy = DEFAULT_SCHEDULING_POLICY
+  ) {}
 
-  blockMissed(now: Instant, actor: Actor = { type: "system", id: "missed-window-guard" }): readonly string[] {
-    const blocked: string[] = [];
+  /**
+   * Waives a SCHEDULED intent once its outage catch-up grace period (scheduledFor +
+   * catchUpHours, see DueWorkClaimer.claimNext) has also elapsed without a claim. A reservation
+   * still inside that grace period is left untouched -- it remains a live catch-up candidate.
+   * WAIVED (not BLOCKED): there is nothing left to recover once catch-up itself has expired.
+   */
+  waiveMissed(now: Instant, actor: Actor = { type: "system", id: "missed-window-guard" }): readonly string[] {
+    const waived: string[] = [];
     for (const reservation of this.store.listMissedReservations(now)) {
+      if (isWithinCatchUp(reservation.targetAt, this.policy, now)) continue;
       this.store.transitionIntent(
         reservation.intentId,
-        "BLOCKED",
+        "WAIVED",
         now,
         actor,
-        `schedule_window_missed:${reservation.windowEndAt}`
+        MISSED_WINDOW_WAIVE_REASON
       );
-      blocked.push(reservation.intentId);
+      waived.push(reservation.intentId);
     }
-    return blocked;
+    return waived;
   }
 }
