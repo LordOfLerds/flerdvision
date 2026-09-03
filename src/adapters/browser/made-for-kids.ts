@@ -21,7 +21,9 @@ function discriminatorScript(madeForKids: boolean): string {
       return isNegative === negative;
     };
     const visible = (element) => { const style = getComputedStyle(element); const rect = element.getBoundingClientRect(); return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0; };
-    const collect = (root, out) => { for (const element of Array.from(root.querySelectorAll('tp-yt-paper-radio-button, [role="radio"], input[type="radio"], label, div, span'))) { out.push(element); if (element.shadowRoot) collect(element.shadowRoot, out); } return out; };
+    // Studio nests its dialog in layers of custom elements, each with its own shadow root; the
+    // option can only be reached by walking every shadow root, not just those of candidates.
+    const collect = (root, out) => { for (const element of Array.from(root.querySelectorAll('*'))) { const tag = element.tagName.toLowerCase(); if (tag === 'tp-yt-paper-radio-button' || element.getAttribute('role') === 'radio' || (tag === 'input' && element.type === 'radio') || tag === 'label' || tag === 'div' || tag === 'span') out.push(element); if (element.shadowRoot) collect(element.shadowRoot, out); } return out; };
   `;
 }
 
@@ -33,6 +35,7 @@ export async function tagMadeForKidsOption(session: BrowserPageSessionPort, made
     const matches = collect(document, []).filter((element) => visible(element) && isAnswer(norm(element.getAttribute("aria-label")) || norm(element.textContent)));
     if (matches.length === 0) return false;
     matches.sort((left, right) => (left.textContent || "").length - (right.textContent || "").length);
+    matches[0].scrollIntoView({ block: "center", inline: "center" });
     matches[0].setAttribute('data-flerdvision-exact', '1');
     return true;
   })()`).catch(() => false);

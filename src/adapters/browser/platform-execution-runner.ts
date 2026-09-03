@@ -85,7 +85,10 @@ export class SafePlatformExecutionRunner {
   /** The made-for-kids answer is found by meaning, exactly as the exploration found it. */
   private async answerAudience(action:PlatformExecutionAction,madeForKids:boolean,finalLocators:readonly UiLocator[]):Promise<string>{
     if(await readMadeForKids(this.session,madeForKids))return `madeForKids=${String(madeForKids)} already selected`;
-    const tagged=await tagMadeForKidsOption(this.session,madeForKids);
+    // The question renders after the upload dialog settles; a replay arrives faster than a
+    // person reads. Wait, bounded, for the option to become visible before judging it absent.
+    let tagged=false;
+    for(const deadline=Date.now()+20_000;!tagged&&Date.now()<deadline;){tagged=await tagMadeForKidsOption(this.session,madeForKids);if(!tagged)await sleep(500);}
     const locators=tagged?[{kind:"css",value:'[data-flerdvision-exact="1"]'} as UiLocator,...action.locators]:action.locators;
     await this.driver.click(locators,10_000,finalLocators);
     await sleep(800);
