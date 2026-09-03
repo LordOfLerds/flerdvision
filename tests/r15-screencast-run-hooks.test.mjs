@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { SafePlatformExecutionRunner } from "../dist/adapters/browser/platform-execution-runner.js";
 import { AutonomousSurfaceExplorer } from "../dist/adapters/browser/autonomous-surface-explorer.js";
 
@@ -146,4 +147,13 @@ test("surface discovery records around its whole run and never masks its own fai
     assert.deepEqual(log, ["start", "stop"]);
     assert.deepEqual(tape.startedWith, { dir: "/evidence/intent-screencast", name: "screencast-surface-discovery-instagram", maxWidth: 960, quality: 60, fps: 2 });
   });
+});
+
+test("the CLI records an attended demo by default and an unattended daemon never", () => {
+  const cli = readFileSync(new URL("../src/cli/flerdvision.ts", import.meta.url).pathname, "utf8");
+  const demo = cli.slice(cli.indexOf('command === "demo"'), cli.indexOf('command === "notify-test"'));
+  const runtime = cli.slice(cli.indexOf('command === "run-once" || command === "daemon"'));
+  assert.match(demo, /applyScreencastDefault\(process\.env, true\)/);
+  assert.match(runtime, /applyScreencastDefault\(process\.env, false\)/);
+  assert.match(cli, /FLERDVISION_SCREENCAST/, "the switch is documented in the command help");
 });
