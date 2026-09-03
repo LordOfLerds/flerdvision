@@ -76,6 +76,31 @@ async function topologyFor(spec: WorkspaceSpecV1, configDir: string, env: Record
   });
 }
 
+/**
+ * A channel added by someone with no chat context is exactly the case where a typo'd or
+ * not-yet-created `sourceMatch` token silently falls back to a semantic/root guess: discovery
+ * itself only warns when NO folder scored at all, never when the operator's own explicit tokens
+ * specifically failed to win the match. Naming the channel and the tokens here is what turns that
+ * silent fallback into something the operator can fix in the Drive folder names.
+ */
+export function sourceMatchWarnings(spec: WorkspaceSpecV1, topology: SourceTopology): readonly string[] {
+  // Before the source is even verified (e.g. Drive not authenticated yet) every stream is a
+  // root_fallback placeholder by construction, not a real match failure -- warning about
+  // sourceMatch here would just restate "not authenticated" under a misleading label.
+  if (!topology.verified) return [];
+  const warnings: string[] = [];
+  for (const channel of spec.channels) {
+    for (const format of channel.formats) {
+      if (format.sourceMatch.length === 0) continue;
+      const stream = topology.streams.find((item) => item.channelKey === channel.key && item.format === format.type);
+      if (stream && stream.matchedBy !== "explicit") {
+        warnings.push(`${channel.key}/${format.type}: sourceMatch [${format.sourceMatch.join(", ")}] matched no discovered folder; using ${stream.matchedBy === "semantic" ? `a semantic guess (${stream.folderPath})` : "the source root"} instead`);
+      }
+    }
+  }
+  return warnings;
+}
+
 export async function bootstrapHeadlessWorkspace(input: {
   specPath: string;
   env?: Record<string, string | undefined>;
@@ -91,7 +116,9 @@ export async function bootstrapHeadlessWorkspace(input: {
     now: input.now ?? new Date().toISOString()
   });
   const layout = workspaceRuntimeLayout(runtimeRoot, spec.workspace.id);
-  const topology = await topologyFor(spec, layout.configDir, input.env ?? process.env);
+  const discovered = await topologyFor(spec, layout.configDir, input.env ?? process.env);
+  const extraWarnings = sourceMatchWarnings(spec, discovered);
+  const topology = extraWarnings.length > 0 ? { ...discovered, warnings: [...discovered.warnings, ...extraWarnings] } : discovered;
   const config = new JsonDistributionConfigurationStore(resolve(layout.configDir, "distribution.json"));
   const control = new SqliteControlPlaneStore(layout.databasePath);
   try {
