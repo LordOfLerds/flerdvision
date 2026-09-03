@@ -93,6 +93,7 @@ declare module "node:path" {
 declare module "node:child_process" {
   export interface SpawnedProcess {
     once(event: "exit", listener: (code?: number | null, signal?: string | null) => void): this;
+    once(event: "error", listener: (error: Error) => void): this;
     kill(signal?: string): boolean;
   }
   export function spawn(command: string, args?: readonly string[], options?: { stdio?: string }): SpawnedProcess;

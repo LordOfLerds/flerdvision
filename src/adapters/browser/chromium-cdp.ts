@@ -9,6 +9,7 @@ import type {
   BrowserRuntimePort
 } from "../../domain/browser-identity-ports.js";
 import { BrowserProfileDirectoryResolver } from "./profile-lock.js";
+import { CdpScreencastRecorder } from "./screencast-recorder.js";
 import { resolveChromiumExecutablePath } from "./resolve-chromium.js";
 
 interface CdpEnvelope {
@@ -259,9 +260,11 @@ export class ChromiumCdpRuntimeAdapter implements BrowserRuntimePort {
       await page.send("DOM.enable");
 
       let closed = false;
+      const screencast = new CdpScreencastRecorder(page);
       const session: BrowserPageSessionPort = {
         identityId: identity.identityId,
         profileDirectory,
+        screencast,
         async navigate(url: string): Promise<void> {
           const navigation = await page.send("Page.navigate", { url });
           if (navigation.errorText) throw new Error(`Navigation failed: ${String(navigation.errorText)}`);
