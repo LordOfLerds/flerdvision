@@ -18,6 +18,8 @@ export interface PublicationOutcomeNotificationInput {
   outcome: "VERIFIED" | "UNCERTAIN";
   permalink?: string;
   screenshotPath?: string;
+  /** MP4 recording of the run (upload to boundary); sent as a Telegram video when present. */
+  videoPath?: string;
   timeZone?: string;
   /** Spec display name of the channel (customer-facing); falls back to the bare handle. */
   channelName?: string;
@@ -83,6 +85,7 @@ function contextFor(input: PublicationOutcomeNotificationInput): OperatorMessage
     ...(input.title ? { title: input.title } : {}),
     ...(input.permalink ? { permalink: input.permalink } : {}),
     ...(input.screenshotPath ? { screenshotPath: input.screenshotPath } : {}),
+    ...(input.videoPath ? { videoPath: input.videoPath } : {}),
     ...(input.reason ? { reason: input.reason } : {}),
     ...(input.nextStep ? { nextStep: input.nextStep } : {})
   };
@@ -103,8 +106,9 @@ export function publicationOutcomeMessage(input: PublicationOutcomeNotificationI
     accountId: input.intent.accountId,
     metadata: {
       runId: input.runId,
-      ...(input.permalink ? { permalink: input.permalink } : {}),
-      ...(input.screenshotPath ? { screenshotPath: input.screenshotPath } : {})
+      ...(input.permalink ? { permalink: input.permalink} : {}),
+      ...(input.screenshotPath ? { screenshotPath: input.screenshotPath } : {}),
+      ...(input.videoPath ? { videoPath: input.videoPath } : {})
     }
   };
 }
@@ -157,7 +161,8 @@ export function publicationWaveMessage(
     subject: rendered.subject,
     body: rendered.body,
     metadata: {
-      ...(screenshots.length > 0 ? { screenshotPaths: screenshots.slice(0, 10) } : {})
+      ...(screenshots.length > 0 ? { screenshotPaths: screenshots.slice(0, 10) } : {}),
+      ...(outcomes.find((item) => item.videoPath)?.videoPath ? { videoPath: outcomes.find((item) => item.videoPath)!.videoPath! } : {})
     }
   };
 }

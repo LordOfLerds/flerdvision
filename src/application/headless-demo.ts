@@ -131,7 +131,9 @@ export async function runHeadlessDemo(input: {
       scans = 2;
     }
     const first = await runtime.supervisor(`${runId}:bootstrap`).runCycle(new Date().toISOString(), date);
-    if (!first.phases.find((phase) => phase.phase === "PLAN" && phase.status === "PASS")) throw new Error("Planning did not pass");
+    const planPhase = first.phases.find((phase) => phase.phase === "PLAN");
+    // A bare "did not pass" sends the operator digging through evidence; the phase already knows why.
+    if (!planPhase || planPhase.status !== "PASS") throw new Error(`Planning did not pass: ${planPhase?.summary ?? "no PLAN phase ran"}`);
     const scanSummary = `${scans} forced scan(s) · observed=${scan.observed} ready=${scan.ready} stabilizing=${scan.stabilizing} blocked=${scan.blocked}`;
     stages.push({ stage: "INGEST_PLAN", status: "PASS", summary: `${scanSummary} · ${first.phases.map((phase) => `${phase.phase}:${phase.status}`).join(" · ")}` });
     input.onProgress?.(`INGEST_PLAN PASS · ${scanSummary}`);

@@ -284,7 +284,16 @@ export class DistributionPlanner {
     const stableGaps = dedupeById(gaps, (item) => item.gapId).sort((a, b) => a.kind.localeCompare(b.kind) || (a.routeId ?? "").localeCompare(b.routeId ?? "") || (a.slotKey ?? "").localeCompare(b.slotKey ?? "") || (a.assetId ?? "").localeCompare(b.assetId ?? ""));
     const stableBacklog = dedupeById(backlogItems, (item) => item.backlogId).sort((a, b) => (a.carryToBusinessDate ?? "").localeCompare(b.carryToBusinessDate ?? "") || a.routeId.localeCompare(b.routeId) || a.assetId.localeCompare(b.assetId) || a.reason.localeCompare(b.reason));
 
-    const configFingerprint = sha(JSON.stringify({ routes: input.routes, schedules: input.catalog.schedulePolicies }));
+    // The plan id must change whenever the plan's meaning changes. Routes reference their copy and
+    // posting profiles by id only, so a caption template edited mid-day left the id untouched
+    // while the provenance snapshot moved -- and every later planning of that day was refused as
+    // a conflict. The resolved profiles are part of the fingerprint now.
+    const configFingerprint = sha(JSON.stringify({
+      routes: input.routes,
+      schedules: input.catalog.schedulePolicies,
+      copyProfiles: input.routes.map((route) => input.catalog.copyProfiles[route.copyProfileId] ?? null),
+      postingProfiles: input.routes.map((route) => input.catalog.postingProfiles[route.postingProfileId] ?? null)
+    }));
     const semanticPayload = JSON.stringify({ businessDate: input.businessDate, deliveries: acceptedDeliveries, gaps: stableGaps, backlog: stableBacklog, configFingerprint });
     return {
       planId: `daily-plan:${input.businessDate}:${sha(semanticPayload)}`,

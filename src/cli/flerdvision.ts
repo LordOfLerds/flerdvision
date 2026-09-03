@@ -49,7 +49,7 @@ function authorizedMode(argv: readonly string[]): "canary" | "production" {
   return mode;
 }
 function usage(): never {
-  console.error(`Flerdvision headless commands:\n\n  npm run flerdvision -- bootstrap [--spec <flerdvision.json>]\n  npm run flerdvision -- drive-auth [--spec <flerdvision.json>]\n  npm run flerdvision -- login --channel <channel-key>\n  npm run flerdvision -- doctor [--release-sha <sha>]\n  npm run flerdvision -- demo [--channel <key>] [--private-publish] [--force-login] [--headless]\n  npm run flerdvision -- notify-test\n  npm run flerdvision -- verify --run-id <id> [--release-sha <sha>]\n  npm run flerdvision -- cleanup --run-id <id> --confirm PRIVATE_E2E_TEST_POST_DELETED --note <evidence>\n  npm run flerdvision -- run-once --channel <key> --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH\n  npm run flerdvision -- daemon --channel <key> --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH [--interval 60]\n\nSet FLERDVISION_SCREENCAST=1 or 0 to force the optional browser recording (an MP4 beside the screenshots); demo records by default, the daemon does not. Set FLERDVISION_SPEC once to avoid repeating --spec. The default product path has no setup/calibration UI. A social login browser opens only when human login or 2FA is needed. Final publishing additionally requires ALLOW_FINAL_PUBLISH=true.`);
+  console.error(`Flerdvision headless commands:\n\n  npm run flerdvision -- bootstrap [--spec <flerdvision.json>]\n  npm run flerdvision -- drive-auth [--spec <flerdvision.json>]\n  npm run flerdvision -- login --channel <channel-key>\n  npm run flerdvision -- doctor [--release-sha <sha>]\n  npm run flerdvision -- demo [--channel <key>] [--private-publish] [--force-login] [--headless]\n  npm run flerdvision -- notify-test\n  npm run flerdvision -- verify --run-id <id> [--release-sha <sha>]\n  npm run flerdvision -- cleanup --run-id <id> --confirm PRIVATE_E2E_TEST_POST_DELETED --note <evidence>\n  npm run flerdvision -- run-once --channel <key> --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH\n  npm run flerdvision -- daemon --channel <key> --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH [--interval 60]\n\nSet FLERDVISION_SCREENCAST=1 or 0 to force the optional browser recording (an MP4 beside the screenshots); every run records by default so the operator gets the video of each post. Set FLERDVISION_SPEC once to avoid repeating --spec. The default product path has no setup/calibration UI. A social login browser opens only when human login or 2FA is needed. Final publishing additionally requires ALLOW_FINAL_PUBLISH=true.`);
   process.exitCode = 2;
   throw new Error("invalid arguments");
 }
@@ -175,9 +175,9 @@ async function main(): Promise<void> {
     return;
   }
   if (command === "run-once" || command === "daemon") {
-    // The daemon runs unattended for days: recording every cycle by default would quietly fill
-    // the evidence disk for nobody. An operator who wants one asks for it explicitly.
-    applyScreencastDefault(process.env, false);
+    // The operator wants to watch every real post, so the unattended runtime records too; the
+    // 14-day pruning beside the screenshots keeps the evidence disk bounded.
+    applyScreencastDefault(process.env, true);
     const channels = values(argv, "--channel");
     if (channels.length === 0) throw new Error("Autonomous runtime requires at least one explicit --channel allowlist entry");
     const mode = authorizedMode(argv);

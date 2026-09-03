@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { BrowserIdentity } from "../../domain/browser-identity.js";
 import type { BrowserPageSessionPort } from "../../domain/browser-identity-ports.js";
@@ -63,4 +63,25 @@ export class LocalPrepareArtifactSink implements PrepareArtifactSinkPort {
     writeFileSync(path, JSON.stringify({ intentId: intent.intentId, entries }, null, 2), { encoding: "utf8", mode: 0o600 });
     return path;
   }
+}
+
+/**
+ * The newest MP4 a run left beside an intent's screenshots, or undefined. The operator asked for
+ * the video of every real post in the chat; the message builder asks here, and a missing file
+ * degrades the message to text, never the publishing cycle.
+ */
+export function findLatestRecording(rootDirectory: string, intentId: string): string | undefined {
+  const directory = join(resolve(rootDirectory), safeSegment(intentId));
+  let newest: { path: string; mtime: number } | undefined;
+  try {
+    for (const name of readdirSync(directory)) {
+      if (!name.startsWith("screencast-") || !name.endsWith(".mp4")) continue;
+      const path = join(directory, name);
+      const mtime = new Date(statSync(path).mtime.toISOString()).getTime();
+      if (!newest || mtime > newest.mtime) newest = { path, mtime };
+    }
+  } catch {
+    return undefined;
+  }
+  return newest?.path;
 }

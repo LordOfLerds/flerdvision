@@ -25,7 +25,7 @@ type DueStore=ControlPlaneStorePort & PublishAttemptStorePort & VerificationStor
 /** What the operator must read in a post message: the video by name, and the copy as posted. */
 export interface DuePublicationDescription {videoLabel?:string;hashtags?:string;caption?:string;title?:string;}
 
-export interface AuthorizedRuntimeDueExecutionOptions {releaseSha:string;ownerId:string;leaseTtlSeconds?:number;maxPerCycle?:number;clock?:()=>string;notificationAdapters?:readonly NotificationPort[];timeZone?:string;launchJitterMaxSeconds?:number;channelNames?:Readonly<Record<string,string>>;schedulingPolicy?:SchedulingPolicy;describeContent?:(intent:PublicationIntent)=>Promise<DuePublicationDescription>|DuePublicationDescription;nextSlot?:(now:string)=>OperatorNextSlot|undefined;}
+export interface AuthorizedRuntimeDueExecutionOptions {releaseSha:string;ownerId:string;leaseTtlSeconds?:number;maxPerCycle?:number;clock?:()=>string;notificationAdapters?:readonly NotificationPort[];timeZone?:string;launchJitterMaxSeconds?:number;channelNames?:Readonly<Record<string,string>>;schedulingPolicy?:SchedulingPolicy;describeContent?:(intent:PublicationIntent)=>Promise<DuePublicationDescription>|DuePublicationDescription;nextSlot?:(now:string)=>OperatorNextSlot|undefined;/** Newest run recording for an intent, attached to its outcome message when present. */findRecording?:(intent:PublicationIntent)=>string|undefined;}
 
 /**
  * Fully implemented but intentionally NOT wired into WorkspaceDistributionRuntime while R0 is active.
@@ -108,6 +108,7 @@ export class AuthorizedRuntimeDueExecutionAdapter implements RuntimeDueExecution
     // wording, never the publishing cycle that is reporting through it.
     let described:DuePublicationDescription={};
     try{described=await this.options.describeContent?.(intent)??{};}catch{described={};}
-    return{intent,runId:`due:${this.options.ownerId}`,outcome,...(this.options.timeZone?{timeZone:this.options.timeZone}:{}),...(this.options.channelNames?.[intent.accountId]?{channelName:this.options.channelNames[intent.accountId]!}:{}),...(permalink?{permalink}:evidence?.locator?{permalink:evidence.locator}:{}),...(evidence?.artifactRef?{screenshotPath:evidence.artifactRef}:{}),...(described.videoLabel?{videoLabel:described.videoLabel}:{}),...(described.hashtags?{hashtags:described.hashtags}:{}),...(described.caption?{caption:described.caption}:{}),...(described.title?{title:described.title}:{})};
+    let videoPath:string|undefined;try{videoPath=this.options.findRecording?.(intent);}catch{videoPath=undefined;}
+    return{intent,runId:`due:${this.options.ownerId}`,outcome,...(this.options.timeZone?{timeZone:this.options.timeZone}:{}),...(this.options.channelNames?.[intent.accountId]?{channelName:this.options.channelNames[intent.accountId]!}:{}),...(permalink?{permalink}:evidence?.locator?{permalink:evidence.locator}:{}),...(evidence?.artifactRef?{screenshotPath:evidence.artifactRef}:{}),...(described.videoLabel?{videoLabel:described.videoLabel}:{}),...(described.hashtags?{hashtags:described.hashtags}:{}),...(described.caption?{caption:described.caption}:{}),...(described.title?{title:described.title}:{}),...(videoPath?{videoPath}:{})};
   }
 }

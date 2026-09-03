@@ -149,11 +149,11 @@ test("surface discovery records around its whole run and never masks its own fai
   });
 });
 
-test("the CLI records an attended demo by default and an unattended daemon never", () => {
+test("the CLI records an attended demo by default and the unattended daemon too (the operator wants the video of every real post)", () => {
   const cli = readFileSync(new URL("../src/cli/flerdvision.ts", import.meta.url).pathname, "utf8");
   const demo = cli.slice(cli.indexOf('command === "demo"'), cli.indexOf('command === "notify-test"'));
   const runtime = cli.slice(cli.indexOf('command === "run-once" || command === "daemon"'));
   assert.match(demo, /applyScreencastDefault\(process\.env, true\)/);
-  assert.match(runtime, /applyScreencastDefault\(process\.env, false\)/);
+  assert.match(runtime, /applyScreencastDefault\(process\.env, true\)/);
   assert.match(cli, /FLERDVISION_SCREENCAST/, "the switch is documented in the command help");
 });

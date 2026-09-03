@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+import { findLatestRecording } from "../adapters/browser/prepare-artifacts.js";
 import { setTimeout as sleep } from "node:timers/promises";
 import { KillSwitchGate } from "./operations.js";
 import { RuntimeSupervisor, type RuntimeCycleReport } from "./runtime-supervisor.js";
@@ -174,7 +176,7 @@ function composeAutonomousRuntime(options: HeadlessAutonomousRuntimeOptions): Au
       publisher,
       operationalGate,
       contextProvider,
-      { releaseSha: options.releaseSha, ownerId, maxPerCycle, notificationAdapters: [...(telegramAdapterFromEnv(env) ? [telegramAdapterFromEnv(env)!] : [])], timeZone: spec.workspace.timezone, channelNames, describeContent, nextSlot }
+      { releaseSha: options.releaseSha, ownerId, maxPerCycle, notificationAdapters: [...(telegramAdapterFromEnv(env) ? [telegramAdapterFromEnv(env)!] : [])], timeZone: spec.workspace.timezone, channelNames, describeContent, nextSlot, findRecording: (intent: PublicationIntent) => findLatestRecording(resolve(base.layout.evidenceDir, "publisher"), intent.intentId) }
     );
     const supervisor = new RuntimeSupervisor({
       lease: base.lease,
