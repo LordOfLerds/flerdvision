@@ -11,7 +11,7 @@ const source = readFileSync(new URL("../src/adapters/browser/autonomous-surface-
 
 test("the control is also found by the setting it currently shows", () => {
   const idx = source.indexOf("function visibilityControlLocators");
-  const block = source.slice(idx, idx + 2200);
+  const block = source.slice(idx, idx + 3100);
   assert.match(block, /const currentValues = \[/);
   assert.match(block, /"Alle"/);
   assert.match(block, /role\("combobox", currentValues\)/);
@@ -19,7 +19,7 @@ test("the control is also found by the setting it currently shows", () => {
 
 test("every value the option labels can select is also a recognizable current value", () => {
   const idx = source.indexOf("function visibilityControlLocators");
-  const values = source.slice(idx, idx + 2200);
+  const values = source.slice(idx, idx + 3100);
   for (const label of ["Everyone", "Alle", "Only you", "Nur du", "Private", "Privat", "Unlisted"]) {
     assert.ok(values.includes(`"${label}"`), `${label} must be recognizable as a current value`);
   }
@@ -27,13 +27,13 @@ test("every value the option labels can select is also a recognizable current va
 
 test("only_you still maps to the exact German option TikTok shows", () => {
   const idx = source.indexOf("function visibilityLabels");
-  const block = source.slice(idx, idx + 600);
+  const block = source.slice(idx, idx + 1500);
   assert.match(block, /"Nur du"/);
 });
 
 test("interactive candidates rank before the plain question text", () => {
   const idx = source.indexOf("function visibilityControlLocators");
-  const block = source.slice(idx, idx + 1600);
+  const block = source.slice(idx, idx + 2500);
   const combobox = block.indexOf('button[role=');
   const plainText = block.indexOf("...text(names)");
   // Clicking the label opened nothing and consumed the attempt; the option list never appeared.
@@ -42,7 +42,7 @@ test("interactive candidates rank before the plain question text", () => {
 
 test("a structural combobox candidate exists, guarded by the value readback", () => {
   const idx = source.indexOf("function visibilityControlLocators");
-  const block = source.slice(idx, idx + 1800);
+  const block = source.slice(idx, idx + 2700);
   // TikTok's control carries no usable accessible name; structure finds it, and picking the
   // wrong one still fails loudly because the setting is read back afterwards.
   assert.match(block, /button\[role=\\"combobox\\"\]/);
@@ -51,7 +51,7 @@ test("a structural combobox candidate exists, guarded by the value readback", ()
 
 test("a control that vanishes between probe and use is re-resolved once", () => {
   const idx = source.indexOf("Could not locate required visibility setting");
-  const block = source.slice(idx, idx + 900);
+  const block = source.slice(idx, idx + 1800);
   // The settings section re-renders constantly: a candidate chosen with a short probe failed a
   // full five-second locate moments later.
   assert.match(block, /const refreshed = await this\.firstPresent\(candidates, 5000\);/);
@@ -78,7 +78,7 @@ test("the replay waits for the option list the click opens", () => {
 test("a control that shows its value as text can still be read back", () => {
   const runner = readFileSync(new URL("../src/adapters/browser/platform-execution-runner.ts", import.meta.url).pathname, "utf8");
   const idx = runner.indexOf("private async readEnum");
-  const block = runner.slice(idx, idx + 1400);
+  const block = runner.slice(idx, idx + 2300);
   // TikTok's visibility button carries no value attribute at all: every attribute-based read
   // returned nothing and the readback failed on a setting that had in fact been applied.
   assert.match(block, /const own=\(el\.textContent\|\|''\)\.trim\(\);/);
@@ -90,7 +90,7 @@ test("a radio-based visibility surface is handled before the combobox search", (
   // YouTube's last wizard screen lists Öffentlich / Nicht gelistet / Privat as radios; the
   // combobox search settled on the section heading and read "Sichtbarkeit" as the value.
   const idx = source.indexOf("Some surfaces expose visibility as radio buttons");
-  const block = source.slice(idx, idx + 3700);
+  const block = source.slice(idx, idx + 4600);
   assert.match(block, /let radio = await this\.firstPresent\(radioCandidates, 2500\);/);
   assert.match(block, /aria-checked"\) === "true"/);
   const radioPath = source.indexOf("let radio = await this.firstPresent");
