@@ -4,6 +4,7 @@ import type { SchedulePauseStorePort } from "../domain/operator-ports.js";
 import type { HeadlessDoctorReport } from "./headless-status.js";
 import { businessDateForInstant } from "../domain/scheduling.js";
 import { collectOperatorPlanView, renderOperatorPlan, type OperatorChannelRef, type OperatorPlanViewStores } from "./operator-plan-view.js";
+import { germanBlocker, germanDayLabel, germanDoctorCheck, germanPlatformLabel, germanState, operatorMessageText, renderOperatorMessage } from "./operator-message.js";
 
 export interface OperatorCommandControlReads {
   listBrowserIdentities(): readonly StoredBrowserIdentity[];
@@ -77,18 +78,23 @@ export class OperatorCommandService {
   private today(): string { return businessDateForInstant(this.clock(), this.deps.timeZone); }
 
   private resolveScope(argument: string | undefined, verb: string): { scopeKey: string; channelKey: string; label: string } | string {
-    if (!argument) return `⚠️ Kanal fehlt: ${verb} <${this.deps.channels.map((channel) => channel.key).join("|")}|alle>`;
+    if (!argument) return `⚠️ Kanal fehlt. ${verb} <kanal>. Verfügbar: ${this.channelList()}`;
     const normalized = argument.toLocaleLowerCase("en-US");
     if (normalized === "alle" || normalized === "*") return { scopeKey: "*", channelKey: "alle", label: "ALLE Kanäle" };
     const channel = this.deps.channels.find((item) => item.key.toLocaleLowerCase("en-US") === normalized);
-    if (!channel) return `⚠️ Unbekannter Kanal „${argument}“. Verfügbar: ${this.deps.channels.map((item) => item.key).join(", ")}, alle`;
-    return { scopeKey: channel.accountId, channelKey: channel.key, label: `Kanal ${channel.key} (${channel.platform})` };
+    if (!channel) return `⚠️ Unbekannter Kanal „${argument}“. Verfügbar: ${this.channelList()}`;
+    return { scopeKey: channel.accountId, channelKey: channel.key, label: `${channel.name} (${germanPlatformLabel(channel.platform)})` };
+  }
+
+  private channelList(): string {
+    return `${this.deps.channels.map((channel) => `${channel.name} (${channel.key})`).join(", ")}, alle`;
   }
 
   private status(): string {
-    const view = collectOperatorPlanView(this.deps.stores, this.deps.channels, this.today(), this.deps.timeZone);
+    const now = this.clock();
+    const view = collectOperatorPlanView(this.deps.stores, this.deps.channels, this.today(), this.deps.timeZone, now);
     const identities = this.deps.stores.control.listBrowserIdentities();
-    const lines = [`📊 Status · ${this.today()}`];
+    const lines: string[] = [];
     for (const channel of this.deps.channels) {
       const identity = identities.find((item) => item.identity.accountId === channel.accountId);
       const health = identity ? this.deps.stores.control.latestSessionHealth(identity.identity.identityId) : null;
@@ -96,42 +102,63 @@ export class OperatorCommandService {
       const paused = view.pauses.some((pause) => pause.scopeKey === "*" || pause.scopeKey === channel.accountId);
       const stopped = view.killSwitches.some((item) =>
         item.scopeType === "GLOBAL" || (item.scopeType === "ACCOUNT" && item.scopeKey === channel.accountId) || (item.scopeType === "PLATFORM" && item.scopeKey === channel.platform));
-      lines.push(`${SESSION_BADGE[state] ?? "⚠️"} ${channel.key} (${channel.platform}) · Session ${state}${paused ? " · ⏸️ pausiert" : ""}${stopped ? " · 🛑 Kill-Switch" : ""}`);
+      lines.push(`${SESSION_BADGE[state] ?? "⚠️"} ${channel.name} (${germanPlatformLabel(channel.platform)}) · ${germanState(state)}${paused ? " · ⏸️ pausiert" : ""}${stopped ? " · 🛑 Kill-Switch" : ""}`);
     }
     const verified = view.entries.filter((entry) => entry.state === "VERIFIED").length;
     const blocked = view.entries.filter((entry) => entry.state === "BLOCKED").length;
     const uncertain = view.entries.filter((entry) => entry.state === "PUBLISH_UNCERTAIN").length;
     lines.push(`Heute: ${verified}/${view.entries.length} verifiziert · ${blocked} blockiert · ${uncertain} unsicher`);
     lines.push(`Offene Störungen: ${view.disturbances.length}`);
-    lines.push(`Drive: ${view.pipeline.ready} READY · ${view.pipeline.stabilizing} stabilisierend · ${view.pipeline.blocked} blockiert`);
-    if (uncertain > 0) lines.push("🛑 UNSICHER-Posts sind eingefroren — Auflösung nur über verify im Terminal.");
-    return lines.join("\n").slice(0, 4000);
+    lines.push(`Drive: ${view.pipeline.ready} bereit · ${view.pipeline.stabilizing} stabilisierend · ${view.pipeline.blocked} blockiert`);
+    if (uncertain > 0) lines.push("🛑 Unsichere Posts sind eingefroren — Auflösung nur im Terminal.");
+    return operatorMessageText(renderOperatorMessage("STATUS", {
+      planLabel: germanDayLabel(this.today()),
+      lines,
+      ...(view.nextSlot ? { nextSlot: view.nextSlot } : {})
+    }));
   }
 
   private plan(): string {
-    return renderOperatorPlan(collectOperatorPlanView(this.deps.stores, this.deps.channels, this.today(), this.deps.timeZone));
+    return renderOperatorPlan(
+      collectOperatorPlanView(this.deps.stores, this.deps.channels, this.today(), this.deps.timeZone, this.clock()),
+      this.deps.channels
+    );
   }
 
   private doctor(): string {
     let report: HeadlessDoctorReport;
     try { report = this.deps.doctor(); }
     catch (error) { return `🛑 Doctor fehlgeschlagen: ${error instanceof Error ? error.message : String(error)}`; }
-    const lines = [`${DOCTOR_BADGE[report.overall] ?? "⚠️"} Doctor · ${report.workspaceId} · Gesamt: ${report.overall}`];
+    // German sentences for the operator, but the release SHA stays verbatim: it is the one value
+    // a qualification argument actually turns on.
+    const lines = [`Release ${report.releaseSha}`];
     for (const check of report.checks.filter((item) => item.status !== "PASS").slice(0, 10)) {
-      lines.push(`${DOCTOR_BADGE[check.status]} ${check.key}: ${check.detail}`);
+      lines.push(`${DOCTOR_BADGE[check.status] ?? "⚠️"} ${germanDoctorCheck(check.key)}: ${germanState(check.status)}`);
     }
-    for (const channel of report.channels) {
+    const channels = report.channels.map((channel) => {
+      const named = this.deps.channels.find((item) => item.key === channel.channelKey);
       const ready = channel.routes.filter((route) => route.readyForAutonomousPublish).length;
-      lines.push(`${ready === channel.routes.length && channel.routes.length > 0 ? "✅" : "⚠️"} ${channel.channelKey}: Session ${channel.latestSessionState} · ${ready}/${channel.routes.length} Routen bereit`);
-    }
-    return lines.join("\n").slice(0, 4000);
+      const blockers = [...new Set(channel.routes.flatMap((route) => route.blockers))].map(germanBlocker);
+      const ok = ready === channel.routes.length && channel.routes.length > 0;
+      return `${ok ? "✅" : "⚠️"} ${named?.name ?? channel.channelKey} · ${germanState(channel.latestSessionState)} · ${ready}/${channel.routes.length} Routen bereit${ok || blockers.length === 0 ? "" : ` — ${blockers.join(", ")}`}`;
+    });
+    return operatorMessageText(renderOperatorMessage("DOCTOR", {
+      badge: DOCTOR_BADGE[report.overall] ?? "⚠️",
+      statusLabel: germanState(report.overall),
+      lines,
+      ...(channels.length > 0 ? { sections: [{ heading: "Kanäle:", lines: channels }] } : {})
+    }));
   }
 
   private pause(argument: string | undefined): string {
     const scope = this.resolveScope(argument, "/pause");
     if (typeof scope === "string") return scope;
     this.deps.pauses.setSchedulePause({ scopeKey: scope.scopeKey, channelKey: scope.channelKey, reason: "operator_pause", pausedAt: this.clock(), pausedBy: this.operatorId });
-    return `⏸️ ${scope.label} pausiert. Fällige Posts bleiben SCHEDULED. Fortsetzen: /fortsetzen ${scope.channelKey}`;
+    return operatorMessageText(renderOperatorMessage("SWITCH", {
+      badge: "⏸️", headline: `${scope.label} pausiert`,
+      reason: "Fällige Posts bleiben geplant und werden nicht verbraucht.",
+      nextStep: `/fortsetzen ${scope.channelKey}`
+    }));
   }
 
   private resume(argument: string | undefined): string {
@@ -139,9 +166,11 @@ export class OperatorCommandService {
     if (typeof scope === "string") return scope;
     const cleared = this.deps.pauses.clearSchedulePause(scope.scopeKey);
     if (!cleared) return `ℹ️ ${scope.label} war nicht pausiert.`;
-    const activeSwitches = this.deps.stores.control.listKillSwitches(true);
-    const stillStopped = activeSwitches.length > 0 ? " ⚠️ Achtung: Kill-Switch weiterhin aktiv — Deaktivierung nur im Terminal." : "";
-    return `▶️ ${scope.label} fortgesetzt.${stillStopped}`;
+    const stillStopped = this.deps.stores.control.listKillSwitches(true).length > 0;
+    return operatorMessageText(renderOperatorMessage("SWITCH", {
+      badge: "▶️", headline: `${scope.label} fortgesetzt`,
+      ...(stillStopped ? { reason: "⚠️ Achtung: Kill-Switch weiterhin aktiv — Deaktivierung nur im Terminal." } : {})
+    }));
   }
 
   private stop(argument: string | undefined): string {
@@ -149,6 +178,10 @@ export class OperatorCommandService {
     if (typeof scope === "string") return scope;
     const scopeType: KillSwitchScopeType = scope.scopeKey === "*" ? "GLOBAL" : "ACCOUNT";
     this.deps.killSwitches.set(scopeType, scope.scopeKey, true, `telegram_stopp:${scope.channelKey}`, this.clock(), this.operatorId);
-    return `🛑 Kill-Switch AKTIVIERT für ${scope.label}. Es wird nichts mehr veröffentlicht. Deaktivieren ist über den Chat nicht möglich — nur im Terminal.`;
+    return operatorMessageText(renderOperatorMessage("SWITCH", {
+      badge: "🛑", headline: `Kill-Switch AKTIVIERT für ${scope.label}`,
+      reason: "Es wird nichts mehr veröffentlicht.",
+      nextStep: "Deaktivieren geht nur im Terminal, nicht über den Chat."
+    }));
   }
 }

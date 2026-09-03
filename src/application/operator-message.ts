@@ -424,7 +424,7 @@ function build(kind: OperatorMessageKind, context: OperatorMessageContext): Oper
       return {
         subject: `${context.badge ?? "⚠️"} ${safe(context.headline) ?? "Aufmerksamkeit nötig"}`,
         body: block([
-          join([safe(context.headline), safe(context.reason)], " — "),
+          safe(context.reason),
           join([channelLabel(context), safe(context.slotLocal) ? `${safe(context.slotLocal)} Uhr` : undefined]),
           quoted(context.videoLabel) ? `🎬 ${quoted(context.videoLabel)}` : undefined,
           safe(context.nextStep) ? `Was jetzt: ${safe(context.nextStep)}` : undefined,
@@ -437,7 +437,7 @@ function build(kind: OperatorMessageKind, context: OperatorMessageContext): Oper
       return {
         subject: `${context.badge ?? "⚠️"} ${safe(context.headline) ?? "Störung"}`,
         body: block([
-          join([safe(context.headline), safe(context.reason)], " — "),
+          safe(context.reason),
           join([channelLabel(context), safe(context.slotLocal) ? `${safe(context.slotLocal)} Uhr` : undefined]),
           quoted(context.videoLabel) ? `🎬 ${quoted(context.videoLabel)}` : undefined,
           safe(context.statusLabel),

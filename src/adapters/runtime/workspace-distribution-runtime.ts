@@ -47,7 +47,8 @@ export interface WorkspaceDistributionRuntimeOptions {
   env?:Record<string,string|undefined>;
   notificationChannelKeys?:readonly string[];
   timeZone?:string;
-  uiBaseUrl?:string;
+  /** noVNC/remote-screen URL offered when an attention item is a login problem. */
+  remoteScreenUrl?:string;
   releaseSha?:string;
 }
 
@@ -116,7 +117,7 @@ export class WorkspaceDistributionRuntime {
     const telegram=telegramAdapterFromEnv(env);
     const notificationAdapters=[...(webhook?[webhook]:[]),...(telegram?[telegram]:[])];
     const notificationChannelKeys=options.notificationChannelKeys??notificationAdapters.map((adapter)=>adapter.channelKey),notificationDispatcher=notificationAdapters.length>0?new NotificationDispatcher(this.control,notificationAdapters):undefined;
-    this.operations=new W6RuntimeOperationsAdapter(this.control,notificationChannelKeys,options.timeZone??"Europe/Vienna",{distributionConfig:this.config,distributionRuntime:this.state,...(options.uiBaseUrl?{uiBaseUrl:options.uiBaseUrl}:{}),...(notificationDispatcher?{notificationDispatcher}:{})});
+    this.operations=new W6RuntimeOperationsAdapter(this.control,notificationChannelKeys,options.timeZone??"Europe/Vienna",{distributionConfig:this.config,distributionRuntime:this.state,...((options.remoteScreenUrl??env.FLERDVISION_REMOTE_SCREEN_URL)?{remoteScreenUrl:(options.remoteScreenUrl??env.FLERDVISION_REMOTE_SCREEN_URL)!}:{}),...(notificationDispatcher?{notificationDispatcher}:{})});
   }
 
   supervisor(ownerId:string,clock:()=>string=()=>new Date().toISOString()):RuntimeSupervisor{return new RuntimeSupervisor({lease:this.lease,source:this.source,planner:this.planner,intents:this.intents,due:this.due,reconciliation:this.reconciliation,disposition:this.disposition,operations:this.operations,reports:this.reports},ownerId,clock);}

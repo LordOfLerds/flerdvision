@@ -68,7 +68,7 @@ test("tick runs alarm and reports against the fake chat and contains telegram fa
     assert.equal(result.reports.checklistSent, true);
     const texts = f.telegram.calls.filter((call) => call.url.endsWith("/sendMessage")).map((call) => call.body.text);
     assert.ok(texts.some((text) => text.includes("Re-Login nötig")));
-    assert.ok(texts.some((text) => text.startsWith("📋 Tagesplan 2026-08-30")));
+    assert.ok(texts.some((text) => text.startsWith("📋 Tagesplan So 30. Aug")));
     assert.ok(f.operatorState.getSchedulePause("account:instagram:reels"));
 
     const broken = TelegramOperatorService.fromEnv({ ...f.options, fetchImpl: async () => { throw new Error("net down"); } });
@@ -86,7 +86,7 @@ test("command loop executes /pause from the allowlisted chat against the shared 
     assert.equal(report.handled, 1);
     assert.equal(f.operatorState.getSchedulePause("account:instagram:reels").channelKey, "reels");
     const reply = f.telegram.calls.filter((call) => call.url.endsWith("/sendMessage")).at(-1);
-    assert.match(reply.body.text, /⏸️ Kanal reels \(instagram\) pausiert/);
+    assert.match(reply.body.text, /⏸️ Reels \(Instagram\) pausiert/);
   } finally { f.close(); }
 });
 

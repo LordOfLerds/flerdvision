@@ -1,10 +1,20 @@
 import { createHash } from "node:crypto";
 import type { NotificationMessage } from "../domain/operations.js";
 import type { AttentionItem, AttentionSeverity } from "./control-center-read-model.js";
+import {
+  germanAttention,
+  germanPlatformLabel,
+  isSessionKind,
+  renderOperatorMessage
+} from "./operator-message.js";
+import type { OperatorChannelRef } from "./operator-plan-view.js";
 
 export interface AttentionNotificationPolicy {
   notify: Readonly<Record<AttentionSeverity, boolean>>;
-  uiBaseUrl?: string;
+  /** noVNC/remote-screen URL for a manual re-login (env FLERDVISION_REMOTE_SCREEN_URL). */
+  remoteScreenUrl?: string;
+  /** The operator's channels, so a message names the channel instead of the account id. */
+  channels?: readonly OperatorChannelRef[];
 }
 
 export const DEFAULT_ATTENTION_NOTIFICATION_POLICY: AttentionNotificationPolicy = {
@@ -16,6 +26,10 @@ export const DEFAULT_ATTENTION_NOTIFICATION_POLICY: AttentionNotificationPolicy 
   }
 };
 
+const SEVERITY_BADGE: Readonly<Record<AttentionSeverity, string>> = {
+  INFO: "ℹ️", WARNING: "⚠️", ACTION_REQUIRED: "🛑", CRITICAL: "🚨"
+};
+
 function stableId(value: string): string {
   return createHash("sha256").update(value).digest("hex").slice(0, 24);
 }
@@ -24,6 +38,12 @@ export function shouldNotifyAttention(attention: AttentionItem, policy: Attentio
   return policy.notify[attention.severity];
 }
 
+/**
+ * Turns one attention item into the operator's language: what it means, which channel it is
+ * about and what to do about it. The old `/control-center/...` deep link is gone with the UI it
+ * pointed at -- a dead link is worse than no link, so a session problem now offers the remote
+ * screen (or the login command) instead.
+ */
 export function notificationForAttention(
   attention: AttentionItem,
   createdAt: string,
@@ -37,25 +57,30 @@ export function notificationForAttention(
       : attention.severity === "WARNING"
         ? "WARNING"
         : "INFO";
-  const base = policy.uiBaseUrl?.replace(/\/$/, "");
-  const deepLink = base ? `${base}${attention.deepLink}` : attention.deepLink;
+  const channel = attention.accountId ? policy.channels?.find((item) => item.accountId === attention.accountId) : undefined;
+  const session = isSessionKind(attention.kind);
+  const meaning = germanAttention(attention.kind);
+  const rendered = renderOperatorMessage("ATTENTION", {
+    badge: SEVERITY_BADGE[attention.severity],
+    headline: meaning.meaning,
+    reason: attention.impact,
+    nextStep: meaning.action,
+    ...(channel ? { channelName: channel.name, platformLabel: germanPlatformLabel(channel.platform) } : {}),
+    // A login command only helps when the fix IS a login; anything else gets its own next step.
+    ...(session && channel ? { channelKey: channel.key } : {}),
+    ...(session && policy.remoteScreenUrl?.trim() ? { remoteScreenUrl: policy.remoteScreenUrl.trim() } : {})
+  });
   const message: NotificationMessage = {
     notificationId: `notification:${stableId(`attention|${attention.attentionId}`)}`,
     dedupeKey: `attention:${attention.attentionId}`,
     kind: "SYSTEM",
     severity,
     createdAt: new Date(createdAt).toISOString(),
-    subject: attention.title,
-    body: [
-      attention.impact,
-      attention.slotKey ? `Slot: ${attention.slotKey}` : undefined,
-      attention.accountId ? `Account: ${attention.accountId}` : undefined,
-      `Open: ${deepLink}`
-    ].filter((line): line is string => Boolean(line)).join("\n"),
+    subject: rendered.subject,
+    body: rendered.body,
     metadata: {
       attentionKind: attention.kind,
       attentionSeverity: attention.severity,
-      deepLink,
       ...(attention.routeId ? { routeId: attention.routeId } : {}),
       ...(attention.assetId ? { assetId: attention.assetId } : {})
     }

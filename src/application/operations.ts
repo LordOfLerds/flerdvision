@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { germanIncident, renderOperatorMessage } from "./operator-message.js";
 import type { Actor } from "../domain/control-plane.js";
 import type { BrowserIdentityStorePort } from "../domain/browser-identity-ports.js";
 import type { ControlPlaneStorePort } from "../domain/control-plane-ports.js";
@@ -420,19 +421,32 @@ export class DailyOperationsService {
   }
 }
 
+const INCIDENT_BADGE: Readonly<Record<Incident["severity"], string>> = { INFO: "ℹ️", WARNING: "⚠️", ERROR: "🛑", CRITICAL: "🚨" };
+
 export class IncidentNotificationService {
   constructor(private readonly outbox: NotificationOutboxPort, private readonly channelKeys: readonly string[]) {}
 
   enqueueNewIncident(incident: Incident, actor: Actor): readonly import("../domain/operations.js").NotificationDelivery[] {
+    // The operator gets the meaning, the effect on posting and one next step -- never the
+    // incident id, the raw kind or an evidence path. The first screenshot rides along as the
+    // photo the transport already knows how to send.
+    const meaning = germanIncident(incident.kind);
+    const rendered = renderOperatorMessage("INCIDENT", {
+      badge: INCIDENT_BADGE[incident.severity] ?? "⚠️",
+      headline: meaning.meaning,
+      reason: meaning.effect,
+      nextStep: meaning.nextStep
+    });
+    const screenshot = incident.evidenceRefs.find((ref) => ref.toLocaleLowerCase("en-US").endsWith(".png"));
     const message: NotificationMessage = {
       notificationId: stableId("notification", `incident|${incident.incidentId}|occurrence|${incident.occurrenceCount}`),
       dedupeKey: `incident:${incident.incidentId}:occurrence:${incident.occurrenceCount}`,
       kind: "INCIDENT",
       severity: incident.severity,
       createdAt: incident.openedAt,
-      subject: incident.title,
-      body: [incident.summary, `Incident: ${incident.incidentId}`, ...(incident.evidenceRefs.length > 0 ? ["Evidence:", ...incident.evidenceRefs.map((ref) => `- ${ref}`)] : [])].join("\n"),
-      metadata: { kind: incident.kind, status: incident.status }
+      subject: rendered.subject,
+      body: rendered.body,
+      metadata: { kind: incident.kind, status: incident.status, ...(screenshot ? { screenshotPath: screenshot } : {}) }
     };
     if (incident.scope.intentId) Object.assign(message, { intentId: incident.scope.intentId });
     if (incident.scope.accountId) Object.assign(message, { accountId: incident.scope.accountId });

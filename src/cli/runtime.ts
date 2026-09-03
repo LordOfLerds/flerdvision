@@ -19,11 +19,11 @@ async function main():Promise<void>{
   const intervalSeconds=intervalRaw===undefined?(daemon?60:null):Number(intervalRaw);
   if(intervalSeconds!==null&&(!Number.isFinite(intervalSeconds)||intervalSeconds<30))throw new Error("--interval-seconds must be at least 30");
   const notificationChannelKeys=channelKeys(value(argv,"--notification-channels")??process.env.FLERDVISION_NOTIFICATION_CHANNELS);
-  const uiBaseUrl=value(argv,"--ui-base-url")??process.env.FLERDVISION_UI_BASE_URL;
+  const remoteScreenUrl=value(argv,"--remote-screen-url")??process.env.FLERDVISION_REMOTE_SCREEN_URL;
 
   // Runtime cycle cadence and source polling cadence are separate. Source polling is gated by the
   // workspace policy; verified-cache maintenance is post-cycle and cannot affect publish outcome.
-  const runtime=new WorkspaceDistributionRuntime({runtimeRoot,workspaceId,timeZone,notificationChannelKeys,...(uiBaseUrl?{uiBaseUrl}:{})});
+  const runtime=new WorkspaceDistributionRuntime({runtimeRoot,workspaceId,timeZone,notificationChannelKeys,...(remoteScreenUrl?{remoteScreenUrl}:{})});
   let stopping=false;
   process.on("SIGINT",()=>{stopping=true;});
   process.on("SIGTERM",()=>{stopping=true;});

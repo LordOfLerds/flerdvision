@@ -36,7 +36,9 @@ type RuntimeOperationsStore = ControlPlaneStorePort & BrowserIdentityStorePort &
 export interface W6RuntimeOperationsOptions {
   distributionConfig?: DistributionConfigurationStorePort;
   distributionRuntime?: DistributionRuntimeStateStorePort;
-  uiBaseUrl?: string;
+  /** noVNC/remote-screen URL offered when an attention item is a login problem. */
+  remoteScreenUrl?: string;
+  channels?: readonly import("../../application/operator-plan-view.js").OperatorChannelRef[];
   notificationDispatcher?:NotificationDispatcher;
 }
 
@@ -52,7 +54,7 @@ export class W6RuntimeOperationsAdapter implements RuntimeOperationsPort {
       if(plan){
         const assets=this.options.distributionRuntime.listAssets().map(record=>record.asset),demand=projectContentDemand(stored,assets,businessDate,plan);
         for(const timed of planReadinessAttention({now:timestamp,businessDate,stored,demand,plan,policy:readinessPolicy})){
-          const message=notificationForAttention(timed.attention,timestamp,{notify:{INFO:false,WARNING:true,ACTION_REQUIRED:true,CRITICAL:true},...(this.options.uiBaseUrl?{uiBaseUrl:this.options.uiBaseUrl}:{})});
+          const message=notificationForAttention(timed.attention,timestamp,{notify:{INFO:false,WARNING:true,ACTION_REQUIRED:true,CRITICAL:true},...(this.options.remoteScreenUrl?{remoteScreenUrl:this.options.remoteScreenUrl}:{}),...(this.options.channels?{channels:this.options.channels}:{})});
           if(message)this.store.enqueueNotification(message,this.channelKeys,{type:"system",id:"runtime-readiness"});
         }
       }
