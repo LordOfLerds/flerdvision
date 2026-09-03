@@ -328,6 +328,15 @@ PASS requires:
 
 If the final action was invoked but verification does not become VERIFIED within the bounded verification window, classify the run as uncertain, STOP, and DO NOT repeat `--private-publish`.
 
+Verification is marker-free unless the spec explicitly sets `verificationMarker: true`: the
+verifier opens the account's own newest posts and requires exactly one post, published inside
+`[finalActionAt - 2 min, now]`, whose caption/title equals the copy the run posted (whitespace
+collapsed, case preserved). Several matching posts, an unreadable caption, or a publish time the
+surface only renders as a bare date all produce an inconclusive observation whose note names what
+was seen — that is a hard stop for a human, never an automatic retry and never a reason to relax
+the rule. The screenshot of the opened post page is captured either way and its path travels with
+the operator message.
+
 ## 11. Cleanup
 
 The current headless acceptance intentionally requires the human to delete the verified private test post in Instagram after capturing its verification evidence.
