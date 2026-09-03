@@ -76,7 +76,7 @@ test("draft discard confirms only exact discard labels and shares no final vocab
 
 test("a late promo overlay over the caption is cleared and the fill retried", () => {
   const idx = source.lastIndexOf('step.action === "FILL_CAPTION" || step.action === "FILL_TITLE"');
-  const block = source.slice(idx, idx + 6400);
+  const block = source.slice(idx, idx + 8500);
   assert.match(block, /Refusing to click/);
   assert.match(block, /const benign = await this\.dismissBenignOverlay\(journal\)\.catch\(\(\) => false\);/);
   assert.match(block, /const declined = await declineFeatureOptIn\(this\.session, journal\)\.catch\(\(\) => false\);/);
@@ -95,7 +95,7 @@ test("a feature opt-in offer is declined, never enabled", async () => {
   }
   assert.ok(FEATURE_OPT_IN_MARKERS.some((m) => "automatische inhaltsprüfungen aktivieren?".includes(m)));
   const idx = source.indexOf("export async function declineFeatureOptIn");
-  const block = source.slice(idx, idx + 2600);
+  const block = source.slice(idx, idx + 4700);
   // Same guards as every other dismissal: visible only, never over inputs, forbidden words block.
   assert.match(block, /input\[type="file"\], textarea, \[contenteditable="true"\]/);
   assert.match(block, /labels\.some\(\(label\) => forbidden\.some\(\(word\) => label === word\)\)/);
@@ -109,7 +109,7 @@ test("an unfinished product tour is acknowledged like any other benign overlay",
   // refusal named an empty presentation layer, not a dialog, so the scan never saw it.
   assert.match(source, /react-joyride__tooltip, \[data-test-id="tooltip"\]/);
   const idx = source.indexOf("private async dismissBenignOverlay");
-  const block = source.slice(idx, idx + 1800);
+  const block = source.slice(idx, idx + 3900);
   // The tour tooltip goes through the same guards as every other container.
   assert.match(block, /forbid\.some\(\(word\) => text\.includes/);
   assert.match(block, /input\[type="file"\], textarea, \[contenteditable="true"\]/);
@@ -117,7 +117,7 @@ test("an unfinished product tour is acknowledged like any other benign overlay",
 
 test("a control is matched by its label or its visible text, never by a substring", () => {
   const idx = source.indexOf("private async dismissBenignOverlay");
-  const block = source.slice(idx, idx + 3000);
+  const block = source.slice(idx, idx + 5100);
   assert.match(block, /const names = \(el\) =>/);
   assert.match(block, /decline\.has\(value\)/);
   assert.match(block, /allow\.has\(value\)/);
@@ -126,7 +126,7 @@ test("a control is matched by its label or its visible text, never by a substrin
 test("an exactly named acknowledge control counts even without a button role", () => {
   // TikTok's tour renders "Verstanden" as a plain div; a button-only scan never found it.
   const idx = source.indexOf("private async dismissBenignOverlay");
-  const block = source.slice(idx, idx + 4000);
+  const block = source.slice(idx, idx + 6100);
   assert.match(source, /'button, \[role="button"\], div, span'/);
   assert.match(source, /\.filter\(clickable\)/);
   // Exactness and the container guards are what keep this safe, not the element type.
@@ -138,7 +138,13 @@ test("a nameless transient layer is waited out, a permanent one still fails", ()
   // A surface mid-animation puts a plain div over the field: nothing to dismiss, everything to
   // wait out -- but only briefly, so a real cover still stops the run.
   const idx = source.lastIndexOf('step.action === "FILL_CAPTION" || step.action === "FILL_TITLE"');
-  const block = source.slice(idx, idx + 6400);
+  const block = source.slice(idx, idx + 8500);
   assert.match(block, /if \(attempt >= 2\)/);
   assert.match(block, /await sleep\(2500\);\s*\n\s*continue;/);
+});
+
+test("a notification interstitial without a dialog role is found by its wording and declined", () => {
+  const src = readFileSync(new URL("../src/adapters/browser/autonomous-surface-explorer.ts", import.meta.url).pathname, "utf8");
+  assert.match(src, /const interstitials = \["benachrichtigungen aktivieren", "turn on notifications", "push-benachrichtigungen"\];/);
+  assert.match(src, /if \(card && !containers\.includes\(card\)\) containers\.push\(card\);/);
 });

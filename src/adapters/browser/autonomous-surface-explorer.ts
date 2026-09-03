@@ -223,6 +223,22 @@ export class AutonomousSurfaceExplorer {
       // caption behind an empty presentation layer. Their tooltip carries the same acknowledge
       // control the allowlist already trusts; every guard below still applies to it.
       containers.push(...document.querySelectorAll('.react-joyride__tooltip, [data-test-id="tooltip"]'));
+      // Instagram's "Benachrichtigungen aktivieren" interstitial is a plain full-width div with
+      // no dialog role; it sat over the create button and no scan above could see it. Known
+      // interstitial phrases identify their card by the nearest sizeable ancestor, which then
+      // goes through exactly the same guards and allowlists as a dialog.
+      const interstitials = ["benachrichtigungen aktivieren", "turn on notifications", "push-benachrichtigungen"];
+      try {
+        for (const leaf of document.querySelectorAll('h1, h2, h3, span, div')) {
+          if ((leaf.children ? leaf.children.length : 0) > 0) continue;
+          const words = normalize(leaf.textContent).toLocaleLowerCase("en-US");
+          if (!interstitials.some((phrase) => words.includes(phrase))) continue;
+          let card = leaf.parentElement;
+          const box = (el) => (el && typeof el.getBoundingClientRect === "function") ? el.getBoundingClientRect() : { width: 0, height: 0 };
+          while (card && (box(card).width < 300 || box(card).height < 200)) card = card.parentElement;
+          if (card && !containers.includes(card)) containers.push(card);
+        }
+      } catch { /* an interstitial scan must never stop the dialog scan */ }
       for (const container of containers) {
         const scope = container.shadowRoot ?? container;
         const text = normalize(scope.textContent || container.textContent).toLocaleLowerCase("en-US");

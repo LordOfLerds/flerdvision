@@ -41,7 +41,7 @@ test("decline labels never collide with flow or publish vocabulary", () => {
 
 test("the decline variant is preferred over the generic confirm labels", () => {
   const idx = source.indexOf("private async dismissBenignOverlay");
-  const block = source.slice(idx, idx + 3000);
+  const block = source.slice(idx, idx + 4500);
   const declineFirst = block.indexOf("decline.has(value)");
   const allowSecond = block.indexOf("allow.has(value)");
   assert.ok(declineFirst > 0 && declineFirst < allowSecond, "declining must be preferred");
@@ -92,7 +92,7 @@ test("a leftover-draft restore prompt is discarded, never continued", async () =
 test("only a visible restore prompt is answered, never a mounted-but-hidden one", () => {
   const source = readFileSync(new URL("../src/adapters/browser/autonomous-surface-explorer.ts", import.meta.url).pathname, "utf8");
   const idx = source.indexOf("export async function dismissDraftRestore");
-  const block = source.slice(idx, idx + 1400);
+  const block = source.slice(idx, idx + 2900);
   // Acting on a hidden dialog clicked discard on a healthy upload surface and tore the file
   // input out from under the upload step.
   assert.match(block, /role="dialog"\], \[role="alertdialog"\]/);
