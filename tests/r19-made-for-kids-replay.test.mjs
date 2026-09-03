@@ -46,3 +46,9 @@ test("an already-answered question, shown only as Studio's summary sentence, cou
   assert.match(captured[0], /speziell für kinder"\) && text\.includes\("festgelegt"\)/);
   assert.match(captured[0], /text\.includes\("nicht als"\)/);
 });
+
+test("a contract never records the same step key twice", () => {
+  const q = readFileSync(new URL("../src/application/autonomous-surface-qualification.ts", import.meta.url).pathname, "utf8");
+  assert.match(q, /const dedupedSteps = settings\.contract\.steps\.filter\(\(step\) => \{ if \(seenKeys\.has\(step\.stepKey\)\) return false; seenKeys\.add\(step\.stepKey\); return true; \}\);/);
+  assert.match(q, /recordContract\(\{ \.\.\.settings\.contract, steps: dedupedSteps \}/);
+});

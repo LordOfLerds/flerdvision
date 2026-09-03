@@ -235,7 +235,13 @@ export class AutonomousRouteQualifier {
         const explorer = new AutonomousSurfaceExplorer(session, boundArtifacts, agent);
         const explored = await explorer.discoverAndPrepare({ intent: ctx.intent, identity: ctx.identity, postingProfile: ctx.postingProfile, mediaPath: artifact.localPath, ...(payload.caption !== undefined ? { caption: payload.caption } : {}), ...(payload.title !== undefined ? { title: payload.title } : {}) });
         const settings = await new AutonomousSurfaceSettings(session, artifactSink, agent).enrich({ contract: explored.contract, intent: ctx.intent, identity: ctx.identity, postingProfile: ctx.postingProfile });
-        recordedContract = this.surfaces.recordContract(settings.contract, isoAt(at, 3));
+        // A step key answers one question once. The YouTube exploration recorded the audience
+        // declaration twice -- in the wizard and again in the settings pass -- and the replay then
+        // looked for the question on a page that no longer shows it. Only the first occurrence of
+        // a key is recorded; the duplicate never reaches a contract.
+        const seenKeys = new Set<string>();
+        const dedupedSteps = settings.contract.steps.filter((step) => { if (seenKeys.has(step.stepKey)) return false; seenKeys.add(step.stepKey); return true; });
+        recordedContract = this.surfaces.recordContract({ ...settings.contract, steps: dedupedSteps }, isoAt(at, 3));
         allArtifacts.push(...explored.artifactRefs, ...settings.artifactRefs);
       } finally {
         if (session) { await discardPreparedDraft(session).catch(() => {}); await session.close().catch(() => {}); }
