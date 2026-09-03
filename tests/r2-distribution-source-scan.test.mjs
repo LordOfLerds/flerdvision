@@ -76,3 +76,68 @@ test("NEW_ONLY lane without explicit baseline fails closed before source scan",a
   assert.match(report.lanes[0].notes[0],/baseline_missing/);
   runtime.close(); ingress.close();
 });
+
+test("a file that turns BLOCKED reaches the operator once per revision, with the file name and what to do", async () => {
+  const root = mkdtempSync(join(tmpdir(), "flerdvision-lane-blocked-"));
+  const db = join(root, "state.sqlite");
+  const ingress = new SqliteControlPlaneStore(db);
+  const runtime = new SqliteDistributionRuntimeStateStore(db);
+  const enqueued = [];
+  const outbox = {
+    enqueueNotification(message, channelKeys) {
+      // The real outbox dedupes on dedupeKey; mirror that so the test proves the key, not luck.
+      if (enqueued.some((item) => item.dedupeKey === message.dedupeKey)) return [];
+      enqueued.push(message);
+      return channelKeys.map((key) => ({ notificationId: message.notificationId, channelKey: key, status: "PENDING", attempts: 0 }));
+    }
+  };
+  let outcome = { outcome: "RETRY", note: "media_probe_retry" };
+  const coordinator = new DistributionSourceScanCoordinator(
+    { load() { return storedConfig(); }, save() { throw new Error("read only"); } },
+    { async observeLane() { return [{ ...obs(), metadata: { fileName: "01_Sonnenuntergang am See #nature.mp4", size: "100", businessDate: "2026-08-27" } }]; } },
+    interpreterFactory(), ingress, disposition, noBaselines(), runtime,
+    { async probe() { return outcome; } },
+    { notifyBlocksExternally: false, outbox, notificationChannelKeys: ["telegram"] }
+  );
+
+  await coordinator.run("2026-08-27T08:05:00.000Z");
+  await coordinator.run("2026-08-27T08:06:00.000Z");
+  assert.equal(runtime.listAssets()[0].asset.state, "STABILIZING");
+  assert.equal(enqueued.length, 0, "a file that is merely still settling must stay silent");
+
+  outcome = { outcome: "BLOCKED", note: "media_probe_blocked" };
+  await coordinator.run("2026-08-27T08:08:00.000Z");
+  assert.equal(runtime.listAssets()[0].asset.state, "BLOCKED");
+  assert.equal(enqueued.length, 1);
+  assert.match(enqueued[0].subject, /Datei blockiert/);
+  assert.match(enqueued[0].body, /Sonnenuntergang am See/);
+  assert.match(enqueued[0].body, /Das Video lässt sich nicht lesen/);
+  assert.match(enqueued[0].body, /Datei in Drive ersetzen — der Slot bleibt frei\./);
+  // Deduped per asset revision: the media fingerprint is part of the key, so a replaced file
+  // is announced again while re-scanning the same broken one stays quiet.
+  assert.match(enqueued[0].dedupeKey, /^asset-blocked:asset:[0-9a-f]+:fp-a$/);
+
+  await coordinator.run("2026-08-27T08:10:00.000Z");
+  assert.equal(enqueued.length, 1);
+  runtime.close(); ingress.close();
+});
+
+test("without a configured notification channel a blocked file changes nothing but the state", async () => {
+  const root = mkdtempSync(join(tmpdir(), "flerdvision-lane-blocked-quiet-"));
+  const db = join(root, "state.sqlite");
+  const ingress = new SqliteControlPlaneStore(db);
+  const runtime = new SqliteDistributionRuntimeStateStore(db);
+  let calls = 0;
+  const coordinator = new DistributionSourceScanCoordinator(
+    { load() { return storedConfig(); }, save() { throw new Error("read only"); } },
+    { async observeLane() { return [obs()]; } },
+    interpreterFactory(), ingress, disposition, noBaselines(), runtime,
+    { async probe() { return { outcome: "BLOCKED", note: "media_probe_blocked" }; } },
+    { outbox: { enqueueNotification() { calls += 1; return []; } }, notificationChannelKeys: [] }
+  );
+  await coordinator.run("2026-08-27T08:05:00.000Z");
+  await coordinator.run("2026-08-27T08:06:00.000Z");
+  assert.equal(calls, 0);
+  assert.equal(runtime.listAssets()[0].asset.state, "BLOCKED");
+  runtime.close(); ingress.close();
+});

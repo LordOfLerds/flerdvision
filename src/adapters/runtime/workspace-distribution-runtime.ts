@@ -98,7 +98,12 @@ export class WorkspaceDistributionRuntime {
     this.media=new VerifiedMediaCacheMaterializer(providerMedia,join(this.layout.mediaCacheDir,"verified"));
     this.mediaMaintenance=new VerifiedMediaCacheMaintenance(this.media);
     const inspector=new FfprobeMediaInspector(env.FFPROBE_EXECUTABLE_PATH??"ffprobe");
-    const scan=new DistributionSourceScanCoordinator(this.config,this.observations,new ConfiguredSourceLaneInterpreterFactory(),this.control,new NoopSourceDispositionAdapter(),this.baselines,this.state,new MaterializingMediaReadinessProbe(this.media,inspector),{notifyBlocksExternally:false});
+    const webhookUrl=env.FLERDVISION_NOTIFICATION_WEBHOOK_URL,webhookChannelKey=env.FLERDVISION_NOTIFICATION_WEBHOOK_CHANNEL_KEY??"current-bot";
+    const webhook=webhookUrl?new WebhookNotificationAdapter({channelKey:webhookChannelKey,url:webhookUrl,...(env.FLERDVISION_NOTIFICATION_WEBHOOK_TOKEN?{bearerToken:env.FLERDVISION_NOTIFICATION_WEBHOOK_TOKEN}:{})}):undefined;
+    const telegram=telegramAdapterFromEnv(env);
+    const notificationAdapters=[...(webhook?[webhook]:[]),...(telegram?[telegram]:[])];
+    const notificationChannelKeys=options.notificationChannelKeys??notificationAdapters.map((adapter)=>adapter.channelKey),notificationDispatcher=notificationAdapters.length>0?new NotificationDispatcher(this.control,notificationAdapters):undefined;
+    const scan=new DistributionSourceScanCoordinator(this.config,this.observations,new ConfiguredSourceLaneInterpreterFactory(),this.control,new NoopSourceDispositionAdapter(),this.baselines,this.state,new MaterializingMediaReadinessProbe(this.media,inspector),{notifyBlocksExternally:false,outbox:this.control,notificationChannelKeys});
     this.source=new PollingRuntimeSourceScanAdapter(new RuntimeDistributionSourceScanAdapter(scan),this.config,this.pollState);
     const commitmentAdapter=new PersistedPlanningCommitmentAdapter(this.state,this.provenance,this.control),persistedPlanner=new PersistedDistributionPlannerAdapter(this.config,this.state,commitmentAdapter),provenanceService=new DistributionPlanProvenanceService(this.config,this.provenance),provenancedPlanner=new ProvenancedRuntimePlannerAdapter(persistedPlanner,provenanceService),effectiveService=new EffectiveConfigurationChangeService(this.effectiveChanges,this.config,()=>this.control.listSocialAccounts().map(record=>record.account));
     this.planner=new EffectiveConfigurationPlannerDecorator(effectiveService,provenancedPlanner);
@@ -112,11 +117,6 @@ export class WorkspaceDistributionRuntime {
     const aggregates=new DistributionDeliveryAggregateProjector(this.state,this.provenance,this.control,this.control),dispositionAdapters=buildWorkspaceDispositionAdapterRegistry(this.config.load(),this.control,driveToken),dispositionExecutor=new ConfiguredDistributionDispositionExecutor(this.control,dispositionAdapters);
     this.disposition=new RuntimeDistributionDispositionAdapter(this.config,this.state,aggregates,dispositionExecutor);
 
-    const webhookUrl=env.FLERDVISION_NOTIFICATION_WEBHOOK_URL,webhookChannelKey=env.FLERDVISION_NOTIFICATION_WEBHOOK_CHANNEL_KEY??"current-bot";
-    const webhook=webhookUrl?new WebhookNotificationAdapter({channelKey:webhookChannelKey,url:webhookUrl,...(env.FLERDVISION_NOTIFICATION_WEBHOOK_TOKEN?{bearerToken:env.FLERDVISION_NOTIFICATION_WEBHOOK_TOKEN}:{})}):undefined;
-    const telegram=telegramAdapterFromEnv(env);
-    const notificationAdapters=[...(webhook?[webhook]:[]),...(telegram?[telegram]:[])];
-    const notificationChannelKeys=options.notificationChannelKeys??notificationAdapters.map((adapter)=>adapter.channelKey),notificationDispatcher=notificationAdapters.length>0?new NotificationDispatcher(this.control,notificationAdapters):undefined;
     this.operations=new W6RuntimeOperationsAdapter(this.control,notificationChannelKeys,options.timeZone??"Europe/Vienna",{distributionConfig:this.config,distributionRuntime:this.state,...((options.remoteScreenUrl??env.FLERDVISION_REMOTE_SCREEN_URL)?{remoteScreenUrl:(options.remoteScreenUrl??env.FLERDVISION_REMOTE_SCREEN_URL)!}:{}),...(notificationDispatcher?{notificationDispatcher}:{})});
   }
 
