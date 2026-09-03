@@ -1,8 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { JsonDistributionConfigurationStore } from "../dist/adapters/distribution/json-config-store.js";
+import { WorkspaceSpecCompiler } from "../dist/application/workspace-spec-compiler.js";
+import { parseWorkspaceSpec } from "../dist/domain/workspace-spec.js";
 import { SqliteControlPlaneStore } from "../dist/adapters/storage/sqlite.js";
 import { BrowserProfileDirectoryResolver, FileBrowserProfileLockAdapter } from "../dist/adapters/browser/profile-lock.js";
 import { DeclarativeProfileVerificationCollector } from "../dist/adapters/verify/profile.js";
@@ -294,4 +297,54 @@ test("a verification contract carries either a marker locator or a caption match
     () => parseProfileVerificationSpecFile({ schemaVersion: 1, specs: [{ ...base, spec: noList }] }),
     /captionMatch requires postListUrlTemplate and postLinkSelector/
   );
+});
+
+function compiledVerificationSpecs(verificationMarker) {
+  const root = mkdtempSync(join(tmpdir(), "flerdvision-r18-compiler-"));
+  const configDir = join(root, "config");
+  mkdirSync(configDir, { recursive: true, mode: 0o700 });
+  const control = new SqliteControlPlaneStore(join(root, "flerdvision.sqlite"));
+  try {
+    const marker = verificationMarker === undefined ? {} : { verificationMarker };
+    const spec = parseWorkspaceSpec({
+      schemaVersion: 1,
+      workspace: { id: "r18", name: "R18" },
+      source: { kind: "google_drive", root: "1AbCdEfGhIjKlMnOp", structure: "auto", activation: "IMPORT_BACKLOG" },
+      channels: [
+        { key: "ig", name: "Instagram", platform: "instagram", handle: "flerdvision", formats: [{ type: "reel", times: ["12:00"], sourceMatch: ["reels"], ...marker }] },
+        { key: "tt", name: "TikTok", platform: "tiktok", handle: "flerdvision", formats: [{ type: "tiktok", times: ["13:00"], sourceMatch: ["reels"], ...marker }] },
+        { key: "yt", name: "YouTube", platform: "youtube", handle: "flerdvision", formats: [{ type: "short", times: ["14:00"], sourceMatch: ["reels"], ...marker }] }
+      ]
+    });
+    const topology = {
+      rootId: "1AbCdEfGhIjKlMnOp", rootPath: "Drive / Flerdvision", verified: true, warnings: [],
+      nodes: [{ folderId: "reels", folderRef: "reels", folderPath: "Drive / Flerdvision / Reels", name: "Reels", depth: 1, directVideoCount: 2, totalVideoCount: 2, childFolderCount: 0 }],
+      streams: spec.channels.map((channel) => ({ channelKey: channel.key, platform: channel.platform, format: channel.formats[0].type, folderRef: "reels", folderPath: "Drive / Flerdvision / Reels", totalVideoCount: 2, matchedBy: "explicit", score: 30 }))
+    };
+    new WorkspaceSpecCompiler(new JsonDistributionConfigurationStore(join(configDir, "distribution.json")), control, configDir).compile(spec, topology, "2026-09-03T08:00:00Z");
+    // Parsing the emitted file through the real config parser is the point: a template the parser
+    // rejects would otherwise only surface during a live run.
+    const parsed = parseProfileVerificationSpecFile(JSON.parse(readFileSync(join(configDir, "profile-verification.json"), "utf8")));
+    return Object.fromEntries(parsed.specs.map((entry) => [entry.platform, entry.spec]));
+  } finally {
+    control.close();
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
+  }
+}
+
+test("the compiler emits caption matching by default and marker matching only where asked", () => {
+  const markerFree = compiledVerificationSpecs(undefined);
+  for (const platform of ["instagram", "tiktok", "youtube"]) {
+    const spec = markerFree[platform];
+    assert.equal(spec.postMatchLocators, undefined, `${platform} must not be verified by a marker locator`);
+    assert.ok(spec.captionMatch.captionSelectors.length > 0, `${platform} needs a caption read`);
+    assert.ok(spec.captionMatch.timestampSelector, `${platform} needs a publish-time read to apply the window`);
+    assert.ok(spec.postListUrlTemplate && spec.postLinkSelector, `${platform} needs a list of its own newest posts`);
+  }
+
+  const marked = compiledVerificationSpecs(true);
+  for (const platform of ["instagram", "tiktok", "youtube"]) {
+    assert.equal(marked[platform].captionMatch, undefined, `${platform} keeps the marker path unchanged`);
+    assert.equal(marked[platform].postMatchLocators[0].value, "{contentId}");
+  }
 });

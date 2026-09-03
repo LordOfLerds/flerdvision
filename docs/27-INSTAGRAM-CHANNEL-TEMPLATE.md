@@ -21,9 +21,9 @@ stable and becomes part of every derived ID):
       "type": "reel",
       "times": ["12:00", "19:00"],
       "sourceMatch": ["instagram", "reels"],
-      "captionTemplate": "{filenameText}\n\n[FV:{contentId}]",
+      "captionTemplate": "{filenameText}",
       "hashtags": [],
-      "verificationMarker": true,
+      "verificationMarker": false,
       "requirement": "REQUIRED",
       "settings": {
         "commentsEnabled": true,
@@ -50,9 +50,9 @@ with no chat context (`docs/28-NEUER-KANAL.md`):
       "type": "trial_reel",
       "times": ["17:00"],
       "sourceMatch": ["trial"],
-      "captionTemplate": "{filenameText}\n\n[FV:{contentId}]",
+      "captionTemplate": "{filenameText}",
       "hashtags": [],
-      "verificationMarker": true,
+      "verificationMarker": false,
       "requirement": "REQUIRED",
       "settings": {
         "commentsEnabled": true,
@@ -110,8 +110,10 @@ posting a normal Reel.
   (`AutonomousSurfaceSettings.enrich`, `explicitSettings` provenance).
 - `requirement: "REQUIRED"` makes the route mandatory for qualification; use `"OPTIONAL"` only
   when a missing Instagram source folder must not block the rest of the workspace.
-- `verificationMarker: true` plus the `[FV:{contentId}]` caption tail is what deterministic
-  verification greps for on the opened reel/post page; do not remove it.
+- `verificationMarker: false` is the production default: the post carries no visible marker.
+  Verification opens the newest reels and requires one of them, published inside the run's own
+  publish window, to carry exactly this caption on the opened post page. Setting it to `true`
+  restores the old `[FV:{contentId}]` caption tail and the marker matcher.
 - `sourceMatch` selects the Drive/local source folder whose name matches — see
   `docs/28-NEUER-KANAL.md` for exactly how folder names are scored. `["instagram", "reels"]`
   fits a normal Reel channel; a trial channel typically wants its own folder, e.g. `["trial"]`,

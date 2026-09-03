@@ -39,9 +39,9 @@ Kanal, ein zweiter Instagram-Testkanal mit Trial Reels (Feldreferenz: `docs/27`)
       "type": "trial_reel",
       "times": ["17:00"],
       "sourceMatch": ["trial"],
-      "captionTemplate": "{filenameText}\n\n[FV:{contentId}]",
+      "captionTemplate": "{filenameText}",
       "hashtags": [],
-      "verificationMarker": true,
+      "verificationMarker": false,
       "requirement": "REQUIRED",
       "settings": { "commentsEnabled": true, "shareToFeed": true, "crosspostFacebook": false }
     }
