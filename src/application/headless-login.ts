@@ -5,12 +5,17 @@ import { ChromiumCdpRuntimeAdapter } from "../adapters/browser/chromium-cdp.js";
 import { ConfiguredDomSessionProbe, type ConfiguredDomSessionProbeConfig } from "../adapters/browser/configured-dom-probe.js";
 import { BrowserProfileDirectoryResolver, DurableBrowserProfileLockAdapter, FileBrowserProfileLockAdapter } from "../adapters/browser/profile-lock.js";
 import { resolveChromiumExecutablePath } from "../adapters/browser/resolve-chromium.js";
+import { telegramAdapterFromEnv } from "../adapters/notify/telegram.js";
 import { SqliteControlPlaneStore } from "../adapters/storage/sqlite.js";
 import { BrowserBootstrapService } from "./browser-bootstrap.js";
 import { AccountIdentityGuard, BrowserSessionHealthService } from "./browser-identity-service.js";
 import { loadWorkspaceSpecFile } from "./headless-bootstrap.js";
+import { NotificationDispatcher } from "./notifications.js";
 import { workspaceRuntimeLayout } from "./workspaces.js";
 import { accountIdForChannel, identityIdForChannel } from "./workspace-spec-compiler.js";
+import type { Actor } from "../domain/control-plane.js";
+import type { NotificationMessage } from "../domain/operations.js";
+import type { NotificationOutboxPort, NotificationPort } from "../domain/operations-ports.js";
 import type { WorkspaceChannelSpec } from "../domain/workspace-spec.js";
 
 export interface HeadlessLoginResult {
@@ -107,6 +112,53 @@ function probeConfig(channel: WorkspaceChannelSpec, navigate: boolean): Configur
     navigate
   };
 }
+/**
+ * The operator hears about a channel becoming ready for qualification exactly once, at the
+ * moment login proves a HEALTHY session with an observed handle -- not when the browser merely
+ * reached a login page. Exported so a caller with no configured Telegram adapter yet can still
+ * see this is the intended shape.
+ */
+export function channelLoginSuccessMessage(channel: WorkspaceChannelSpec, handle: string, now: string): NotificationMessage {
+  const at = new Date(now).getTime().toString(36);
+  return {
+    notificationId: `login:${channel.key}:${at}`,
+    dedupeKey: `login:${channel.key}:${at}`,
+    kind: "READINESS",
+    severity: "INFO",
+    createdAt: new Date(now).toISOString(),
+    subject: `${channel.name} angemeldet`,
+    body: `✅ ${channel.name} angemeldet als @${handle} — bereit für die Qualifikation.`,
+    accountId: accountIdForChannel(channel),
+    metadata: {}
+  };
+}
+
+/**
+ * Durably enqueues the login-success message through the existing outbox/adapter wiring, then
+ * attempts immediate dispatch -- same shape as notifyPublicationOutcome in
+ * publication-notifications.ts. Without a configured adapter (no Telegram credentials) this is a
+ * no-op: nothing is enqueued, and login must never fail because a notification could not be
+ * sent -- the outbox retry loop, not this call, owns delivery.
+ */
+export async function notifyChannelLoginSuccess(
+  outbox: NotificationOutboxPort,
+  adapters: readonly NotificationPort[],
+  channel: WorkspaceChannelSpec,
+  handle: string,
+  now: string,
+  actor: Actor
+): Promise<void> {
+  if (adapters.length === 0) return;
+  try {
+    const message = channelLoginSuccessMessage(channel, handle, now);
+    outbox.enqueueNotification(message, adapters.map((adapter) => adapter.channelKey), actor);
+    await new NotificationDispatcher(outbox, adapters).dispatchPending(new Date(now).toISOString(), actor);
+  } catch {
+    // The outbox retry loop owns delivery; a verified login must not fail because a
+    // notification could not be sent.
+  }
+}
+
 function writeCalibratedProbe(path: string, channel: WorkspaceChannelSpec, accountId: string, checkedAt: string): void {
   const parsed = JSON.parse(readFileSync(path, "utf8")) as { schemaVersion: number; probes: Record<string, unknown>[] };
   const probes = parsed.probes.map((entry) => {
@@ -194,6 +246,8 @@ export async function ensureHeadlessLogin(input: {
         if (!proven.observedHandle) throw new Error("Healthy session did not persist an observed handle");
         writeCalibratedProbe(resolve(layout.configDir, "session-probes.json"), channel, accountId, checkedAt);
         input.onProgress?.(`Verified ${channel.platform} account @${proven.observedHandle}.`);
+        const adapters = telegramAdapterFromEnv(env);
+        await notifyChannelLoginSuccess(control, adapters ? [adapters] : [], channel, proven.observedHandle, checkedAt, { type: "operator", id: "headless-login" });
         return { channelKey: channel.key, accountId, identityId, observedHandle: proven.observedHandle, checkedAt, profileDirectory: session.profileDirectory };
       }
       session.heartbeat(checkedAt);
