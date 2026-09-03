@@ -6,33 +6,11 @@ import {
   renderOperatorMessage,
   sanitizeOperatorText
 } from "../dist/application/operator-message.js";
+import { assertOperatorSafe } from "./operator-message-safety.mjs";
 
 // Slice A: every operator message is built from ONE context through ONE renderer. The renderer
 // owns the vocabulary, so a caller that still holds an id, a spec key, an evidence path or a raw
 // state cannot leak it into Luca's chat.
-
-const FORBIDDEN = [
-  [/\b(?:account|intent|incident|asset|route|content|attention|notification|browser|identity|lane|publication|attempt)\s*:\s*\S/, "internal id"],
-  [/\b(?:instagram|tiktok|youtube)-[A-Za-z0-9]/, "spec key"],
-  [/(?<![\w:/.])(?:~)?\/[\w.@%+-]+\/[\w.@%+-]+/, "file path"],
-  [/\d{4}-\d{2}-\d{2}/, "ISO date"],
-  [/\b(?:PUBLISH_UNCERTAIN|SCHEDULED|VERIFIED|BLOCKED|WAIVED|AUTH_REQUIRED|CHALLENGE|STABILIZING|OBSERVED)\b/, "raw state"]
-];
-
-/** Commands are the one place a raw key may appear, so they are excluded from the id scan. */
-export function withoutCommands(text) {
-  return text
-    .split("\n")
-    .filter((line) => !line.includes("npm run flerdvision") && !line.startsWith("Nach dem Login:"))
-    .join("\n");
-}
-
-export function assertOperatorSafe(text, label) {
-  const scanned = withoutCommands(text);
-  for (const [pattern, what] of FORBIDDEN) {
-    assert.doesNotMatch(scanned, pattern, `${label} must not contain a ${what}: ${scanned}`);
-  }
-}
 
 test("the sanitizer strips ids, spec keys, paths and ISO stamps and germanises raw states", () => {
   const dirty = "account:instagram:instagram-lucae71 · tiktok-lucae71 · /workspaces/ws/evidence/post.png · 2026-09-02T07:30:00.000Z · PUBLISH_UNCERTAIN";

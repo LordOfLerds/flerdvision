@@ -121,11 +121,11 @@ export class OperatorReportService {
     // channel and video that still owe something.
     const published = view.entries
       .filter((entry) => entry.state === "VERIFIED")
-      .map((entry) => `  ✅ ${entry.channelName} · „${entry.videoLabel}“${entry.permalink ? `\n     ${entry.permalink}` : ""}`);
+      .flatMap((entry) => [`✅ ${entry.channelName} · „${entry.videoLabel}“`, ...(entry.permalink ? [entry.permalink] : [])]);
     const open = view.entries
       .filter((entry) => entry.state !== "VERIFIED" && entry.state !== "WAIVED")
       .slice(0, 6)
-      .map((entry) => `  ${entry.state === "PUBLISH_UNCERTAIN" ? "🛑" : "⚠️"} ${entry.channelName} · „${entry.videoLabel}“ · ${germanState(entry.state)}${entry.reason ? ` — ${entry.reason}` : ""}`);
+      .map((entry) => `${entry.state === "PUBLISH_UNCERTAIN" ? "🛑" : "⚠️"} ${entry.channelName} · „${entry.videoLabel}“ · ${germanState(entry.state)}${entry.reason ? ` — ${entry.reason}` : ""}`);
     return operatorMessageText(renderOperatorMessage("DAY_END", {
       planLabel: germanDayLabel(businessDate),
       ok: complete,

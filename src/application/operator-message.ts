@@ -268,6 +268,11 @@ function join(parts: readonly (string | undefined)[], separator = " · "): strin
   return parts.filter((part): part is string => Boolean(part && part.trim())).join(separator);
 }
 
+/** Same as `join`, but an all-empty line disappears instead of leaving a blank one behind. */
+function optionalJoin(parts: readonly (string | undefined)[], separator = " · "): string | undefined {
+  return join(parts, separator) || undefined;
+}
+
 function quoted(label: string | undefined): string | undefined {
   const value = safe(label);
   return value === undefined ? undefined : `„${value}“`;
@@ -402,7 +407,7 @@ function build(kind: OperatorMessageKind, context: OperatorMessageContext): Oper
           failures === 0 ? "verifiziert" : `${failures} mit Problemen`
         ]),
         body: block([
-          join([safe(context.planLabel), safe(context.slotLocal) ? `${safe(context.slotLocal)} Uhr` : undefined]),
+          optionalJoin([safe(context.planLabel), safe(context.slotLocal) ? `${safe(context.slotLocal)} Uhr` : undefined]),
           ...entries.flatMap(waveEntryLines),
           nextSlotLine(context.nextSlot)
         ])
@@ -425,7 +430,7 @@ function build(kind: OperatorMessageKind, context: OperatorMessageContext): Oper
         subject: `${context.badge ?? "⚠️"} ${safe(context.headline) ?? "Aufmerksamkeit nötig"}`,
         body: block([
           safe(context.reason),
-          join([channelLabel(context), safe(context.slotLocal) ? `${safe(context.slotLocal)} Uhr` : undefined]),
+          optionalJoin([channelLabel(context), safe(context.slotLocal) ? `${safe(context.slotLocal)} Uhr` : undefined]),
           quoted(context.videoLabel) ? `🎬 ${quoted(context.videoLabel)}` : undefined,
           safe(context.nextStep) ? `Was jetzt: ${safe(context.nextStep)}` : undefined,
           remote ? `Login im Remote-Browser: ${remote}` : undefined,
@@ -438,7 +443,7 @@ function build(kind: OperatorMessageKind, context: OperatorMessageContext): Oper
         subject: `${context.badge ?? "⚠️"} ${safe(context.headline) ?? "Störung"}`,
         body: block([
           safe(context.reason),
-          join([channelLabel(context), safe(context.slotLocal) ? `${safe(context.slotLocal)} Uhr` : undefined]),
+          optionalJoin([channelLabel(context), safe(context.slotLocal) ? `${safe(context.slotLocal)} Uhr` : undefined]),
           quoted(context.videoLabel) ? `🎬 ${quoted(context.videoLabel)}` : undefined,
           safe(context.statusLabel),
           safe(context.nextStep) ? `Was jetzt: ${safe(context.nextStep)}` : undefined
