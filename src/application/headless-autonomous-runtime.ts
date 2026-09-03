@@ -47,6 +47,11 @@ function assertExactSurfaceQualification(base: WorkspaceDistributionRuntime, all
     if (health?.state !== "HEALTHY") throw new Error(`Autonomous account ${accountId} session is not HEALTHY`);
     const routes = config.config.routes.filter((route) => route.enabled && route.accountId === accountId);
     if (routes.length === 0) throw new Error(`Autonomous account ${accountId} has no enabled routes`);
+    // One unqualified route must not take the whole daemon down: a Trial-Reel route waiting for
+    // Instagram's switch, or a YouTube route not yet qualified, is skipped with one clear line
+    // while the channel's qualified routes keep posting. Only an account with no qualified
+    // route at all is a startup error.
+    const unqualified: string[] = [];
     for (const route of routes) {
       const readiness = base.state.latestRouteTestReadiness(route.routeId)?.readiness;
       const surface = base.surfaces.latestContract(accountId, route.postingProfileId)?.contract;
@@ -64,8 +69,12 @@ function assertExactSurfaceQualification(base: WorkspaceDistributionRuntime, all
       }
       if (!surface || surface.status !== "CALIBRATED") reasons.push("surface_not_calibrated");
       else if (readiness?.surfaceContractId !== surface.contractId) reasons.push("surface_evidence_stale");
-      if (reasons.length > 0) throw new Error(`Route ${route.routeId} is not autonomous-surface-qualified: ${reasons.join(", ")}`);
+      if (reasons.length > 0) {
+        unqualified.push(route.routeId);
+        console.error(`Route ${route.displayName} wird übersprungen — nicht freigegeben: ${reasons.join(", ")}`);
+      }
     }
+    if (unqualified.length === routes.length) throw new Error(`Autonomous account ${accountId} has no qualified route: ${unqualified.join(", ")}`);
   }
 }
 

@@ -46,9 +46,16 @@ export function planReadinessAttention(input: {
     }
   }
 
+  // Per-slot warnings are for routes that are actually operating today: one that delivers
+  // somewhere in the plan or has ready videos waiting. A route with nothing ready at all --
+  // a channel not yet qualified, a folder still empty -- gets the single morning message, not
+  // two pings per slot; twelve of those in one cycle buried the one message that mattered.
+  const operating = new Set<string>(input.plan.deliveries.map((item) => item.routeId));
+  for (const lane of input.demand.lanes) if (lane.readyAssetCount > 0) for (const route of input.stored.config.routes) if (route.laneId === lane.laneId) operating.add(route.routeId);
   for (const gap of input.plan.gaps.filter((item) => item.kind === "MISSING_CONTENT" && item.routeId && item.slotKey)) {
     const route = input.stored.config.routes.find((item) => item.routeId === gap.routeId);
     if (!route) continue;
+    if (!operating.has(route.routeId)) continue;
     const schedule = input.stored.schedulePolicies[route.schedulePolicyId];
     const slot = schedule?.slots.find((item) => item.key === gap.slotKey);
     if (!schedule || !slot) continue;

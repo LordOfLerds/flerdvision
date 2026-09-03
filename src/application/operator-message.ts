@@ -98,6 +98,9 @@ const GERMAN_STATE: Readonly<Record<string, string>> = {
 /** German meaning of every incident kind: what it is, said in one noun phrase. */
 const GERMAN_INCIDENT: Readonly<Record<string, { meaning: string; effect: string; nextStep: string }>> = {
   AUTH_REQUIRED: { meaning: "Der Kanal ist abgemeldet", effect: "Für diesen Kanal wird nichts veröffentlicht.", nextStep: "Im Remote-Browser neu einloggen, danach /fortsetzen." },
+  MORNING_CONTENT: { meaning: "Für heute fehlen Videos", effect: "Slots ohne Video bleiben leer.", nextStep: "Videos in den Drive-Ordner des Kanals legen — sie werden beim nächsten Scan geplant." },
+  PRE_SLOT_CONTENT: { meaning: "Ein Slot hat kein Video", effect: "Dieser Slot bleibt leer, die anderen laufen weiter.", nextStep: "Ein Video in den Drive-Ordner legen; ist es rechtzeitig bereit, wird es noch geplant." },
+  PRE_SLOT_ESCALATION: { meaning: "Ein Slot ist gleich fällig und noch ohne Video", effect: "Der Slot wird ausfallen.", nextStep: "Jetzt ein Video in Drive legen oder den Slot bewusst leer lassen — nichts weiter nötig." },
   CHALLENGE: { meaning: "Die Plattform verlangt eine Sicherheitsabfrage", effect: "Für diesen Kanal wird nichts veröffentlicht.", nextStep: "Abfrage im Remote-Browser selbst lösen, danach /fortsetzen." },
   IDENTITY_MISMATCH: { meaning: "Im Browser ist das falsche Konto angemeldet", effect: "Posten ist gesperrt, damit nichts im falschen Konto landet.", nextStep: "Richtiges Konto einloggen und den Kanal prüfen." },
   MISSED_WINDOW: { meaning: "Ein Slot ist verstrichen, ohne dass gepostet wurde", effect: "Der Post von heute fällt aus.", nextStep: "Nichts tun — der nächste Slot läuft normal weiter." },
@@ -123,6 +126,9 @@ const GERMAN_ATTENTION: Readonly<Record<string, { meaning: string; action: strin
   NO_READY_CONTENT: { meaning: "Für einen Slot ist noch kein Video fertig", action: "Video in Drive ablegen — der Slot bleibt sonst leer." },
   SESSION_UNHEALTHY: { meaning: "Ein Kanal ist abgemeldet", action: "Im Remote-Browser neu einloggen." },
   AUTH_REQUIRED: { meaning: "Ein Kanal ist abgemeldet", action: "Im Remote-Browser neu einloggen." },
+  MORNING_CONTENT: { meaning: "Für heute fehlen Videos", action: "Videos in den Drive-Ordner des Kanals legen." },
+  PRE_SLOT_CONTENT: { meaning: "Ein Slot hat kein Video", action: "Video in Drive legen, sonst bleibt der Slot leer." },
+  PRE_SLOT_ESCALATION: { meaning: "Ein Slot ist gleich fällig und noch ohne Video", action: "Video in Drive legen oder den Slot leer lassen." },
   CHALLENGE: { meaning: "Ein Kanal verlangt eine Sicherheitsabfrage", action: "Abfrage im Remote-Browser selbst lösen." }
 };
 

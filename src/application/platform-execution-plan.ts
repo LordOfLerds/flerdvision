@@ -40,7 +40,12 @@ function assertContractMatches(context:DistributionPostingContext,contract:Platf
 }
 function planFromContract(context:DistributionPostingContext,contract:PlatformSurfaceContract):PlatformExecutionPlan{
   assertContractMatches(context,contract);
-  const actions=contract.steps.map(step=>actionFor(step,context));
+  // A step key answers one question once. The YouTube exploration once recorded the audience
+  // declaration twice -- in the wizard and again in the settings pass -- and the replay then
+  // looked for the question on a page that no longer shows it. Only the first occurrence of a
+  // key becomes an action; the duplicate is dropped here so no contract can replay it.
+  const seen=new Set<string>();
+  const actions=contract.steps.filter(step=>{if(seen.has(step.stepKey))return false;seen.add(step.stepKey);return true;}).map(step=>actionFor(step,context));
   if(actions.at(-1)?.operation!=="FINAL_BOUNDARY")throw new Error("Surface contract must terminate at FINAL_BOUNDARY");
   if(actions.slice(0,-1).some(item=>item.operation==="FINAL_BOUNDARY"))throw new Error("FINAL_BOUNDARY may appear only once at the end");
   return{intent:context.intent,provenance:context.provenance,postingProfile:context.postingProfile,surfaceContractId:contract.contractId,environmentFingerprint:contract.environment.fingerprint,environment:contract.environment,actions};
