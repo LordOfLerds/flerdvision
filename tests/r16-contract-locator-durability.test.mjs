@@ -29,3 +29,17 @@ test("the journal and the contract both carry the durable locator", () => {
   // Nothing else may hand the transient marker onward.
   assert.doesNotMatch(source, /return \{ locator: selected, fallbacks \}/);
 });
+
+test("the YouTube audience answer is recorded by its wording, never by the page marker", () => {
+  const idx = source.indexOf('stepKey: "AUDIENCE", label: "Made-for-kids declaration"');
+  const block = source.slice(idx, idx + 1200);
+  assert.match(block, /const recordedAudience = tagged \? durableAudience\[0\]! : audience\.locator/);
+  assert.match(block, /locator: recordedAudience, fallbackLocators: recordedFallbacks/);
+  assert.doesNotMatch(block, /locator: audience\.locator, fallbackLocators: audience\.fallbacks/);
+});
+
+test("the YouTube visibility radio is recorded by its label, never by the page marker", () => {
+  const settings = readFileSync(new URL("../src/adapters/browser/autonomous-surface-settings.ts", import.meta.url).pathname, "utf8");
+  assert.match(settings, /recordedRadio = \{ kind: "text", value: wantedForRadio\[0\]!, exact: true \}/);
+  assert.match(settings, /stepKey: "VISIBILITY", label: "Visibility setting", actionMode: "OBSERVE_ACTION", locator: recordedRadio \?\? radio/);
+});

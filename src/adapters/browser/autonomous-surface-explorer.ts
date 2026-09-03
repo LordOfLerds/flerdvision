@@ -601,7 +601,13 @@ export class AutonomousSurfaceExplorer {
       const audienceStep: AutonomousStep = { stepKey: "AUDIENCE", label: "Made-for-kids declaration", action: "CLICK", required: true, timeoutMs: 20_000, locators: audienceLocators };
       const audience = await this.executeStep(audienceStep, input.intent, input, artifactRefs, journal);
       if (!audience) throw new Error("Made-for-kids declaration could not be answered");
-      steps.push({ stepKey: audienceStep.stepKey, label: audienceStep.label, actionMode: "OBSERVE_ACTION", locator: audience.locator, fallbackLocators: audience.fallbacks, observations: 1 });
+      // The marker that pinned the option exists only in this page. A replay opens a fresh
+      // Studio and must find the answer by its wording, so the contract records the declared
+      // sentence, never the marker -- the same rule the caption fields follow.
+      const durableAudience: readonly UiLocator[] = [...text(audienceNames), ...named("radio", audienceNames), ...named("menuitemradio", audienceNames)];
+      const recordedAudience = tagged ? durableAudience[0]! : audience.locator;
+      const recordedFallbacks = tagged ? durableAudience.slice(1) : audience.fallbacks;
+      steps.push({ stepKey: audienceStep.stepKey, label: audienceStep.label, actionMode: "OBSERVE_ACTION", locator: recordedAudience, fallbackLocators: recordedFallbacks, observations: 1 });
       await sleep(1200);
     }
 

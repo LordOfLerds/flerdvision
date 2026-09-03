@@ -90,7 +90,7 @@ test("a radio-based visibility surface is handled before the combobox search", (
   // YouTube's last wizard screen lists Öffentlich / Nicht gelistet / Privat as radios; the
   // combobox search settled on the section heading and read "Sichtbarkeit" as the value.
   const idx = source.indexOf("Some surfaces expose visibility as radio buttons");
-  const block = source.slice(idx, idx + 3000);
+  const block = source.slice(idx, idx + 3700);
   assert.match(block, /let radio = await this\.firstPresent\(radioCandidates, 2500\);/);
   assert.match(block, /aria-checked"\) === "true"/);
   const radioPath = source.indexOf("let radio = await this.firstPresent");

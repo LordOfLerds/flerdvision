@@ -272,6 +272,7 @@ export class AutonomousSurfaceSettings {
     // on the section heading, whose text ("Sichtbarkeit") then failed the value readback.
     const wantedForRadio = visibilityLabels(input.expected);
     const radioCandidates = unique([...role("radio", wantedForRadio), ...role("menuitemradio", wantedForRadio)]);
+    let recordedRadio: UiLocator | null = null;
     let radio = await this.firstPresent(radioCandidates, 2500);
     if (!radio) {
       // Studio renders its options as custom elements (tp-yt-paper-radio-button), which carry no
@@ -293,7 +294,12 @@ export class AutonomousSurfaceSettings {
         }
         return false;
       })()`).catch(() => false);
-      if (tagged) radio = { kind: "css", value: '[data-flerdvision-visibility="1"]' };
+      if (tagged) {
+        radio = { kind: "css", value: '[data-flerdvision-visibility="1"]' };
+        // The marker pins the option in THIS page only; a replay opens a fresh dialog and must
+        // find the option by its label. Record the wording, click through the marker.
+        recordedRadio = { kind: "text", value: wantedForRadio[0]!, exact: true };
+      }
     }
     if (radio) {
       await this.driver.click([radio], 5000, input.forbidden);
@@ -310,7 +316,7 @@ export class AutonomousSurfaceSettings {
       if (!checked) throw new UiActionExecutionError(`Visibility readback failed: expected ${input.expected} to be selected`);
       input.journal.push({ at: this.now(), stepKey: "VISIBILITY", action: "CLICK", outcome: "PASS", locator: radio, detail: `visibility=${input.expected}` });
       input.artifactRefs.push(...await this.artifacts.captureBoundary(this.session, input.intent, input.identity, "autonomous-setting-visibility", this.now()));
-      return { stepKey: "VISIBILITY", label: "Visibility setting", actionMode: "OBSERVE_ACTION", locator: radio, fallbackLocators: radioCandidates.filter((locator) => JSON.stringify(locator) !== JSON.stringify(radio)).slice(0, 3), observations: 1 };
+      return { stepKey: "VISIBILITY", label: "Visibility setting", actionMode: "OBSERVE_ACTION", locator: recordedRadio ?? radio, fallbackLocators: radioCandidates.filter((locator) => JSON.stringify(locator) !== JSON.stringify(recordedRadio ?? radio)).slice(0, 3), observations: 1 };
     }
     let candidates = await this.proposedLocators(input.intent, "VISIBILITY", visibilityControlLocators());
     let selected = await this.firstPresent(candidates, 3000);
