@@ -131,7 +131,10 @@ function composeAutonomousRuntime(options: HeadlessAutonomousRuntimeOptions): Au
       releaseSha: options.releaseSha,
       env,
       ownerId,
-      headless: options.headless ?? true
+      // The qualification runs headful; production must drive the browser it proved. Headless
+      // stays the default for unattended hosts (VPS behind Xvfb); FLERDVISION_DAEMON_HEADLESS=0
+      // runs the daemon headful on a desk machine -- the first live TikTok run hung in headless only.
+      headless: options.headless ?? (env.FLERDVISION_DAEMON_HEADLESS === undefined ? true : !["0", "false", "no"].includes(String(env.FLERDVISION_DAEMON_HEADLESS).trim().toLowerCase()))
     });
     // The operator layer (Telegram) is optional and read-mostly: when configured it also owns
     // the composite publish gate so /pause is respected by the due worker without burning
