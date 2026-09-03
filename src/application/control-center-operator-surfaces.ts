@@ -47,7 +47,7 @@ export function incidentView(incident: Incident): IncidentView {
       : view;
   }
   if (incident.kind === "BROWSER_UNREACHABLE") return { ...base, allowedActions:["ACKNOWLEDGE","OPEN_BROWSER","RESOLVE_AFTER_FIX"] };
-  if (incident.kind === "MISSED_WINDOW") return { ...base, allowedActions: ["ACKNOWLEDGE", "WAIVE_SLOT"], prohibitedAction: "Kein automatischer Catch-up-Post nach abgelaufenem Slot." };
+  if (incident.kind === "MISSED_WINDOW") return { ...base, allowedActions: ["ACKNOWLEDGE", "WAIVE_SLOT"], prohibitedAction: "Nachholen nur für nie versuchte Posts bis 4 h nach dem Slot; danach wird der Slot übersprungen." };
   if (incident.kind === "SOURCE_BLOCKED") return { ...base, allowedActions: ["ACKNOWLEDGE", "OPEN_CONTENT", "RESOLVE_AFTER_FIX"] };
   if (incident.kind === "PLATFORM_CAPABILITY_MISSING" || incident.kind === "UI_UNKNOWN") return { ...base, allowedActions: ["ACKNOWLEDGE", "OPEN_ROUTE", "RESOLVE_AFTER_FIX"] };
   return base;

@@ -73,7 +73,7 @@ export class OpsHttpServer {
     if (kind === "AUTH_REQUIRED" || kind === "CHALLENGE") return "Open the isolated browser session, complete normal login/2FA, run a health check, then Resume while the original slot is still valid.";
     if (kind === "IDENTITY_MISMATCH") return "Do not publish. Confirm the expected account in the isolated browser profile before any resume.";
     if (kind === "PUBLISH_UNCERTAIN") return "Never Resume or retry directly. Run W5 reconciliation until the post is VERIFIED or explicitly SAFE_TO_RETRY.";
-    if (kind === "MISSED_WINDOW") return "Do not catch up automatically. Waive this slot or create an explicit later scheduling decision.";
+    if (kind === "MISSED_WINDOW") return "Catch-up is automatic only for never-attempted posts within the catch-up window (default 4 h); after that the slot is waived. Waive this slot or create an explicit later scheduling decision.";
     return "Review evidence and state history. Resolve only after the underlying condition is removed.";
   }
 
