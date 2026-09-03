@@ -12,7 +12,7 @@ import type {
   SourceConnection,
   SourceLane
 } from "../domain/distribution.js";
-import type { SchedulingPolicy } from "../domain/scheduling.js";
+import { DEFAULT_SCHEDULING_POLICY, type SchedulingPolicy } from "../domain/scheduling.js";
 import type { WorkspaceChannelFormatSpec, WorkspaceChannelSpec, WorkspaceSpecV1 } from "../domain/workspace-spec.js";
 import type { SourceTopology } from "./source-structure-discovery.js";
 import { assertConfigurationReferentialIntegrity } from "./distribution-config.js";
@@ -130,7 +130,8 @@ function schedulingPolicy(spec: WorkspaceSpecV1, channel: WorkspaceChannelSpec, 
       maxPerAccountPerBusinessDate: accountPostsPerDay,
       minimumSpacingMinutes,
       overflowAllowed: false,
-      overflowMinimumSpacingMinutes: 240
+      overflowMinimumSpacingMinutes: 240,
+      catchUpHours: DEFAULT_SCHEDULING_POLICY.catchUpHours
     }
   };
 }
