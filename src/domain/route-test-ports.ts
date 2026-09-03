@@ -36,5 +36,5 @@ export interface RouteTestExecutionAdapterPort {
 }
 
 export interface RouteE2EGateBridgePort {
-  recordGate(routeId: string, gate: E2EGateResult, releaseSha: string, surfaceContractId?:string): RouteTestEvidenceRecord | null;
+  recordGate(routeId: string, gate: E2EGateResult, releaseSha: string, surfaceContractId?:string, surfaceFingerprint?:string): RouteTestEvidenceRecord | null;
 }

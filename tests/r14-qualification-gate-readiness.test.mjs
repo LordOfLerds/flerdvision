@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { JsonDistributionConfigurationStore } from "../dist/adapters/distribution/json-config-store.js";
 import { SqliteDistributionRuntimeStateStore } from "../dist/adapters/distribution/sqlite-runtime-state.js";
+import { SqliteRouteTestEvidenceStore } from "../dist/adapters/distribution/sqlite-route-test-evidence.js";
 import { SqlitePlatformSurfaceStore } from "../dist/adapters/distribution/sqlite-surface-store.js";
 import { SqliteControlPlaneStore } from "../dist/adapters/storage/sqlite.js";
 import { inspectHeadlessWorkspace } from "../dist/application/headless-status.js";
@@ -35,7 +36,7 @@ function topologyFor(spec) {
 }
 
 /** A workspace whose only open question is whether the recorded qualification is still current. */
-function workspace(readinessOverrides = {}) {
+function workspace(readinessOverrides = {}, privateE2E = false) {
   const root = mkdtempSync(join(tmpdir(), "flerdvision-doctor-"));
   const runtimeRoot = join(root, "runtime");
   const sourceRoot = join(root, "source");
@@ -84,11 +85,19 @@ function workspace(readinessOverrides = {}) {
   }, "2026-09-03T06:01:00.000Z");
   state.close();
 
+  if (privateE2E) {
+    const evidence = new SqliteRouteTestEvidenceStore(layout.databasePath);
+    for (const [testKey, checkedAt] of [["SECRET_LIVE", "2026-09-03T06:30:00.000Z"], ["CLEANUP", "2026-09-03T06:40:00.000Z"]]) {
+      evidence.record({ evidenceId: `route-test:${testKey}`, routeId: route.routeId, testKey, status: "PASS", checkedAt, releaseSha: "release-of-the-qualification", surfaceFingerprint: SURFACE, surfaceContractId: CONTRACT_ID, summary: `${testKey} proven`, artifactRefs: [`evidence://${testKey}`] });
+    }
+    evidence.close();
+  }
+
   return { specPath, routeId: route.routeId };
 }
 
-function routeRow(readinessOverrides = {}, releaseSha = "a-much-later-release") {
-  const { specPath } = workspace(readinessOverrides);
+function routeRow(readinessOverrides = {}, releaseSha = "a-much-later-release", privateE2E = false) {
+  const { specPath } = workspace(readinessOverrides, privateE2E);
   const report = inspectHeadlessWorkspace({ specPath, releaseSha, env: { TZ: "Europe/Vienna" }, now: "2026-09-03T07:00:00.000Z" });
   return { report, route: report.channels[0].routes[0] };
 }
@@ -136,6 +145,13 @@ test("a missing private E2E is a warning, not a gate", () => {
   assert.equal(route.blockers.includes("private_e2e_missing"), false);
   assert.equal(route.blockers.includes("private_e2e_cleanup_missing_or_stale"), false);
   assert.equal(route.readyForAutonomousPublish, true, "the first scheduled slot is the first post");
+
+  // Whoever does run it must still see it: the doctor reads private E2E evidence back under the
+  // surface fingerprint, exactly like every other route test.
+  const withPost = routeRow({}, "a-much-later-release", true).route;
+  assert.equal(withPost.privateE2EPassed, true);
+  assert.equal(withPost.cleanupPassedAfterPrivateE2E, true);
+  assert.deepEqual([...withPost.warnings], []);
 });
 
 test("the doctor reports both values in German", () => {

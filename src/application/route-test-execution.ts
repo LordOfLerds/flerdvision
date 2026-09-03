@@ -60,8 +60,11 @@ export class RouteTestExecutionService {
 function mapGate(gate: E2EGateResult): RouteTestEvidenceKey | null {if(gate.gate==="PREPARE_ONLY_REPLAY")return"PREPARE_ONLY";if(gate.gate==="PRIVATE_PUBLISH")return"SECRET_LIVE";if(gate.gate==="VERIFICATION")return"VERIFICATION";if(gate.gate==="CLEANUP")return"CLEANUP";return null;}
 export class RouteE2EGateBridge {
   constructor(private readonly store: RouteTestEvidenceStorePort) {}
-  recordGate(routeId: string, gate: E2EGateResult, releaseSha: string, surfaceContractId?:string): RouteTestEvidenceRecord | null {
+  recordGate(routeId: string, gate: E2EGateResult, releaseSha: string, surfaceContractId?:string, surfaceFingerprint?:string): RouteTestEvidenceRecord | null {
     const testKey=mapGate(gate);if(!testKey)return null;
-    return this.store.record({evidenceId:id(routeId,testKey,gate.checkedAt,gate.gateResultId),routeId,testKey,status:gate.status==="PASS"?"PASS":"FAIL",checkedAt:gate.checkedAt,releaseSha,...(surfaceContractId?{surfaceContractId}:{}),summary:`Private E2E ${gate.gate}: ${gate.summary}`,artifactRefs:[...gate.artifactRefs]});
+    // Private E2E evidence is read back under the surface fingerprint like every other route
+    // test; without it a real private post would keep reading as "not run".
+    const fingerprint=surfaceFingerprint??currentSurfaceFingerprintOrUndefined();
+    return this.store.record({evidenceId:id(routeId,testKey,gate.checkedAt,gate.gateResultId),routeId,testKey,status:gate.status==="PASS"?"PASS":"FAIL",checkedAt:gate.checkedAt,releaseSha,...(fingerprint?{surfaceFingerprint:fingerprint}:{}),...(surfaceContractId?{surfaceContractId}:{}),summary:`Private E2E ${gate.gate}: ${gate.summary}`,artifactRefs:[...gate.artifactRefs]});
   }
 }
