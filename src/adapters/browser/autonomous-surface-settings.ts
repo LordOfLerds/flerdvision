@@ -278,27 +278,30 @@ export class AutonomousSurfaceSettings {
       // Studio renders its options as custom elements (tp-yt-paper-radio-button), which carry no
       // usable role: the role search found nothing and the combobox fallback then read the
       // section heading as the value. Tag the visible option that carries the exact label.
-      const tagged = await this.session.evaluate<boolean>(`(() => {
+      const tagged = await this.session.evaluate<string | null>(`(() => {
         const norm = (value) => String(value || "").replace(/\\s+/g, " ").trim().toLocaleLowerCase("en-US");
         const wanted = new Set(${JSON.stringify(wantedForRadio.map((label) => label.toLocaleLowerCase("en-US")))});
         for (const previous of Array.from(document.querySelectorAll('[data-flerdvision-visibility]'))) previous.removeAttribute('data-flerdvision-visibility');
         const candidates = Array.from(document.querySelectorAll('tp-yt-paper-radio-button, [role="radio"], input[type="radio"], label, div'));
         for (const candidate of candidates) {
-          const name = norm(candidate.getAttribute("aria-label")) || norm(candidate.getAttribute("name")) || norm(candidate.textContent);
+          const raw = (candidate.getAttribute("aria-label") || candidate.getAttribute("name") || candidate.textContent || "").replace(/\\s+/g, " ").trim();
+          const name = norm(raw);
           if (!wanted.has(name)) continue;
           const rect = candidate.getBoundingClientRect();
           const style = getComputedStyle(candidate);
           if (style.display === "none" || style.visibility === "hidden" || rect.width <= 0 || rect.height <= 0) continue;
           candidate.setAttribute('data-flerdvision-visibility', '1');
-          return true;
+          return raw;
         }
-        return false;
-      })()`).catch(() => false);
-      if (tagged) {
+        return null;
+      })()`).catch(() => null);
+      if (tagged !== null) {
         radio = { kind: "css", value: '[data-flerdvision-visibility="1"]' };
         // The marker pins the option in THIS page only; a replay opens a fresh dialog and must
-        // find the option by its label. Record the wording, click through the marker.
-        recordedRadio = { kind: "text", value: wantedForRadio[0]!, exact: true };
+        // find the option by its label -- the label as the page renders it ("Privat"), not the
+        // first entry of the candidate list ("Only you"), which once sent a replay looking for a
+        // word Studio never shows.
+        recordedRadio = { kind: "text", value: tagged, exact: true };
       }
     }
     if (radio) {
@@ -316,7 +319,7 @@ export class AutonomousSurfaceSettings {
       if (!checked) throw new UiActionExecutionError(`Visibility readback failed: expected ${input.expected} to be selected`);
       input.journal.push({ at: this.now(), stepKey: "VISIBILITY", action: "CLICK", outcome: "PASS", locator: radio, detail: `visibility=${input.expected}` });
       input.artifactRefs.push(...await this.artifacts.captureBoundary(this.session, input.intent, input.identity, "autonomous-setting-visibility", this.now()));
-      return { stepKey: "VISIBILITY", label: "Visibility setting", actionMode: "OBSERVE_ACTION", locator: recordedRadio ?? radio, fallbackLocators: radioCandidates.filter((locator) => JSON.stringify(locator) !== JSON.stringify(recordedRadio ?? radio)).slice(0, 3), observations: 1 };
+      return { stepKey: "VISIBILITY", label: "Visibility setting", actionMode: "OBSERVE_ACTION", locator: recordedRadio ?? radio, fallbackLocators: unique([...radioCandidates, ...text(wantedForRadio)]).filter((locator) => JSON.stringify(locator) !== JSON.stringify(recordedRadio ?? radio)).slice(0, 6), observations: 1 };
     }
     let candidates = await this.proposedLocators(input.intent, "VISIBILITY", visibilityControlLocators());
     let selected = await this.firstPresent(candidates, 3000);

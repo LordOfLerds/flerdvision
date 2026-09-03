@@ -40,6 +40,6 @@ test("the YouTube audience answer is recorded by its wording, never by the page 
 
 test("the YouTube visibility radio is recorded by its label, never by the page marker", () => {
   const settings = readFileSync(new URL("../src/adapters/browser/autonomous-surface-settings.ts", import.meta.url).pathname, "utf8");
-  assert.match(settings, /recordedRadio = \{ kind: "text", value: wantedForRadio\[0\]!, exact: true \}/);
+  assert.match(settings, /recordedRadio = \{ kind: "text", value: tagged, exact: true \}/);
   assert.match(settings, /stepKey: "VISIBILITY", label: "Visibility setting", actionMode: "OBSERVE_ACTION", locator: recordedRadio \?\? radio/);
 });
