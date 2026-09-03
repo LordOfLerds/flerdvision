@@ -6,6 +6,7 @@ import type { PublicationState } from "../domain/states.js";
 import { businessDateForInstant } from "../domain/scheduling.js";
 import { filenameParts } from "../adapters/publish/workspace-payload-resolver.js";
 import {
+  germanBlocker,
   germanBlockReason,
   germanDayLabel,
   germanIncident,
@@ -30,6 +31,20 @@ export interface OperatorChannelRef {
   driveFolderUrl?: string;
 }
 
+/**
+ * What one channel can do today. A channel whose route is not released yet has no intents, so
+ * without this it simply vanished from the plan -- which is how YouTube went missing for a week
+ * without anyone being told why.
+ */
+export interface OperatorChannelStatus {
+  channelKey: string;
+  /** False while the route still needs its release run. */
+  qualified: boolean;
+  /** German reason the channel cannot post; undefined when nothing is in the way. */
+  reason?: string;
+  readyAssets: number;
+}
+
 export interface OperatorPlanViewStores {
   control: {
     listIntents(states?: readonly PublicationState[]): readonly StoredPublicationIntent[];
@@ -40,6 +55,38 @@ export interface OperatorPlanViewStores {
   };
   state: { listAssets(): readonly StoredContentAssetRevision[] };
   pauses: { listSchedulePauses(): readonly SchedulePause[] };
+  /** Optional release state per channel; without it a channel without posts is simply named. */
+  channelStatus?: () => readonly OperatorChannelStatus[];
+}
+
+/**
+ * Doctor rows -> the one sentence the checklist needs. A channel counts as released as soon as
+ * one of its routes is, and a channel whose only obstacle is an empty Drive folder is released
+ * -- it just has nothing to post.
+ */
+export function operatorChannelStatusFromDoctor(report: {
+  channels: readonly {
+    channelKey: string;
+    routes: readonly { readyForAutonomousPublish: boolean; blockers: readonly string[]; readyAssets: number }[];
+  }[];
+}): readonly OperatorChannelStatus[] {
+  return report.channels.map((channel) => {
+    const readyAssets = Math.max(0, ...channel.routes.map((route) => route.readyAssets), 0);
+    if (channel.routes.some((route) => route.readyForAutonomousPublish)) {
+      return { channelKey: channel.channelKey, qualified: true, readyAssets };
+    }
+    const blockers = [...new Set(channel.routes.flatMap((route) => route.blockers))];
+    const withoutContent = blockers.filter((blocker) => blocker !== "no_ready_asset");
+    if (withoutContent.length === 0) {
+      return { channelKey: channel.channelKey, qualified: channel.routes.length > 0, readyAssets };
+    }
+    return {
+      channelKey: channel.channelKey,
+      qualified: false,
+      reason: withoutContent.map(germanBlocker).join(", "),
+      readyAssets
+    };
+  });
 }
 
 export interface OperatorPlanEntry {
@@ -74,17 +121,66 @@ export interface OperatorPipelineSummary {
   blockedAssets: readonly OperatorBlockedAsset[];
 }
 
+/** A configured channel with nothing in today's plan, and the reason it has nothing. */
+export interface OperatorChannelGap {
+  channelKey: string;
+  channelName: string;
+  platform: string;
+  /** German: "nicht freigegeben — Qualifikation fehlt", "kein Video im Drive-Ordner", ... */
+  reason: string;
+  badge: string;
+  driveFolderUrl?: string;
+}
+
 export interface OperatorPlanView {
   businessDate: string;
   /** "Tagesplan Mi 2. Sep" -- the operator never reads an ISO business date. */
   planLabel: string;
   /** The next slot after this view's "now", when the day still has one. */
   nextSlot?: OperatorNextSlot;
+  /** Instant of the day's last slot; the evening report waits for it. */
+  lastSlotAt?: string;
   entries: readonly OperatorPlanEntry[];
+  /** Every configured channel that has no post today, and why. */
+  channelGaps: readonly OperatorChannelGap[];
   pipeline: OperatorPipelineSummary;
   disturbances: readonly Incident[];
   pauses: readonly SchedulePause[];
   killSwitches: readonly KillSwitch[];
+}
+
+/**
+ * Qualification and repair runs write their own intents and lock owners ("qualification:...",
+ * "headless-surface-replay:..."). Their failures are engineering evidence, not something the
+ * operator can act on -- counting them is how one evening reported "13 weitere Störungen" for a
+ * system that was posting normally.
+ */
+const QUALIFICATION_ORIGIN = /(?:^|[\s:|])(?:qualification|qualification-plan|qualification-delivery|qualification-verification|headless-surface-replay|headless-surface-discovery|surface-replay|private-e2e)[:-]/i;
+
+export function isQualificationIncident(incident: Incident): boolean {
+  return QUALIFICATION_ORIGIN.test([
+    incident.scope.intentId ?? "",
+    incident.fingerprint,
+    incident.summary,
+    ...Object.values(incident.metadata)
+  ].join(" "));
+}
+
+/**
+ * A disturbance the operator should see is OPEN, belongs to a channel the daemon runs today, and
+ * did not come out of a qualification run. Everything else is engineering state and stays out of
+ * the chat.
+ */
+export function isOperatorDisturbance(
+  incident: Incident,
+  scope: { accountIds: ReadonlySet<string>; todayIntentIds: ReadonlySet<string> }
+): boolean {
+  if (incident.status !== "OPEN") return false;
+  if (isQualificationIncident(incident)) return false;
+  if (incident.scope.intentId) return scope.todayIntentIds.has(incident.scope.intentId);
+  if (incident.scope.accountId) return scope.accountIds.has(incident.scope.accountId);
+  // A blocked Drive file has no account, but it is unmistakably this daemon's own operation.
+  return Boolean(incident.scope.sourceObservationId);
 }
 
 const STATE_BADGE: Readonly<Record<PublicationState, string>> = {
@@ -113,14 +209,14 @@ export function collectOperatorPlanView(
   const channelByAccount = new Map(channels.map((channel) => [channel.accountId, channel]));
   const assets = stores.state.listAssets();
   const assetByContent = new Map(assets.map((record) => [record.asset.contentId, record.asset]));
-  const disturbances = stores.control.listIncidents(["OPEN", "ACKNOWLEDGED"]);
+  const openIncidents = stores.control.listIncidents(["OPEN"]);
   // A BLOCKED entry is only useful with the reason the pipeline actually recorded. Nothing here
   // guesses: an unknown code produces no reason line at all.
   const reasonFor = (intentId: string, contentId: string, state: PublicationState): string | undefined => {
     if (state !== "BLOCKED") return undefined;
     const recorded = germanBlockReason(assetByContent.get(contentId)?.metadata.blockReason);
     if (recorded) return recorded;
-    const incident = disturbances.find((item) => item.scope.intentId === intentId);
+    const incident = openIncidents.find((item) => item.scope.intentId === intentId);
     return incident ? germanIncident(incident.kind).meaning : undefined;
   };
   const entries = stores.control.listIntents()
@@ -157,6 +253,30 @@ export function collectOperatorPlanView(
         channelNames: [...new Set(upcoming.filter((entry) => entry.timeLocal === upcoming[0]!.timeLocal).map((entry) => entry.channelName))]
       }
     : undefined;
+  const todayIntentIds = new Set(entries.map((entry) => entry.intentId));
+  const accountIds = new Set(channels.map((channel) => channel.accountId));
+  const disturbances = openIncidents.filter((incident) => isOperatorDisturbance(incident, { accountIds, todayIntentIds }));
+  // Every configured channel appears, whether or not it has a slot today: a channel that is
+  // silently missing from the plan looks like a channel that is fine.
+  const status = new Map((stores.channelStatus?.() ?? []).map((item) => [item.channelKey, item]));
+  const channelGaps: OperatorChannelGap[] = channels
+    .filter((channel) => !entries.some((entry) => entry.channelKey === channel.key))
+    .map((channel) => {
+      const own = status.get(channel.key);
+      const gap = own && !own.qualified
+        ? { badge: "⏳", reason: `nicht freigegeben — ${own.reason ?? "Qualifikation fehlt"}` }
+        : own && own.readyAssets === 0
+          ? { badge: "⚠️", reason: "kein Video im Drive-Ordner" }
+          : { badge: "➖", reason: "heute kein Post geplant" };
+      return {
+        channelKey: channel.key,
+        channelName: channel.name,
+        platform: channel.platform,
+        ...gap,
+        ...(channel.driveFolderUrl ? { driveFolderUrl: channel.driveFolderUrl } : {})
+      };
+    });
+  const lastSlotAt = entries.at(-1)?.sortKey;
   const count = (state: string) => assets.filter((record) => record.asset.state === state).length;
   const pipeline: OperatorPipelineSummary = {
     observed: count("OBSERVED"),
@@ -172,12 +292,33 @@ export function collectOperatorPlanView(
     businessDate,
     planLabel: `Tagesplan ${germanDayLabel(businessDate)}`,
     ...(nextSlot ? { nextSlot } : {}),
+    ...(lastSlotAt ? { lastSlotAt } : {}),
     entries: entries.map(({ sortKey: _sortKey, ...entry }) => entry),
+    channelGaps,
     pipeline,
     disturbances,
     pauses: stores.pauses.listSchedulePauses(),
     killSwitches: stores.control.listKillSwitches(true)
   };
+}
+
+/**
+ * The Drive counters as a person reads them: how many videos are usable, how many are not, how
+ * many are still being checked. "0 beobachtet · 0 stabilisierend" was pipeline vocabulary that
+ * meant nothing to the person who has to decide whether to upload something.
+ */
+export function describeDrivePipeline(pipeline: OperatorPipelineSummary): string {
+  const [first] = pipeline.blockedAssets;
+  const unusable = pipeline.blocked === 0 || !first
+    ? `${pipeline.blocked} unbrauchbar`
+    : `${pipeline.blocked} unbrauchbar („${first.label}“${first.reason ? ` — ${first.reason}` : ""})`;
+  const videos = pipeline.ready === 1 ? "1 Video bereit" : `${pipeline.ready} Videos bereit`;
+  return `📥 Drive: ${videos} · ${unusable} · ${pipeline.observed + pipeline.stabilizing} in Prüfung`;
+}
+
+/** The remaining unusable files, one indented line each; the first one is already inline above. */
+function blockedAssetLines(pipeline: OperatorPipelineSummary): string[] {
+  return pipeline.blockedAssets.slice(1, 5).map((asset) => `  ⚠️ „${asset.label}“${asset.reason ? ` — ${asset.reason}` : ""}`);
 }
 
 /** Suffix that says what a checklist row means, in the words the operator uses. */
@@ -199,7 +340,7 @@ function scopeName(scopeKey: string, channels: readonly OperatorChannelRef[]): s
  * built from the shared operator context so it speaks exactly like every other message.
  */
 export function renderOperatorPlan(view: OperatorPlanView, channels: readonly OperatorChannelRef[] = []): string {
-  const entries: OperatorMessageContext[] = view.entries.map((entry) => ({
+  const entries: OperatorMessageContext[] = view.entries.map((entry): OperatorMessageContext => ({
     badge: STATE_BADGE[entry.state] ?? "⬜",
     slotLocal: entry.timeLocal,
     channelName: entry.channelName,
@@ -210,10 +351,15 @@ export function renderOperatorPlan(view: OperatorPlanView, channels: readonly Op
     ...(entry.reason ? { reason: entry.reason } : {}),
     ...(entry.permalink ? { permalink: entry.permalink } : {})
   }));
-  const pipeline = [
-    `📥 Drive: ${view.pipeline.observed} beobachtet · ${view.pipeline.stabilizing} stabilisierend · ${view.pipeline.ready} bereit · ${view.pipeline.blocked} blockiert`,
-    ...view.pipeline.blockedAssets.slice(0, 5).map((asset) => `  ⚠️ blockiert: „${asset.label}“${asset.reason ? ` — ${asset.reason}` : ""}`)
-  ];
+  // Everything an unqualified or idle channel needs, in the same list as the real slots.
+  entries.push(...view.channelGaps.map((gap) => ({
+    badge: gap.badge,
+    channelName: gap.channelName,
+    platformLabel: germanPlatformLabel(gap.platform),
+    statusLabel: gap.reason,
+    ...(gap.driveFolderUrl ? { driveFolderUrl: gap.driveFolderUrl } : {})
+  })));
+  const pipeline = [describeDrivePipeline(view.pipeline), ...blockedAssetLines(view.pipeline)];
   const sections: { heading?: string; lines: string[] }[] = [{ lines: pipeline }];
   if (view.pauses.length > 0) {
     sections.push({ lines: [`⏸️ Pausiert: ${view.pauses.map((pause) => scopeName(pause.scopeKey, channels)).join(", ")}`] });
@@ -228,6 +374,7 @@ export function renderOperatorPlan(view: OperatorPlanView, channels: readonly Op
   }
   return operatorMessageText(renderOperatorMessage("PLAN", {
     planLabel: view.planLabel,
+    ...(view.entries.length === 0 ? { headline: "Heute ist kein Post geplant." } : {}),
     entries,
     ...(view.nextSlot ? { nextSlot: view.nextSlot } : {}),
     sections

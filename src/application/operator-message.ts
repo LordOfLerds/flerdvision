@@ -415,8 +415,7 @@ function waveEntryLines(entry: OperatorMessageContext): string[] {
  */
 function planEntryLines(entry: OperatorMessageContext): string[] {
   const head = join([
-    `${entry.badge ?? "⬜"} ${safe(entry.slotLocal) ?? ""}`.trim(),
-    channelLabel(entry),
+    `${entry.badge ?? "⬜"} ${join([safe(entry.slotLocal), channelLabel(entry)])}`.trim(),
     quoted(entry.videoLabel),
     safe(entry.statusLabel)
   ]);
@@ -477,6 +476,8 @@ function build(kind: OperatorMessageKind, context: OperatorMessageContext): Oper
       return {
         subject: `📋 ${safe(context.planLabel) ?? "Tagesplan"}`,
         body: block([
+          // A day with nothing scheduled says so in the first line, above the channel list.
+          safe(context.headline),
           ...(entries.length === 0 ? ["Keine Posts geplant."] : entries.flatMap(planEntryLines)),
           nextSlotLine(context.nextSlot),
           ...sectionLines(context),

@@ -3,7 +3,7 @@ import type { KillSwitch, KillSwitchScopeType } from "../domain/operations.js";
 import type { SchedulePauseStorePort } from "../domain/operator-ports.js";
 import type { HeadlessDoctorReport } from "./headless-status.js";
 import { businessDateForInstant } from "../domain/scheduling.js";
-import { collectOperatorPlanView, renderOperatorPlan, type OperatorChannelRef, type OperatorPlanViewStores } from "./operator-plan-view.js";
+import { collectOperatorPlanView, describeDrivePipeline, renderOperatorPlan, type OperatorChannelRef, type OperatorPlanViewStores } from "./operator-plan-view.js";
 import { germanBlocker, germanDayLabel, germanDoctorCheck, germanPlatformLabel, germanState, operatorMessageText, renderOperatorMessage } from "./operator-message.js";
 
 export interface OperatorCommandControlReads {
@@ -114,10 +114,11 @@ export class OperatorCommandService {
     const verified = view.entries.filter((entry) => entry.state === "VERIFIED").length;
     const blocked = view.entries.filter((entry) => entry.state === "BLOCKED").length;
     const uncertain = view.entries.filter((entry) => entry.state === "PUBLISH_UNCERTAIN").length;
-    lines.push(`Heute: ${verified}/${view.entries.length} verifiziert · ${blocked} blockiert · ${uncertain} unsicher`);
-    lines.push(`Offene Störungen: ${view.disturbances.length}`);
-    lines.push(`Drive: ${view.pipeline.ready} bereit · ${view.pipeline.stabilizing} stabilisierend · ${view.pipeline.blocked} blockiert`);
-    if (uncertain > 0) lines.push("🛑 Unsichere Posts sind eingefroren — Auflösung nur im Terminal.");
+    lines.push(`Heute: ${verified} von ${view.entries.length} geplanten Posts sind live · ${blocked} blockiert · ${uncertain} unsicher`);
+    // Only real, open, operator-owned disturbances count; a silent line is the good news.
+    if (view.disturbances.length > 0) lines.push(`Offene Störungen: ${view.disturbances.length}`);
+    lines.push(describeDrivePipeline(view.pipeline));
+    if (uncertain > 0) lines.push("🛑 Unsichere Posts sind eingefroren — sie warten auf eine Prüfung von Hand.");
     return operatorMessageText(renderOperatorMessage("STATUS", {
       planLabel: germanDayLabel(this.today()),
       lines,

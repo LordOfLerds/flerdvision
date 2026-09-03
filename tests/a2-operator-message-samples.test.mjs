@@ -32,10 +32,12 @@ test("no message points at the retired control-center UI", () => {
   for (const sample of samples) assert.doesNotMatch(sample.text, /control-center/, sample.kind);
 });
 
-test("the checklist counts observed files as observed and announces the next slot", () => {
+test("the checklist counts Drive from the store and announces the next slot", () => {
   const plan = samples.find((sample) => sample.kind.includes("Tagesplan"));
-  assert.match(plan.text, /63 beobachtet/);
-  assert.doesNotMatch(plan.text, /\d+ neu/);
+  // The numbers are the asset store's own states, said the way a person reads them.
+  assert.match(plan.text, /📥 Drive: 1 Video bereit · 1 unbrauchbar/);
+  assert.match(plan.text, /63 in Prüfung/);
+  assert.doesNotMatch(plan.text, /beobachtet|stabilisierend/);
   assert.match(plan.text, /⏭️ Als Nächstes: \d{2}:\d{2} · /);
 });
 

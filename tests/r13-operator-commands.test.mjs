@@ -79,7 +79,9 @@ test("/status reports sessions, pauses and kill switches per channel in German",
     assert.match(text, /📊 Status · So 30\. Aug/);
     assert.match(text, /✅ Reels \(Instagram\) · angemeldet · 🛑 Kill-Switch/);
     assert.match(text, /⚠️ Clips \(TikTok\) · nicht eingerichtet · ⏸️ pausiert/);
-    assert.match(text, /Heute: 0\/0 verifiziert/);
+    assert.match(text, /Heute: 0 von 0 geplanten Posts sind live/);
+    // No disturbance line at all when nothing is open: a zero is noise, not news.
+    assert.doesNotMatch(text, /Offene Störungen/);
   } finally { f.close(); }
 });
 
