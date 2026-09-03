@@ -74,6 +74,7 @@ export function planReadinessAttention(input: {
           routeId: route.routeId,
           accountId: route.accountId,
           slotKey: slot.key,
+          slotLocalTime: slot.localTime,
           deepLink: `/routes/${encodeURIComponent(route.routeId)}`
         }
       });
@@ -90,6 +91,7 @@ export function planReadinessAttention(input: {
           routeId: route.routeId,
           accountId: route.accountId,
           slotKey: slot.key,
+          slotLocalTime: slot.localTime,
           deepLink: `/routes/${encodeURIComponent(route.routeId)}`
         }
       });

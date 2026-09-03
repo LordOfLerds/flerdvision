@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import { notificationForAttention } from "../dist/application/attention-notifications.js";
 
 const channels = [
-  { key: "reels", name: "Reels", platform: "instagram", accountId: "account:instagram:reels" }
+  {
+    key: "reels", name: "Reels", platform: "instagram", accountId: "account:instagram:reels",
+    driveFolderUrl: "https://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOpQrS"
+  }
 ];
 
 test("attention notifications are quiet for INFO and deterministic for actionable states", () => {
@@ -22,7 +25,9 @@ test("attention notifications are quiet for INFO and deterministic for actionabl
   assert.deepEqual(first, second);
   assert.equal(first.severity, "CRITICAL");
   assert.equal(first.accountId, "account:instagram:reels");
-  assert.match(first.subject, /🚨 Zwei Posts zielen auf denselben Kanal zur selben Zeit/);
+  // The subject names the channel first: a notification list of "Etwas braucht deine
+  // Aufmerksamkeit" told the operator nothing about which account was affected.
+  assert.match(first.subject, /🚨 Reels \(Instagram\) · Zwei Posts zielen auf denselben Kanal zur selben Zeit/);
   assert.match(first.body, /Reels \(Instagram\)/);
   assert.match(first.body, /Was jetzt: Einen der beiden Slots verschieben\./);
 });
@@ -56,7 +61,28 @@ test("a non-session attention never offers a login command", () => {
     impact: "Der Slot bleibt leer.", accountId: "account:instagram:reels", deepLink: "/control-center/x"
   }, "2026-08-27T06:00:00.000Z", { notify: { INFO: false, WARNING: true, ACTION_REQUIRED: true, CRITICAL: true }, channels });
   assert.doesNotMatch(message.body, /login --channel/);
-  assert.match(message.body, /Video in Drive ablegen/);
+  assert.match(message.body, /Was jetzt: Ein Video in den Drive-Ordner dieses Kanals legen/);
+  // "Put a video in Drive" without the folder is a riddle; the channel's own folder is the answer.
+  assert.match(message.body, /📁 Video hier ablegen: https:\/\/drive\.google\.com\/drive\/folders\/1AbCdEfGhIjKlMnOpQrS/);
+});
+
+test("a slot-bound attention names the wall-clock time in its subject", () => {
+  const message = notificationForAttention({
+    attentionId: "a-slot", severity: "ACTION_REQUIRED", kind: "PRE_SLOT_ESCALATION", title: "Kein Content",
+    impact: "Der Slot ist gleich fällig.", accountId: "account:instagram:reels", slotKey: "reels-reel-1",
+    slotLocalTime: "14:00", deepLink: "/routes/r1"
+  }, "2026-08-27T06:00:00.000Z", { notify: { INFO: false, WARNING: true, ACTION_REQUIRED: true, CRITICAL: true }, channels });
+  assert.match(message.subject, /🛑 14:00 · Reels \(Instagram\) · Ein Slot ist gleich fällig und noch ohne Video/);
+});
+
+test("an unknown attention kind falls back to its own title, never to a placeholder", () => {
+  const message = notificationForAttention({
+    attentionId: "a-unknown", severity: "WARNING", kind: "SOMETHING_NEW", title: "Der Kanal hat kein Zeitfenster",
+    impact: "Heute wird für diesen Kanal nichts geplant.", accountId: "account:instagram:reels", deepLink: "/x"
+  }, "2026-08-27T06:00:00.000Z", { notify: { INFO: false, WARNING: true, ACTION_REQUIRED: true, CRITICAL: true }, channels });
+  assert.match(message.subject, /Der Kanal hat kein Zeitfenster/);
+  assert.doesNotMatch(message.subject, /Aufmerksamkeit/);
+  assert.doesNotMatch(`${message.subject}\n${message.body}`, /\/doctor/);
 });
 
 test("the autonomous runtime hands the attention path its channel names and remote screen", async () => {

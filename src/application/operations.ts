@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { germanIncident, renderOperatorMessage } from "./operator-message.js";
+import { germanIncident, isContentKind, renderOperatorMessage } from "./operator-message.js";
+import type { OperatorChannelRef } from "./operator-plan-view.js";
 import type { Actor } from "../domain/control-plane.js";
 import type { BrowserIdentityStorePort } from "../domain/browser-identity-ports.js";
 import type { ControlPlaneStorePort } from "../domain/control-plane-ports.js";
@@ -469,18 +470,28 @@ export class DailyOperationsService {
 const INCIDENT_BADGE: Readonly<Record<Incident["severity"], string>> = { INFO: "ℹ️", WARNING: "⚠️", ERROR: "🛑", CRITICAL: "🚨" };
 
 export class IncidentNotificationService {
-  constructor(private readonly outbox: NotificationOutboxPort, private readonly channelKeys: readonly string[]) {}
+  constructor(
+    private readonly outbox: NotificationOutboxPort,
+    private readonly channelKeys: readonly string[],
+    /** The operator's channels, so a disturbance names the channel and its Drive folder. */
+    private readonly channels: readonly OperatorChannelRef[] = []
+  ) {}
 
   enqueueNewIncident(incident: Incident, actor: Actor): readonly import("../domain/operations.js").NotificationDelivery[] {
     // The operator gets the meaning, the effect on posting and one next step -- never the
     // incident id, the raw kind or an evidence path. The first screenshot rides along as the
     // photo the transport already knows how to send.
     const meaning = germanIncident(incident.kind);
+    const channel = incident.scope.accountId
+      ? this.channels.find((item) => item.accountId === incident.scope.accountId)
+      : undefined;
     const rendered = renderOperatorMessage("INCIDENT", {
       badge: INCIDENT_BADGE[incident.severity] ?? "⚠️",
       headline: meaning.meaning,
       reason: meaning.effect,
-      nextStep: meaning.nextStep
+      nextStep: meaning.nextStep,
+      ...(channel ? { channelName: channel.name } : {}),
+      ...(isContentKind(incident.kind) && channel?.driveFolderUrl ? { driveFolderUrl: channel.driveFolderUrl } : {})
     });
     const screenshot = incident.evidenceRefs.find((ref) => ref.toLocaleLowerCase("en-US").endsWith(".png"));
     const message: NotificationMessage = {

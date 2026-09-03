@@ -23,6 +23,11 @@ export interface OperatorChannelRef {
   name: string;
   platform: string;
   accountId: string;
+  /**
+   * The channel's own Google-Drive folder as a link. Every "put a video in Drive" message names
+   * it, because the operator cannot act on a folder they have to go and find first.
+   */
+  driveFolderUrl?: string;
 }
 
 export interface OperatorPlanViewStores {
