@@ -28,6 +28,8 @@ export class WorkspaceSurfacePublisher {
   readonly registry=new RetainedSurfacePublishSessionRegistry();
   readonly prepare:SurfacePublishPreparationService;
   readonly finalAction:RetainedSurfaceFinalActionInvoker;
+  /** Same resolver the publisher posts with, so operator messages can quote the copy as posted. */
+  readonly payloads:WorkspacePublicationPayloadResolver;
   readonly reconciliation:ReconciliationService;
   private readonly control:SqliteControlPlaneStore;
   private readonly provenance:SqliteDistributionProvenanceStore;
@@ -41,7 +43,7 @@ export class WorkspaceSurfacePublisher {
     this.control=new SqliteControlPlaneStore(layout.databasePath);this.provenance=new SqliteDistributionProvenanceStore(layout.databasePath);this.surfaces=new SqlitePlatformSurfaceStore(layout.databasePath);
     const context=new DistributionPostingContextResolver(this.provenance,config),resolver=new BrowserProfileDirectoryResolver(layout.profilesDir),locks=new DurableBrowserProfileLockAdapter(this.control,new FileBrowserProfileLockAdapter(resolver)),chromium=new ChromiumCdpRuntimeAdapter({profilesRoot:layout.profilesDir,executablePath:options.chromiumExecutablePath??env.CHROMIUM_EXECUTABLE_PATH??resolveChromiumExecutablePath()});
     const probe=(intent:PublicationIntent)=>{const entry=calibratedSessionProbeFor(loadSessionProbeConfigFile(sessionProbePath),intent.accountId,intent.platform);if(!entry)throw new Error(`No CALIBRATED session probe for ${intent.platform}/${intent.accountId}`);return new ConfiguredDomSessionProbe(entry.config);};
-    const payloads=new WorkspacePublicationPayloadResolver(payloadPath,this.control),drive=workspaceDriveAccessTokenProvider({configDir:layout.configDir,env}),media=new WorkspaceMediaMaterializer(config,drive,resolve(layout.mediaCacheDir,"publisher")),prepareArtifacts=new LocalPrepareArtifactSink(resolve(layout.evidenceDir,"publisher"));
+    const payloads=this.payloads=new WorkspacePublicationPayloadResolver(payloadPath,this.control),drive=workspaceDriveAccessTokenProvider({configDir:layout.configDir,env}),media=new WorkspaceMediaMaterializer(config,drive,resolve(layout.mediaCacheDir,"publisher")),prepareArtifacts=new LocalPrepareArtifactSink(resolve(layout.evidenceDir,"publisher"));
     this.prepare=new SurfacePublishPreparationService(this.control,context,this.surfaces,chromium,locks,probe,payloads,media,prepareArtifacts,this.registry,{releaseSha:options.releaseSha,ownerId,headless:options.headless??true,now});
     this.finalAction=new RetainedSurfaceFinalActionInvoker(this.registry,now);
     const verification=new WorkspaceProfileVerificationCollector(this.control,chromium,locks,new LocalVerificationArtifactSink(resolve(layout.evidenceDir,"verification")),layout.configDir,`${ownerId}:verification`,options.headless??true,now);

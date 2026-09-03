@@ -97,6 +97,13 @@ export interface OperationalGateDecision {
 export type NotificationKind = "INCIDENT" | "READINESS" | "COMPLETION" | "SYSTEM";
 export type NotificationSeverity = "INFO" | "WARNING" | "ERROR" | "CRITICAL";
 
+/**
+ * Transport hints stay scalar except where a channel genuinely sends a set -- a wave posts one
+ * photo per outcome, so `screenshotPaths` is a list. The outbox persists metadata as JSON, so a
+ * list round-trips like every other value.
+ */
+export type NotificationMetadataValue = string | readonly string[];
+
 export interface NotificationMessage {
   notificationId: UUID;
   dedupeKey: string;
@@ -108,7 +115,7 @@ export interface NotificationMessage {
   incidentId?: UUID;
   intentId?: UUID;
   accountId?: string;
-  metadata: Readonly<Record<string, string>>;
+  metadata: Readonly<Record<string, NotificationMetadataValue>>;
 }
 
 export type NotificationDeliveryStatus = "PENDING" | "SENT" | "FAILED";

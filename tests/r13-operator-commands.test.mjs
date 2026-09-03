@@ -40,11 +40,11 @@ function fixture() {
 test("/pause and /fortsetzen manage the persisted pause per channel and globally", async () => {
   const f = fixture();
   try {
-    assert.match(await f.service.execute("/pause reels"), /⏸️ Kanal reels \(instagram\) pausiert/);
+    assert.match(await f.service.execute("/pause reels"), /⏸️ Reels \(Instagram\) pausiert/);
     assert.equal(f.operator.getSchedulePause("account:instagram:reels")?.channelKey, "reels");
     assert.match(await f.service.execute("/pause alle"), /⏸️ ALLE Kanäle pausiert/);
     assert.equal(f.operator.getSchedulePause("*")?.channelKey, "alle");
-    assert.match(await f.service.execute("/fortsetzen reels"), /▶️ Kanal reels \(instagram\) fortgesetzt/);
+    assert.match(await f.service.execute("/fortsetzen reels"), /▶️ Reels \(Instagram\) fortgesetzt/);
     assert.equal(f.operator.getSchedulePause("account:instagram:reels"), null);
     assert.match(await f.service.execute("/fortsetzen reels"), /war nicht pausiert/);
     assert.match(await f.service.execute("/pause"), /Kanal fehlt/);
@@ -76,9 +76,9 @@ test("/status reports sessions, pauses and kill switches per channel in German",
     await f.service.execute("/pause clips");
     await f.service.execute("/stopp reels");
     const text = await f.service.execute("/status");
-    assert.match(text, /📊 Status · 2026-08-30/);
-    assert.match(text, /✅ reels \(instagram\) · Session HEALTHY · 🛑 Kill-Switch/);
-    assert.match(text, /⚠️ clips \(tiktok\) · Session MISSING · ⏸️ pausiert/);
+    assert.match(text, /📊 Status · So 30\. Aug/);
+    assert.match(text, /✅ Reels \(Instagram\) · angemeldet · 🛑 Kill-Switch/);
+    assert.match(text, /⚠️ Clips \(TikTok\) · nicht eingerichtet · ⏸️ pausiert/);
     assert.match(text, /Heute: 0\/0 verifiziert/);
   } finally { f.close(); }
 });
@@ -86,12 +86,13 @@ test("/status reports sessions, pauses and kill switches per channel in German",
 test("/plan, /doctor and help answer read-only and unknown commands point to help", async () => {
   const f = fixture();
   try {
-    assert.match(await f.service.execute("/plan"), /📋 Tagesplan 2026-08-30/);
+    assert.match(await f.service.execute("/plan"), /📋 Tagesplan So 30\. Aug/);
     const doctorText = await f.service.execute("/doctor");
-    assert.match(doctorText, /⚠️ Doctor · ws · Gesamt: WARN/);
-    assert.match(doctorText, /🛑 drive_auth: Run drive-auth/);
-    assert.match(doctorText, /✅ reels: Session HEALTHY · 1\/1 Routen bereit/);
-    assert.doesNotMatch(doctorText, /node: ok/);
+    assert.match(doctorText, /⚠️ Doctor · Gesamt: Warnung/);
+    assert.match(doctorText, /Release sha/);
+    assert.match(doctorText, /🛑 Google-Drive-Zugang: Fehler/);
+    assert.match(doctorText, /✅ Reels · angemeldet · 1\/1 Routen bereit/);
+    assert.doesNotMatch(doctorText, /Node-Version/);
     assert.match(await f.service.execute("/hilfe"), /Der Bot postet nie/);
     assert.match(await f.service.execute("was geht"), /Unbekannter Befehl/);
     assert.match(await f.service.execute("/status@FlerdvisionBot"), /📊 Status/);

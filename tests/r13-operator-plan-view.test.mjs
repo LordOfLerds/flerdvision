@@ -55,7 +55,7 @@ test("view collects only the business date, names entries by filename and sorts 
   assert.equal(view.pipeline.observed, 1);
   assert.equal(view.pipeline.ready, 1);
   assert.equal(view.pipeline.blocked, 1);
-  assert.deepEqual(view.pipeline.blockedLabels, ["kaputt.mp4"]);
+  assert.deepEqual(view.pipeline.blockedAssets, [{ label: "kaputt" }]);
 });
 
 test("render shows checkmarks, uncertainty freeze, pipeline and disturbances in German", () => {
@@ -66,25 +66,25 @@ test("render shows checkmarks, uncertainty freeze, pipeline and disturbances in 
     },
     pauses: { listSchedulePauses: () => [{ scopeKey: "account:tiktok:clips", channelKey: "clips", reason: "operator_pause", pausedAt: "2026-08-30T06:00:00Z", pausedBy: "op" }] }
   }), channels, "2026-08-30", "Europe/Vienna");
-  const text = renderOperatorPlan(view);
-  assert.match(text, /📋 Tagesplan 2026-08-30/);
+  const text = renderOperatorPlan(view, channels);
+  assert.match(text, /📋 Tagesplan So 30\. Aug/);
   // Names and platform, not spec keys: the operator reads "Reels (Instagram)", not "reels".
-  assert.match(text, /✅ 09:30 · Reels \(Instagram\) · morgen-reel\.mp4/);
-  assert.match(text, /🛑 14:00 · Reels \(Instagram\) · content:i3 · unsicher, eingefroren \(verify im Terminal\)/);
-  assert.match(text, /⬜ 18:00 · Clips \(TikTok\) · abend-clip\.mp4/);
-  assert.match(text, /📥 Drive-Pipeline: 1 neu · 0 stabilisierend · 1 READY · 1 blockiert/);
-  assert.match(text, /⚠️ blockiert: kaputt\.mp4/);
-  assert.match(text, /⏸️ Pausiert: clips \(operator_pause\)/);
-  assert.match(text, /🛑 Kill-Switch aktiv: ALLE — Deaktivierung nur im Terminal/);
+  assert.match(text, /✅ 09:30 · Reels \(Instagram\) · „morgen-reel“/);
+  assert.match(text, /🛑 14:00 · Reels \(Instagram\) · „Video unbekannt“ · unsicher, eingefroren \(verify im Terminal\)/);
+  assert.match(text, /⬜ 18:00 · Clips \(TikTok\) · „abend-clip“/);
+  assert.match(text, /📥 Drive: 1 beobachtet · 0 stabilisierend · 1 bereit · 1 blockiert/);
+  assert.match(text, /⚠️ blockiert: „kaputt“/);
+  assert.match(text, /⏸️ Pausiert: Clips/);
+  assert.match(text, /🛑 Kill-Switch aktiv: ALLE Kanäle — Deaktivierung nur im Terminal/);
   assert.match(text, /⚠️ Störungen:/);
-  assert.match(text, /🛑 Content source blocked/);
+  assert.match(text, /🛑 Eine Datei aus Drive lässt sich nicht verwenden/);
 });
 
 test("an empty day renders a clear German empty state", () => {
   const view = collectOperatorPlanView(stores({ control: { listIntents: () => [] }, state: { listAssets: () => [] } }), channels, "2026-08-30", "Europe/Vienna");
   const text = renderOperatorPlan(view);
   assert.match(text, /Keine Posts geplant\./);
-  assert.match(text, /📥 Drive-Pipeline: 0 neu · 0 stabilisierend · 0 READY · 0 blockiert/);
+  assert.match(text, /📥 Drive: 0 beobachtet · 0 stabilisierend · 0 bereit · 0 blockiert/);
 });
 
 test("a verified entry carries the live post link, an unverified one carries none", () => {

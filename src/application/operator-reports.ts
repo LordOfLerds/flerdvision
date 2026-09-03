@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { OperatorChatStatePort } from "../domain/operator-ports.js";
 import { businessDateForInstant } from "../domain/scheduling.js";
 import { collectOperatorPlanView, renderOperatorPlan, type OperatorChannelRef, type OperatorPlanViewStores } from "./operator-plan-view.js";
+import { germanDayLabel, germanState, operatorMessageText, renderOperatorMessage } from "./operator-message.js";
 
 export interface OperatorMessengerPort {
   sendMessage(text: string): Promise<string>;
@@ -76,7 +77,7 @@ export class OperatorReportService {
     const result: OperatorReportTickResult = { checklistSent: false, checklistEdited: false, eveningSent: false, weeklySent: false };
     const local = localParts(now, this.options.timeZone);
     if (local.minuteOfDay >= this.morningMinuteLocal) {
-      const text = renderOperatorPlan(collectOperatorPlanView(this.deps.stores, this.deps.channels, local.businessDate, this.options.timeZone));
+      const text = renderOperatorPlan(collectOperatorPlanView(this.deps.stores, this.deps.channels, local.businessDate, this.options.timeZone, now), this.deps.channels);
       const contentHash = hashText(text);
       const existing = this.deps.chatState.getChecklistMessage(local.businessDate);
       if (!existing) {
@@ -112,14 +113,28 @@ export class OperatorReportService {
     const verified = count("VERIFIED");
     const complete = view.entries.length > 0 && verified + count("WAIVED") === view.entries.length;
     const lines = [
-      `🌙 Tagesabschluss ${businessDate} ${complete ? "✅" : "⚠️"}`,
       `✅ ${verified}/${view.entries.length} verifiziert · ➖ ${count("WAIVED")} übersprungen`,
       `⚠️ ${count("BLOCKED")} blockiert · 🛑 ${count("PUBLISH_UNCERTAIN")} unsicher`,
       `Offene Störungen: ${view.disturbances.length}`
     ];
-    const open = view.entries.filter((entry) => entry.state !== "VERIFIED" && entry.state !== "WAIVED");
-    for (const entry of open.slice(0, 6)) lines.push(`  ${entry.state === "PUBLISH_UNCERTAIN" ? "🛑" : "⚠️"} ${entry.channelKey} · ${entry.label} · ${entry.state}`);
-    return lines.join("\n").slice(0, 4000);
+    // A finished day is only worth reading with the live links; an unfinished one with the
+    // channel and video that still owe something.
+    const published = view.entries
+      .filter((entry) => entry.state === "VERIFIED")
+      .flatMap((entry) => [`✅ ${entry.channelName} · „${entry.videoLabel}“`, ...(entry.permalink ? [entry.permalink] : [])]);
+    const open = view.entries
+      .filter((entry) => entry.state !== "VERIFIED" && entry.state !== "WAIVED")
+      .slice(0, 6)
+      .map((entry) => `${entry.state === "PUBLISH_UNCERTAIN" ? "🛑" : "⚠️"} ${entry.channelName} · „${entry.videoLabel}“ · ${germanState(entry.state)}${entry.reason ? ` — ${entry.reason}` : ""}`);
+    return operatorMessageText(renderOperatorMessage("DAY_END", {
+      planLabel: germanDayLabel(businessDate),
+      ok: complete,
+      lines,
+      sections: [
+        ...(published.length > 0 ? [{ heading: "Heute veröffentlicht:", lines: published }] : []),
+        ...(open.length > 0 ? [{ heading: "Offen:", lines: open }] : [])
+      ]
+    }));
   }
 
   private weeklyText(businessDate: string): string {
@@ -131,16 +146,20 @@ export class OperatorReportService {
     });
     const count = (state: string) => week.filter((record) => record.state === state).length;
     const lines = [
-      `📅 Wochenbericht ${since} – ${businessDate}`,
       `✅ ${count("VERIFIED")} verifiziert · ⚠️ ${count("BLOCKED")} blockiert · 🛑 ${count("PUBLISH_UNCERTAIN")} unsicher · ➖ ${count("WAIVED")} übersprungen`
     ];
+    const perChannel: string[] = [];
     for (const channel of this.deps.channels) {
       const mine = week.filter((record) => record.intent.accountId === channel.accountId);
       if (mine.length === 0) continue;
-      lines.push(`${channel.key}: ${mine.filter((record) => record.state === "VERIFIED").length}/${mine.length} verifiziert`);
+      perChannel.push(`${channel.name}: ${mine.filter((record) => record.state === "VERIFIED").length}/${mine.length} verifiziert`);
     }
     const unknown = week.filter((record) => !channelByAccount.has(record.intent.accountId)).length;
-    if (unknown > 0) lines.push(`ℹ️ ${unknown} Posts außerhalb der konfigurierten Kanäle`);
-    return lines.join("\n").slice(0, 4000);
+    if (unknown > 0) perChannel.push(`ℹ️ ${unknown} Posts außerhalb der konfigurierten Kanäle`);
+    return operatorMessageText(renderOperatorMessage("WEEK_REPORT", {
+      planLabel: `${germanDayLabel(since)} – ${germanDayLabel(businessDate)}`,
+      lines,
+      ...(perChannel.length > 0 ? { sections: [{ heading: "Pro Kanal:", lines: perChannel }] } : {})
+    }));
   }
 }

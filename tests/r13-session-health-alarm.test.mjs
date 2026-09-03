@@ -40,8 +40,8 @@ test("AUTH_REQUIRED pauses the channel and sends exactly one alarm per health ch
     const pause = f.operator.getSchedulePause("account:instagram:reels");
     assert.equal(pause.reason, "session_auth_required");
     assert.equal(pause.pausedBy, "session-health-alarm");
-    assert.match(f.sent[0], /🛑 Re-Login nötig · reels \(instagram\)/);
-    assert.match(f.sent[0], /Session meldet AUTH_REQUIRED/);
+    assert.match(f.sent[0], /🛑 Re-Login nötig · Reels \(Instagram\)/);
+    assert.match(f.sent[0], /Der Kanal ist abgemeldet\./);
     assert.match(f.sent[0], /https:\/\/vnc\.example\.invalid\/session/);
     assert.match(f.sent[0], /\/fortsetzen reels/);
 
@@ -66,16 +66,18 @@ test("recovery is human: HEALTHY never auto-resumes, and a new challenge alarms 
     const challenge = await f.service.tick();
     assert.deepEqual(challenge, { paused: 1, alarmsSent: 1 });
     assert.equal(f.operator.getSchedulePause("account:instagram:reels").reason, "session_challenge");
-    assert.match(f.sent[1], /🛑 Sicherheits-Challenge · reels \(instagram\)/);
+    assert.match(f.sent[1], /🛑 Sicherheits-Challenge · Reels \(Instagram\)/);
   } finally { f.close(); }
 });
 
-test("without a configured remote screen URL the alarm names the missing env variable", async () => {
+test("without a configured remote screen URL the alarm offers the login command instead", async () => {
   const f = fixture("");
   try {
     f.health("check-1", "CHALLENGE", "2026-08-30T06:55:00Z");
     await f.service.tick();
-    assert.match(f.sent[0], /FLERDVISION_REMOTE_SCREEN_URL/);
+    // A dead link helps nobody; the operator gets the command that actually opens a login.
+    assert.match(f.sent[0], /npm run flerdvision -- login --channel reels/);
+    assert.doesNotMatch(f.sent[0], /FLERDVISION_REMOTE_SCREEN_URL/);
   } finally { f.close(); }
 });
 

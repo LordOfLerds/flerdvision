@@ -14,6 +14,8 @@ import { SqliteOperatorStateStore } from "../adapters/storage/sqlite-operator-st
 import { inspectHeadlessWorkspace } from "./headless-status.js";
 import { WorkspaceDistributionRuntime } from "../adapters/runtime/workspace-distribution-runtime.js";
 import { WorkspaceSurfacePublisher } from "../adapters/runtime/workspace-surface-publisher.js";
+import { filenameParts } from "../adapters/publish/workspace-payload-resolver.js";
+import type { OperatorNextSlot } from "./operator-message.js";
 
 function businessDate(now: string, timeZone: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(now));
@@ -21,6 +23,10 @@ function businessDate(now: string, timeZone: string): string {
   const year = value("year"), month = value("month"), day = value("day");
   if (!year || !month || !day) throw new Error(`Could not derive business date in ${timeZone}`);
   return `${year}-${month}-${day}`;
+}
+function localSlot(instant: string, timeZone: string): string {
+  try { return new Intl.DateTimeFormat("de-AT", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(instant)); }
+  catch { return instant.slice(11, 16); }
 }
 function latest(records: readonly RouteTestEvidenceRecord[], key: RouteTestEvidenceRecord["testKey"]): RouteTestEvidenceRecord | undefined {
   return records.filter((record) => record.testKey === key && record.status === "PASS").sort((a, b) => a.checkedAt.localeCompare(b.checkedAt)).at(-1);
@@ -97,12 +103,14 @@ function composeAutonomousRuntime(options: HeadlessAutonomousRuntimeOptions): Au
   const allowedAccountIds: ReadonlySet<string> = new Set(selected.map(accountIdForChannel));
   const env = options.env ?? process.env;
   const ownerId = options.ownerId ?? `${spec.workspace.id}:headless-autonomous`;
+  const operatorChannels = selected.map((channel) => ({ key: channel.key, name: channel.name, platform: channel.platform, accountId: accountIdForChannel(channel) }));
   const base = new WorkspaceDistributionRuntime({
     runtimeRoot: spec.workspace.runtimeRoot,
     workspaceId: spec.workspace.id,
     env,
     timeZone: spec.workspace.timezone,
-    releaseSha: options.releaseSha
+    releaseSha: options.releaseSha,
+    channels: operatorChannels
   });
   let publisher: WorkspaceSurfacePublisher | undefined;
   try {
@@ -121,7 +129,7 @@ function composeAutonomousRuntime(options: HeadlessAutonomousRuntimeOptions): Au
     const operatorState = new SqliteOperatorStateStore(base.layout.databasePath);
     const operator = TelegramOperatorService.fromEnv({
       env,
-      channels: selected.map((channel) => ({ key: channel.key, name: channel.name, platform: channel.platform, accountId: accountIdForChannel(channel) })),
+      channels: operatorChannels,
       control: base.control,
       state: base.state,
       operatorState,
@@ -133,12 +141,40 @@ function composeAutonomousRuntime(options: HeadlessAutonomousRuntimeOptions): Au
       if (!allowedAccountIds.has(intent.accountId)) throw new Error(`Intent ${intent.intentId} is outside the autonomous channel allowlist`);
       return { mode: options.mode, allowFinalPublish: true, allowedAccountIds, releaseSha: options.releaseSha };
     };
+    const channelNames = Object.fromEntries(selected.map((channel) => [accountIdForChannel(channel), channel.name]));
+    const activePublisher = publisher;
+    // Operator messages name the video the way Luca named it in Drive and quote the copy the
+    // publisher actually posted; both lookups are best-effort and never block a cycle.
+    const describeContent = async (intent: PublicationIntent) => {
+      const filename = base.state.listAssets().find((record) => record.asset.contentId === intent.contentId)?.asset.filename;
+      const parts = filename ? filenameParts(filename) : undefined;
+      let payload: { caption?: string; title?: string } | undefined;
+      try { payload = await activePublisher.payloads.resolve(intent); } catch { payload = undefined; }
+      return {
+        ...(parts?.text ? { videoLabel: parts.text } : {}),
+        ...(parts?.hashtags ? { hashtags: parts.hashtags } : {}),
+        ...(payload?.caption ? { caption: payload.caption } : {}),
+        ...(payload?.title ? { title: payload.title } : {})
+      };
+    };
+    const nextSlot = (now: string): OperatorNextSlot | undefined => {
+      const upcoming = base.control.listIntents(["PLANNED", "READY", "SCHEDULED"])
+        .filter((record) => record.intent.scheduledFor > now)
+        .sort((a, b) => a.intent.scheduledFor.localeCompare(b.intent.scheduledFor));
+      const first = upcoming[0];
+      if (!first) return undefined;
+      const names = upcoming
+        .filter((record) => record.intent.scheduledFor === first.intent.scheduledFor)
+        .map((record) => channelNames[record.intent.accountId])
+        .filter((name): name is string => Boolean(name));
+      return { timeLocal: localSlot(first.intent.scheduledFor, spec.workspace.timezone), channelNames: [...new Set(names)] };
+    };
     const due = new AuthorizedRuntimeDueExecutionAdapter(
       base.control,
       publisher,
       operationalGate,
       contextProvider,
-      { releaseSha: options.releaseSha, ownerId, maxPerCycle, notificationAdapters: [...(telegramAdapterFromEnv(env) ? [telegramAdapterFromEnv(env)!] : [])], timeZone: spec.workspace.timezone, channelNames: Object.fromEntries(selected.map((channel) => [accountIdForChannel(channel), channel.name])) }
+      { releaseSha: options.releaseSha, ownerId, maxPerCycle, notificationAdapters: [...(telegramAdapterFromEnv(env) ? [telegramAdapterFromEnv(env)!] : [])], timeZone: spec.workspace.timezone, channelNames, describeContent, nextSlot }
     );
     const supervisor = new RuntimeSupervisor({
       lease: base.lease,

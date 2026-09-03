@@ -1,6 +1,7 @@
 import type { SessionHealthCheck, StoredBrowserIdentity } from "../domain/browser-identity.js";
 import type { OperatorChatStatePort, SchedulePauseStorePort } from "../domain/operator-ports.js";
 import type { OperatorChannelRef } from "./operator-plan-view.js";
+import { germanPlatformLabel, operatorMessageText, renderOperatorMessage } from "./operator-message.js";
 
 export interface SessionHealthAlarmDeps {
   control: {
@@ -58,23 +59,22 @@ export class SessionHealthAlarmService {
       }
       const eventKey = `session-alarm:${identity.identityId}:${health.checkId}`;
       if (this.deps.chatState.wasOperatorEventSent(eventKey)) continue;
-      await this.deps.messenger.sendMessage(this.alarmText(channelKey, channel?.platform ?? identity.platform, health));
+      await this.deps.messenger.sendMessage(this.alarmText(channel?.name ?? channelKey, channelKey, channel?.platform ?? identity.platform, health));
       this.deps.chatState.markOperatorEventSent(eventKey, now);
       result.alarmsSent += 1;
     }
     return result;
   }
 
-  private alarmText(channelKey: string, platform: string, health: SessionHealthCheck): string {
-    const what = health.state === "CHALLENGE" ? "Sicherheits-Challenge" : "Re-Login nötig";
-    const link = this.deps.remoteScreenUrl?.trim()
-      ? `Login im Remote-Browser: ${this.deps.remoteScreenUrl.trim()}`
-      : "Remote-Browser-Link nicht konfiguriert (FLERDVISION_REMOTE_SCREEN_URL setzen).";
-    return [
-      `🛑 ${what} · ${channelKey} (${platform})`,
-      `Session meldet ${health.state}. Der Kanal wurde pausiert — es wird nichts gepostet.`,
-      link,
-      `Nach dem Login: /fortsetzen ${channelKey}`
-    ].join("\n");
+  private alarmText(channelName: string, channelKey: string, platform: string, health: SessionHealthCheck): string {
+    const challenge = health.state === "CHALLENGE";
+    return operatorMessageText(renderOperatorMessage("RELOGIN", {
+      headline: challenge ? "Sicherheits-Challenge" : "Re-Login nötig",
+      channelName,
+      platformLabel: germanPlatformLabel(platform),
+      channelKey,
+      reason: challenge ? "Die Plattform verlangt eine Sicherheitsabfrage." : "Der Kanal ist abgemeldet.",
+      ...(this.deps.remoteScreenUrl?.trim() ? { remoteScreenUrl: this.deps.remoteScreenUrl.trim() } : {})
+    }));
   }
 }

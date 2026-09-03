@@ -56,8 +56,8 @@ test("morning checklist goes out once, then edits itself when a post verifies", 
     result = await f.service.tick("2026-08-30T05:31:00Z"); // 07:31 local
     assert.equal(result.checklistSent, true);
     assert.equal(f.sent.length, 1);
-    assert.match(f.sent[0], /📋 Tagesplan 2026-08-30/);
-    assert.match(f.sent[0], /⬜ .*content:i1/);
+    assert.match(f.sent[0], /📋 Tagesplan So 30\. Aug/);
+    assert.match(f.sent[0], /⬜ 09:30 · Reels \(Instagram\) · „Video unbekannt“/);
     assert.equal(f.chatState.getChecklistMessage("2026-08-30").chatMessageId, "101");
 
     result = await f.service.tick("2026-08-30T06:00:00Z"); // unchanged plan -> no edit
@@ -69,7 +69,7 @@ test("morning checklist goes out once, then edits itself when a post verifies", 
     assert.equal(result.checklistEdited, true);
     assert.equal(f.edited.length, 1);
     assert.equal(f.edited[0].messageId, "101");
-    assert.match(f.edited[0].text, /✅ .*content:i1/);
+    assert.match(f.edited[0].text, /✅ 09:30 · Reels \(Instagram\)/);
     assert.equal(f.sent.length, 1); // never a second checklist message
   } finally { f.close(); }
 });
@@ -96,14 +96,14 @@ test("evening report once per day and the weekly report only on Sundays", async 
     assert.equal(result.eveningSent, true);
     assert.equal(result.weeklySent, true);
     const evening = f.sent.find((text) => text.startsWith("🌙"));
-    assert.match(evening, /🌙 Tagesabschluss 2026-08-30 ⚠️/);
+    assert.match(evening, /🌙 Tagesabschluss · So 30\. Aug · ⚠️/);
     assert.match(evening, /✅ 1\/2 verifiziert/);
-    assert.match(evening, /⚠️ clips · content:i2 · SCHEDULED/);
+    assert.match(evening, /⚠️ Clips · „Video unbekannt“ · geplant/);
     const weekly = f.sent.find((text) => text.startsWith("📅"));
-    assert.match(weekly, /📅 Wochenbericht 2026-08-24 – 2026-08-30/);
+    assert.match(weekly, /📅 Wochenbericht · Mo 24\. Aug – So 30\. Aug/);
     assert.match(weekly, /✅ 2 verifiziert/);
-    assert.match(weekly, /reels: 2\/2 verifiziert/);
-    assert.match(weekly, /clips: 0\/1 verifiziert/);
+    assert.match(weekly, /Reels: 2\/2 verifiziert/);
+    assert.match(weekly, /Clips: 0\/1 verifiziert/);
 
     const again = await f.service.tick("2026-08-30T19:00:00Z");
     assert.deepEqual([again.eveningSent, again.weeklySent], [false, false]);

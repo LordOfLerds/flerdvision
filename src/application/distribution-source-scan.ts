@@ -15,8 +15,12 @@ import type {
   SourceLaneScanLaneReport,
   SourceLaneScanReport
 } from "../domain/source-lane-runtime.js";
+import type { NotificationOutboxPort } from "../domain/operations-ports.js";
+import type { NotificationMessage } from "../domain/operations.js";
 import { ContentIngressService } from "./ingress-service.js";
 import { activationDecision, sourceActivationCursorFingerprint } from "./source-activation.js";
+import { filenameParts } from "../adapters/publish/workspace-payload-resolver.js";
+import { germanBlockReason, renderOperatorMessage } from "./operator-message.js";
 
 function sha(value:string):string{return createHash("sha256").update(value).digest("hex").slice(0,32);}
 class FixedObservationSource implements ContentIngressPort {
@@ -49,7 +53,12 @@ function assetFor(content:ContentItem,lane:SourceLane,observation:SourceObservat
 }
 function sizeOf(observation:SourceObservation):string|undefined{return observation.metadata.size;}
 
-export interface DistributionSourceScanOptions { notifyBlocksExternally?: boolean; }
+export interface DistributionSourceScanOptions {
+  notifyBlocksExternally?: boolean;
+  /** Durable outbox for the "this file is unusable" message; omitted means no operator message. */
+  outbox?: NotificationOutboxPort;
+  notificationChannelKeys?: readonly string[];
+}
 
 export class DistributionSourceScanCoordinator {
   constructor(
@@ -114,6 +123,7 @@ export class DistributionSourceScanCoordinator {
           const existing=[...this.runtime.listAssets()].find((record)=>record.asset.sourceObservationId===observation.observationId)?.asset;
           if(existing&&existing.state!=="BLOCKED"&&existing.state!=="COMPLETE"){
             this.runtime.putAsset({...existing,state:"BLOCKED",metadata:{...existing.metadata,blockReason:"source_media_mutated"}},startedAt);
+            this.announceBlocked(existing,"source_media_mutated",startedAt,actor);
           }
           blocked+=1;continue;
         }
@@ -144,7 +154,9 @@ export class DistributionSourceScanCoordinator {
           this.runtime.putAsset({...existing,state:"READY",readyAt:startedAt,metadata:{...existing.metadata,stableObservations:String(sourceRecord.seenCount),lastSeenAt:startedAt,readinessSha256:probe.sha256??"",readinessSizeBytes:String(probe.sizeBytes??""),readinessDurationSeconds:String(probe.durationSeconds??""),readinessCheckedAt:startedAt}},startedAt);
           ready+=1;
         }else if(probe.outcome==="BLOCKED"){
-          this.runtime.putAsset({...existing,state:"BLOCKED",metadata:{...existing.metadata,blockReason:probe.note??"media_probe_blocked",readinessCheckedAt:startedAt}},startedAt);
+          const blockReason=probe.note??"media_probe_blocked";
+          this.runtime.putAsset({...existing,state:"BLOCKED",metadata:{...existing.metadata,blockReason,readinessCheckedAt:startedAt}},startedAt);
+          this.announceBlocked(existing,blockReason,startedAt,actor);
           blocked+=1;
         }else{
           this.runtime.putAsset({...existing,state:"STABILIZING",metadata:{...existing.metadata,readinessRetryReason:probe.note??"media_probe_retry",readinessCheckedAt:startedAt}},startedAt);
@@ -166,6 +178,42 @@ export class DistributionSourceScanCoordinator {
       blocked:laneReports.reduce((sum,item)=>sum+item.blocked,0),
       conflicts:laneReports.reduce((sum,item)=>sum+item.conflicts,0)
     };
+  }
+
+  /**
+   * A file that cannot be used is the operator's problem, not the pipeline's: nobody watches a
+   * counter, so the moment an ingress asset turns BLOCKED one message names the file and says
+   * what to do about it. Deduped per asset revision, so re-scanning the same broken file stays
+   * quiet while a replaced file (new media fingerprint) is announced again. Nothing is
+   * transcoded or repaired automatically.
+   */
+  private announceBlocked(asset:ContentAsset,blockReason:string,at:string,actor:Actor):void{
+    const outbox=this.options.outbox,channelKeys=this.options.notificationChannelKeys??[];
+    if(!outbox||channelKeys.length===0)return;
+    try{
+      const reason=germanBlockReason(blockReason);
+      const rendered=renderOperatorMessage("ATTENTION",{
+        badge:"⚠️",
+        headline:"Datei blockiert",
+        videoLabel:filenameParts(asset.filename).text||asset.filename,
+        ...(reason?{reason}:{}),
+        nextStep:"Datei in Drive ersetzen — der Slot bleibt frei."
+      });
+      const revision=asset.mediaFingerprint??asset.observedAt;
+      const message:NotificationMessage={
+        notificationId:`notification:${sha(`asset-blocked|${asset.assetId}|${revision}`)}`,
+        dedupeKey:`asset-blocked:${asset.assetId}:${revision}`,
+        kind:"SYSTEM",
+        severity:"WARNING",
+        createdAt:new Date(at).toISOString(),
+        subject:rendered.subject,
+        body:rendered.body,
+        metadata:{blockReason}
+      };
+      outbox.enqueueNotification(message,channelKeys,actor);
+    }catch{
+      // Reporting a blocked file must never break the scan that found it.
+    }
   }
 
   private blockedLane(lane:SourceLane,note:string):SourceLaneScanLaneReport{
