@@ -58,3 +58,12 @@ test("a non-session attention never offers a login command", () => {
   assert.doesNotMatch(message.body, /login --channel/);
   assert.match(message.body, /Video in Drive ablegen/);
 });
+
+test("the autonomous runtime hands the attention path its channel names and remote screen", async () => {
+  const { readFileSync } = await import("node:fs");
+  const runtime = readFileSync(new URL("../src/application/headless-autonomous-runtime.ts", import.meta.url).pathname, "utf8");
+  assert.match(runtime, /channels: operatorChannels/);
+  const workspace = readFileSync(new URL("../src/adapters/runtime/workspace-distribution-runtime.ts", import.meta.url).pathname, "utf8");
+  assert.match(workspace, /FLERDVISION_REMOTE_SCREEN_URL/);
+  assert.doesNotMatch(workspace, /uiBaseUrl/);
+});

@@ -49,6 +49,8 @@ export interface WorkspaceDistributionRuntimeOptions {
   timeZone?:string;
   /** noVNC/remote-screen URL offered when an attention item is a login problem. */
   remoteScreenUrl?:string;
+  /** The operator's channels, so an attention message names the channel instead of an account id. */
+  channels?:readonly import("../../application/operator-plan-view.js").OperatorChannelRef[];
   releaseSha?:string;
 }
 
@@ -117,7 +119,7 @@ export class WorkspaceDistributionRuntime {
     const aggregates=new DistributionDeliveryAggregateProjector(this.state,this.provenance,this.control,this.control),dispositionAdapters=buildWorkspaceDispositionAdapterRegistry(this.config.load(),this.control,driveToken),dispositionExecutor=new ConfiguredDistributionDispositionExecutor(this.control,dispositionAdapters);
     this.disposition=new RuntimeDistributionDispositionAdapter(this.config,this.state,aggregates,dispositionExecutor);
 
-    this.operations=new W6RuntimeOperationsAdapter(this.control,notificationChannelKeys,options.timeZone??"Europe/Vienna",{distributionConfig:this.config,distributionRuntime:this.state,...((options.remoteScreenUrl??env.FLERDVISION_REMOTE_SCREEN_URL)?{remoteScreenUrl:(options.remoteScreenUrl??env.FLERDVISION_REMOTE_SCREEN_URL)!}:{}),...(notificationDispatcher?{notificationDispatcher}:{})});
+    this.operations=new W6RuntimeOperationsAdapter(this.control,notificationChannelKeys,options.timeZone??"Europe/Vienna",{distributionConfig:this.config,distributionRuntime:this.state,...((options.remoteScreenUrl??env.FLERDVISION_REMOTE_SCREEN_URL)?{remoteScreenUrl:(options.remoteScreenUrl??env.FLERDVISION_REMOTE_SCREEN_URL)!}:{}),...(options.channels?{channels:options.channels}:{}),...(notificationDispatcher?{notificationDispatcher}:{})});
   }
 
   supervisor(ownerId:string,clock:()=>string=()=>new Date().toISOString()):RuntimeSupervisor{return new RuntimeSupervisor({lease:this.lease,source:this.source,planner:this.planner,intents:this.intents,due:this.due,reconciliation:this.reconciliation,disposition:this.disposition,operations:this.operations,reports:this.reports},ownerId,clock);}

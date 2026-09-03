@@ -103,12 +103,14 @@ function composeAutonomousRuntime(options: HeadlessAutonomousRuntimeOptions): Au
   const allowedAccountIds: ReadonlySet<string> = new Set(selected.map(accountIdForChannel));
   const env = options.env ?? process.env;
   const ownerId = options.ownerId ?? `${spec.workspace.id}:headless-autonomous`;
+  const operatorChannels = selected.map((channel) => ({ key: channel.key, name: channel.name, platform: channel.platform, accountId: accountIdForChannel(channel) }));
   const base = new WorkspaceDistributionRuntime({
     runtimeRoot: spec.workspace.runtimeRoot,
     workspaceId: spec.workspace.id,
     env,
     timeZone: spec.workspace.timezone,
-    releaseSha: options.releaseSha
+    releaseSha: options.releaseSha,
+    channels: operatorChannels
   });
   let publisher: WorkspaceSurfacePublisher | undefined;
   try {
@@ -127,7 +129,7 @@ function composeAutonomousRuntime(options: HeadlessAutonomousRuntimeOptions): Au
     const operatorState = new SqliteOperatorStateStore(base.layout.databasePath);
     const operator = TelegramOperatorService.fromEnv({
       env,
-      channels: selected.map((channel) => ({ key: channel.key, name: channel.name, platform: channel.platform, accountId: accountIdForChannel(channel) })),
+      channels: operatorChannels,
       control: base.control,
       state: base.state,
       operatorState,
