@@ -151,11 +151,22 @@ export async function runHeadlessDemo(input: {
     const routeIds = qualifier.routes();
     const config = new JsonDistributionConfigurationStore(resolve(layout.configDir, "distribution.json"));
     const routes = config.load().config.routes.filter((route) => routeIds.includes(route.routeId) && selectedAccountIds.has(route.accountId));
+    // One route must not take the channel's other routes down with it: a Trial-Reel route whose
+    // switch Instagram has not enabled yet fails closed on its own, while the Reel route beside
+    // it still qualifies and posts. The failure is recorded and reported, never hidden.
+    const failures: string[] = [];
     for (const route of routes) {
       input.onProgress?.(`QUALIFY · ${route.displayName}`);
-      qualifications.push(await qualifier.qualify(route.routeId));
+      try {
+        qualifications.push(await qualifier.qualify(route.routeId));
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        failures.push(`${route.displayName}: ${reason}`);
+        stages.push({ stage: "QUALIFY", status: "FAIL", summary: `${route.displayName} — ${reason}` });
+        input.onProgress?.(`QUALIFY FAIL · ${route.displayName} · ${reason}`);
+      }
     }
-    if (qualifications.length === 0) throw new Error("No selected route was qualified");
+    if (qualifications.length === 0) throw new Error(failures[0] ? `No selected route was qualified: ${failures[0]}` : "No selected route was qualified");
     stages.push({ stage: "QUALIFY", status: "PASS", summary: `${qualifications.length} route(s) calibrated with three real prepare-only replays each` });
     input.onProgress?.(`QUALIFY PASS · ${qualifications.length} route(s)`);
   } finally { qualifier.close(); }
