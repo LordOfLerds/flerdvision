@@ -65,6 +65,8 @@ declare module "node:fs" {
   export function copyFileSync(source: string, destination: string): void;
   export function cpSync(source: string, destination: string, options?: { recursive?: boolean; force?: boolean; errorOnExist?: boolean }): void;
   export function readdirSync(path: string): string[];
+  export interface Dirent { name: string; isFile(): boolean; isDirectory(): boolean; }
+  export function readdirSync(path: string, options: { withFileTypes: true }): Dirent[];
 }
 
 declare module "node:fs/promises" {
@@ -77,6 +79,10 @@ declare module "node:fs/promises" {
   export function stat(path: string): Promise<{ size: number; mode: number; mtime: { toISOString(): string }; isFile(): boolean; isDirectory(): boolean }>;
   export function copyFile(source: string, destination: string): Promise<void>;
   export function readdir(path: string): Promise<string[]>;
+}
+
+declare module "node:url" {
+  export function fileURLToPath(url: string): string;
 }
 
 declare module "node:path" {
