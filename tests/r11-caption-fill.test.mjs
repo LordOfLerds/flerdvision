@@ -39,7 +39,7 @@ test("the editable fill proves the text arrived by reading it back", () => {
 });
 
 test("session fakes without insertText keep the legacy fill path", () => {
-  const fillBlock = driver.slice(driver.indexOf("async fill("), driver.indexOf("async fill(") + 5600);
+  const fillBlock = driver.slice(driver.indexOf("async fill("), driver.indexOf("async fill(") + 10800);
   assert.match(fillBlock, /el\.isContentEditable/);
   assert.match(fillBlock, /dispatchEvent\(new InputEvent\('input'/);
 });
@@ -48,7 +48,7 @@ test("the readback ignores whitespace entirely but never a missing character", (
   // DraftJS turns the caption's blank line into a separate block: the words arrive complete
   // while the exact substring check failed. Collapsing whitespace on BOTH sides keeps the
   // proof strict about content and silent about layout.
-  const fillBlock = driver.slice(driver.indexOf("async fill("), driver.indexOf("async fill(") + 4200);
+  const fillBlock = driver.slice(driver.indexOf("async fill("), driver.indexOf("async fill(") + 9400);
   assert.match(fillBlock, /const collapse = /);
   assert.match(fillBlock, /collapse\(readback\)\.includes\(collapse\(value\)\)/);
 });
@@ -56,7 +56,7 @@ test("the readback ignores whitespace entirely but never a missing character", (
 test("a pre-filled caption is cleared the way a person clears it", () => {
   // TikTok pre-fills the description from the filename, and DraftJS ignored text inserted next
   // to content it already owned: the readback proved the caption never arrived.
-  const fillBlock = driver.slice(driver.indexOf("async fill("), driver.indexOf("async fill(") + 4600);
+  const fillBlock = driver.slice(driver.indexOf("async fill("), driver.indexOf("async fill(") + 9800);
   assert.match(fillBlock, /this\.session\.pressKey\("a", \{ meta: true \}\)/);
   assert.match(fillBlock, /this\.session\.pressKey\("Delete"\)/);
   // Only when there is something to clear -- an empty field is never touched.
@@ -64,7 +64,7 @@ test("a pre-filled caption is cleared the way a person clears it", () => {
 });
 
 test("text is typed as real keystrokes where the editor owns its content model", () => {
-  const fillBlock = driver.slice(driver.indexOf("async fill("), driver.indexOf("async fill(") + 5600);
+  const fillBlock = driver.slice(driver.indexOf("async fill("), driver.indexOf("async fill(") + 10800);
   assert.match(fillBlock, /if \(this\.session\.typeText\)/);
   assert.match(fillBlock, /this\.session\.typeText\(value/);
   // The old bulk path stays for sessions without the capability.
@@ -77,7 +77,7 @@ test("the fill targets the visible field when a selector matches several", async
   // YouTube gives the title and the description the same id: the first match was off-screen and
   // read as "occluded" no matter how long the run waited.
   const idx = explorer.lastIndexOf('step.action === "FILL_CAPTION" || step.action === "FILL_TITLE"');
-  const block = explorer.slice(idx, idx + 2600);
+  const block = explorer.slice(idx, idx + 4400);
   assert.match(block, /data-flerdvision-field/);
   assert.match(block, /document\.elementFromPoint/);
 });

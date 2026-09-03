@@ -300,6 +300,44 @@ export class BrowserDomUiDriver {
           await this.session.pressKey("a", { meta: true }).catch(() => {});
           await this.session.pressKey("a", { ctrl: true }).catch(() => {});
           await this.session.pressKey("Delete").catch(() => {});
+          // YouTube Studio's title box sits in a shadow root and pre-fills the filename; the
+          // keyboard select-all left it untouched and the title came out doubled. Select the
+          // editable's own contents in-page, then delete; as a last resort, walk it back one
+          // character at a time -- what a person does when select-all fails.
+          const remaining = async (): Promise<string> => await this.session.evaluate<string>(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); return el ? (el.textContent || "") : ""; })()`).catch(() => "");
+          if ((await remaining()).trim().length > 0) {
+            await this.session.evaluate<boolean>(`(() => {
+              const el = document.querySelector(${JSON.stringify(selector)});
+              if (!el) return false;
+              el.focus();
+              const selection = window.getSelection();
+              const range = document.createRange();
+              range.selectNodeContents(el);
+              selection.removeAllRanges();
+              selection.addRange(range);
+              return true;
+            })()`).catch(() => false);
+            await this.session.pressKey("Delete").catch(() => {});
+          }
+          if ((await remaining()).trim().length > 0) {
+            // Put the caret at the very end in-page (no dedicated key needed), then walk back.
+            await this.session.evaluate<boolean>(`(() => {
+              const el = document.querySelector(${JSON.stringify(selector)});
+              if (!el) return false;
+              el.focus();
+              const selection = window.getSelection();
+              const range = document.createRange();
+              range.selectNodeContents(el);
+              range.collapse(false);
+              selection.removeAllRanges();
+              selection.addRange(range);
+              return true;
+            })()`).catch(() => false);
+            const count = Math.min(300, (await remaining()).length);
+            for (let step = 0; step < count; step += 1) await this.session.pressKey("Backspace").catch(() => {});
+          }
+          const left = (await remaining()).trim();
+          if (left.length > 0) throw new UiActionExecutionError(`Pre-filled text could not be cleared before typing: ${target.descriptor} still holds "${left.slice(0, 40)}"`);
         }
       }
       // Editors that own their content model (DraftJS) ignore a bulk insertText outright: the

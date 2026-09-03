@@ -210,6 +210,7 @@ export class SafePlatformExecutionRunner {
     (this.driver as unknown as {pacing:HumanPacing|undefined}).pacing=pacing;
     for(const action of plan.actions){
       let detail:string;
+      try{
       await this.pause();
       if(action.operation==="FINAL_BOUNDARY"){
         const breath=this.pacing;
@@ -241,6 +242,14 @@ export class SafePlatformExecutionRunner {
         detail=await this.answerAudience(action,action.expectedValue,finalLocators);
       }else throw new UiActionExecutionError(`Unsupported execution operation: ${action.operation}`);
       journal.push({stepKey:action.stepKey,operation:action.operation,outcome:"PASS",detail});
+      }catch(error){
+        // A replay that dies leaves nothing behind but one sentence; the page at that instant is
+        // what every investigation needs. Capture it, journal the failure, then fail as before.
+        artifactRefs.push(...await this.artifacts.captureBoundary(this.session,plan.intent,identity,`surface-execution-${action.stepKey.toLocaleLowerCase("en-US")}-failed`,this.now()).catch(()=>[]));
+        journal.push({stepKey:action.stepKey,operation:action.operation,outcome:"FAIL",detail:error instanceof Error?error.message:String(error)});
+        artifactRefs.push(await this.artifacts.writeJournal(plan.intent,journal,this.now()).catch(()=>""));
+        throw error;
+      }
     }
     throw new UiActionExecutionError("Execution plan ended without FINAL_BOUNDARY");
   }

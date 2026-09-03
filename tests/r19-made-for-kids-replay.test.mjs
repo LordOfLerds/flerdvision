@@ -38,3 +38,11 @@ test("the discriminator tells the two answers apart by 'nicht'/'not' only", asyn
   assert.match(captured[0], /const negative = true;/);
   assert.match(captured[0], /text\.includes\("nicht"\) \|\| text\.startsWith\("no,"\) \|\| text\.includes\("not made"\)/);
 });
+
+test("an already-answered question, shown only as Studio's summary sentence, counts as in force", async () => {
+  const captured = [];
+  const session = { async evaluate(expr) { captured.push(expr); return true; } };
+  assert.equal(await readMadeForKids(session, false), true);
+  assert.match(captured[0], /speziell für kinder"\) && text\.includes\("festgelegt"\)/);
+  assert.match(captured[0], /text\.includes\("nicht als"\)/);
+});

@@ -33,7 +33,14 @@ export async function tagMadeForKidsOption(session: BrowserPageSessionPort, made
     ${discriminatorScript(madeForKids)}
     for (const previous of Array.from(document.querySelectorAll('[data-flerdvision-exact]'))) previous.removeAttribute('data-flerdvision-exact');
     const matches = collect(document, []).filter((element) => visible(element) && isAnswer(norm(element.getAttribute("aria-label")) || norm(element.textContent)));
-    if (matches.length === 0) return false;
+    if (matches.length === 0) {
+      // Studio renders the lower sections of the details page lazily; a page that has not been
+      // scrolled may simply not contain the question yet. Scroll every scroll container to its
+      // end so the next look can find it.
+      for (const scroller of collect(document, []).filter((element) => element.scrollHeight > element.clientHeight + 40)) scroller.scrollTop = scroller.scrollHeight;
+      window.scrollTo(0, document.body.scrollHeight);
+      return false;
+    }
     matches.sort((left, right) => (left.textContent || "").length - (right.textContent || "").length);
     matches[0].scrollIntoView({ block: "center", inline: "center" });
     matches[0].setAttribute('data-flerdvision-exact', '1');
@@ -41,10 +48,27 @@ export async function tagMadeForKidsOption(session: BrowserPageSessionPort, made
   })()`).catch(() => false);
 }
 
-/** True when a radio carrying the declared answer reads as checked. */
+/**
+ * True when the declared answer is in force: a radio carrying it reads as checked, or Studio has
+ * already collapsed the question into its summary sentence ("Dieses Video ist nicht als
+ * „speziell für Kinder" festgelegt" / "not set as made for kids"). Studio remembers the channel's
+ * last answer and shows only that sentence on later uploads -- a replay that insists on finding
+ * radios there would fail on a question that is already answered correctly.
+ */
 export async function readMadeForKids(session: BrowserPageSessionPort, madeForKids: boolean): Promise<boolean> {
   return await session.evaluate<boolean>(`(() => {
     ${discriminatorScript(madeForKids)}
+    const summary = collect(document, []).some((element) => {
+      if (element.children.length > 0 || !visible(element)) return false;
+      const text = norm(element.textContent);
+      if (text.length === 0 || text.length > 140) return false;
+      const german = text.includes("speziell für kinder") && text.includes("festgelegt");
+      const english = text.includes("made for kids") && (text.includes("set as") || text.includes("is set"));
+      if (!german && !english) return false;
+      const isNegative = text.includes("nicht als") || text.includes("not set") || text.includes("isn't set") || text.includes("is not");
+      return isNegative === negative;
+    });
+    if (summary) return true;
     return collect(document, []).some((element) => {
       const tag = element.tagName.toLowerCase();
       if (tag !== "tp-yt-paper-radio-button" && element.getAttribute("role") !== "radio" && !(tag === "input" && element.type === "radio")) return false;
