@@ -33,6 +33,12 @@ export interface PrepareArtifactSinkPort {
     now: Instant
   ): Promise<readonly string[]>;
   writeJournal(intent: PublicationIntent, entries: readonly unknown[], now: Instant): Promise<string>;
+  /**
+   * Where a run leg may leave an optional screen recording: the same directory its screenshots
+   * go to, so the whole story of one intent stays in one place. Optional -- a sink that has no
+   * directory (or no interest in recordings) simply means the leg records nothing.
+   */
+  recordingDirectory?(intent: PublicationIntent): string | undefined;
 }
 
 export interface PlatformUiAdapterPort {

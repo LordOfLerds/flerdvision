@@ -18,6 +18,13 @@ export class LocalPrepareArtifactSink implements PrepareArtifactSinkPort {
     mkdirSync(this.root, { recursive: true, mode: 0o700 });
   }
 
+  /** Recordings land with the screenshots of the same intent, and are pruned there. */
+  recordingDirectory(intent: PublicationIntent): string {
+    const directory = join(this.root, safeSegment(intent.intentId));
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    return directory;
+  }
+
   async captureBoundary(
     session: BrowserPageSessionPort,
     intent: PublicationIntent,

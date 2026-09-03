@@ -11,6 +11,7 @@ import type { UiLocator } from "../../domain/platform-ui.js";
 import type { SemanticInteractiveElement, SemanticSurfaceSnapshot, SurfaceAgentPort, SurfaceAgentRequest } from "../../domain/surface-agent.js";
 import { BrowserCalibrationRecorder } from "./calibration-recorder.js";
 import { BrowserDomUiDriver, UiTargetNotFoundError } from "./dom-ui-driver.js";
+import { beginScreencast } from "./screencast-recorder.js";
 import { surfaceExecutionBootstrapUrl } from "./surface-bootstrap.js";
 
 export type AutonomousStepAction = "CLICK" | "SET_FILE" | "FILL_CAPTION" | "FILL_TITLE" | "FINAL_BOUNDARY";
@@ -442,6 +443,12 @@ export class AutonomousSurfaceExplorer {
     return { locator: recorded, fallbacks };
   }
 
+  /**
+   * Exploration is the leg that most often surprises a human afterwards: it decides, live, what
+   * this surface looks like today. An optional screencast of it is written next to the step
+   * screenshots and appended to the same artifact list -- fail-open, so nothing about the
+   * discovery depends on the recording having worked.
+   */
   async discoverAndPrepare(input: {
     intent: PublicationIntent;
     identity: BrowserIdentity;
@@ -450,9 +457,27 @@ export class AutonomousSurfaceExplorer {
     caption?: string;
     title?: string;
   }): Promise<AutonomousSurfaceExplorationResult> {
+    const artifactRefs: string[] = [];
+    const recording = await beginScreencast(this.session, this.artifacts.recordingDirectory?.(input.intent), `screencast-surface-discovery-${input.intent.platform}`);
+    try {
+      return await this.discoverAndPrepareInternal(input, artifactRefs);
+    } finally {
+      // The result already holds this exact array, so appending here still reaches the caller.
+      const recorded = await recording?.stop();
+      if (recorded) artifactRefs.push(recorded);
+    }
+  }
+
+  private async discoverAndPrepareInternal(input: {
+    intent: PublicationIntent;
+    identity: BrowserIdentity;
+    postingProfile: PostingProfile;
+    mediaPath: string;
+    caption?: string;
+    title?: string;
+  }, artifactRefs: string[]): Promise<AutonomousSurfaceExplorationResult> {
     if (input.identity.accountId !== input.intent.accountId || input.identity.platform !== input.intent.platform) throw new Error("Surface exploration identity does not match intent");
     const journal: AutonomousSurfaceJournalEntry[] = [];
-    const artifactRefs: string[] = [];
     const steps: SurfaceContractStep[] = [];
     await this.session.navigate(surfaceExecutionBootstrapUrl(input.postingProfile.platform));
     // A fixed settle is a race against the app's own boot: TikTok Studio's document was still a

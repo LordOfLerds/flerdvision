@@ -57,6 +57,7 @@ class IdentityBoundPrepareArtifacts implements PrepareArtifactSinkPort {
     return this.inner.captureBoundary(session, intent, this.identity, label, now);
   }
   writeJournal(intent: PublicationIntent, entries: readonly unknown[], now: string) { return this.inner.writeJournal(intent, entries, now); }
+  recordingDirectory(intent: PublicationIntent): string | undefined { return this.inner.recordingDirectory?.(intent); }
 }
 
 function markVerificationCalibrated(path: string, accountId: string, platform: PublicationIntent["platform"], at: string): void {

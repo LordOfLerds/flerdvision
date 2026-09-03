@@ -29,9 +29,28 @@ export interface BrowserCookie {
   expires?: number;
 }
 
+/**
+ * Optional screen recording of the browser while a run leg executes. Purely evidence for a
+ * human, alongside the screenshots: it must never influence a step, and `stop` answering null
+ * (no recorder, no ffmpeg, no frames) is an ordinary outcome, not a failure.
+ */
+export interface BrowserScreencastStartOptions {
+  dir: string;
+  name: string;
+  maxWidth?: number;
+  quality?: number;
+  fps?: number;
+}
+export interface BrowserScreencastPort {
+  start(options: BrowserScreencastStartOptions): Promise<void>;
+  stop(): Promise<string | null>;
+}
+
 export interface BrowserPageSessionPort {
   readonly identityId: string;
   readonly profileDirectory: string;
+  /** Optional like every other capability here: a fake without it simply records nothing. */
+  screencast?: BrowserScreencastPort;
   navigate(url: string): Promise<void>;
   currentUrl(): Promise<string>;
   evaluate<T>(expression: string): Promise<T>;
