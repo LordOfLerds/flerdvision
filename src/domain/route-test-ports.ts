@@ -10,7 +10,10 @@ export interface RouteTestEvidenceRecord {
   testKey: RouteTestEvidenceKey;
   status: RouteTestEvidenceStatus;
   checkedAt: string;
+  /** Kept for the audit trail; readiness is decided by the surface fingerprint below. */
   releaseSha: string;
+  /** sha256 of the built surface-driving code this evidence was produced against. */
+  surfaceFingerprint?: string;
   surfaceContractId?: string;
   summary: string;
   artifactRefs: readonly string[];

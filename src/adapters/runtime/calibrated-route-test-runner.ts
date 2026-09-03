@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { AccountIdentityGuard, BrowserSessionHealthService } from "../../application/browser-identity-service.js";
 import { buildCalibrationReplayPlan } from "../../application/platform-execution-plan.js";
+import { resolveQualificationReplays } from "../../application/qualification-policy.js";
 import { PlatformSurfaceRegistryService } from "../../application/platform-surface-registry.js";
 import { workspaceRuntimeLayout } from "../../application/workspaces.js";
 import type { DistributionPostingContext } from "../../domain/distribution-publish-ports.js";
@@ -115,7 +116,7 @@ export class CalibratedWorkspaceRouteTestRunner implements CapabilityAwareRouteT
       const {route}=this.profile(routeId);this.identity(route.accountId);this.probe(route.accountId,route.platform);
       if(testKey==="PREPARE_ONLY"){
         this.readyAsset(routeId);const surface=this.surface(routeId),replays=this.surfaces.listReplays(surface.contract.contractId);
-        const detail=surface.contract.status==="RECORDED"?`Calibration replay ${Math.min(3,replays.slice(-3).filter(item=>item.passed&&item.reachedFinalActionBoundary&&!item.finalActionInvoked).length)}/3; the recorded SurfaceContract is the execution source.`:`Surface ${surface.contract.contractId} is CALIBRATED; prepare-only uses the canonical SurfaceContract.`;
+        const required=resolveQualificationReplays(this.env);const detail=surface.contract.status==="RECORDED"?`Calibration replay ${Math.min(required,replays.slice(-required).filter(item=>item.passed&&item.reachedFinalActionBoundary&&!item.finalActionInvoked).length)}/${required}; the recorded SurfaceContract is the execution source.`:`Surface ${surface.contract.contractId} is CALIBRATED; prepare-only uses the canonical SurfaceContract.`;
         return{testKey,executable:true,reason:detail};
       }
       this.verificationSpec(route.accountId,route.platform);
@@ -150,9 +151,9 @@ export class CalibratedWorkspaceRouteTestRunner implements CapabilityAwareRouteT
       const execution=await new SafePlatformExecutionRunner(session,artifacts,()=>new Date(new Date(at).getTime()+tick++).toISOString()).execute(plan,identity,{mediaPath:media.localPath,caption:"[PREPARE_ONLY TEST]",title:"Flerdvision PREPARE_ONLY Test"});
       const passed=execution.environmentFingerprint===surface.contract.environment.fingerprint,registry=new PlatformSurfaceRegistryService(this.surfaces),ordinal=this.surfaces.listReplays(surface.contract.contractId).length+1;
       registry.recordReplay({replayId:`surface-replay:${surface.contract.contractId}:${ordinal}`,contractId:surface.contract.contractId,checkedAt:at,passed,reachedFinalActionBoundary:true,finalActionInvoked:false,environmentFingerprint:execution.environmentFingerprint,artifactRefs:[...execution.artifactRefs]});
-      let promoted=false,stale=false;const replays=this.surfaces.listReplays(surface.contract.contractId),lastThree=replays.slice(-3),latest=this.surfaces.latestContract(context.intent.accountId,context.postingProfile.postingProfileId);
-      if(surface.contract.status==="RECORDED"&&lastThree.length===3&&lastThree.every(item=>item.passed&&item.reachedFinalActionBoundary&&!item.finalActionInvoked&&item.environmentFingerprint===surface.contract.environment.fingerprint)){
-        if(latest?.contract.contractId===surface.contract.contractId){registry.qualify(context.intent.accountId,context.postingProfile,at);promoted=true;}
+      let promoted=false,stale=false;const required=resolveQualificationReplays(this.env),replays=this.surfaces.listReplays(surface.contract.contractId),lastRequired=replays.slice(-required),latest=this.surfaces.latestContract(context.intent.accountId,context.postingProfile.postingProfileId);
+      if(surface.contract.status==="RECORDED"&&lastRequired.length===required&&lastRequired.every(item=>item.passed&&item.reachedFinalActionBoundary&&!item.finalActionInvoked&&item.environmentFingerprint===surface.contract.environment.fingerprint)){
+        if(latest?.contract.contractId===surface.contract.contractId){registry.qualify(context.intent.accountId,context.postingProfile,at,required);promoted=true;}
         else stale=true;
       }
       const current=this.surfaces.latestContract(context.intent.accountId,context.postingProfile.postingProfileId)?.contract.status??surface.contract.status;

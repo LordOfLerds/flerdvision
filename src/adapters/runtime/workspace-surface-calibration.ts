@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { BrowserBootstrapService, type OperatorBrowserSession } from "../../application/browser-bootstrap.js";
 import { PlatformSurfaceRegistryService } from "../../application/platform-surface-registry.js";
+import { resolveQualificationReplays } from "../../application/qualification-policy.js";
 import { workspaceRuntimeLayout } from "../../application/workspaces.js";
 import { surfaceRecipeForPostingProfile } from "../../domain/platform-surface.js";
 import type { SurfaceCalibrationCommandPort, SurfaceCalibrationRouteStatus } from "../../domain/surface-calibration-command-ports.js";
@@ -47,8 +48,8 @@ export class WorkspaceSurfaceCalibrationCommands implements SurfaceCalibrationCo
     const {route,profile}=this.routeContext(routeId),recipe=surfaceRecipeForPostingProfile(profile),observations=this.surfaces.listObservations(route.accountId,profile.platform,profile.format),latest=this.surfaces.latestContract(route.accountId,profile.postingProfileId),replays=latest?this.surfaces.listReplays(latest.contract.contractId):[],active=this.sessions.get(routeId);
     const latestFingerprint=observations.slice().sort((a,b)=>a.observedAt.localeCompare(b.observedAt)).at(-1)?.environment.fingerprint;
     const currentObservations=latestFingerprint?observations.filter(item=>item.environment.fingerprint===latestFingerprint):[];
-    const lastThree=replays.slice(-3),replayPasses=lastThree.filter(item=>item.passed&&item.reachedFinalActionBoundary&&!item.finalActionInvoked&&(!latest||item.environmentFingerprint===latest.contract.environment.fingerprint)).length;
-    return{routeId,accountId:route.accountId,postingProfileId:profile.postingProfileId,platform:profile.platform,format:profile.format,browserOpen:Boolean(active),contractStatus:latest?.contract.status??"MISSING",...(latest?{contractId:latest.contract.contractId}:{}),replayPasses,steps:recipe.steps.map(step=>({stepKey:step.stepKey,label:step.label,actionMode:step.actionMode,required:step.required,observations:currentObservations.filter(item=>item.stepKey===step.stepKey).length,armed:active?.armedStep===step.stepKey,...(step.stepKey==="UPLOAD_MEDIA"?{specialCapture:"FILE_INPUT" as const}:{})}))};
+    const requiredReplays=resolveQualificationReplays(),replayPasses=replays.slice(-requiredReplays).filter(item=>item.passed&&item.reachedFinalActionBoundary&&!item.finalActionInvoked&&(!latest||item.environmentFingerprint===latest.contract.environment.fingerprint)).length;
+    return{routeId,accountId:route.accountId,postingProfileId:profile.postingProfileId,platform:profile.platform,format:profile.format,browserOpen:Boolean(active),contractStatus:latest?.contract.status??"MISSING",...(latest?{contractId:latest.contract.contractId}:{}),replayPasses,requiredReplays,steps:recipe.steps.map(step=>({stepKey:step.stepKey,label:step.label,actionMode:step.actionMode,required:step.required,observations:currentObservations.filter(item=>item.stepKey===step.stepKey).length,armed:active?.armedStep===step.stepKey,...(step.stepKey==="UPLOAD_MEDIA"?{specialCapture:"FILE_INPUT" as const}:{})}))};
   }
 
   async openBrowser(routeId:string,now:string):Promise<void>{

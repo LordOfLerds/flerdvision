@@ -1,6 +1,7 @@
 import type { ControlCenterRuntimeSnapshot } from "../domain/control-center-ports.js";
 import type { StoredDistributionConfiguration } from "../domain/distribution-ports.js";
 import type { QualificationGateKind } from "../domain/workspace.js";
+import { resolveQualificationReplays } from "./qualification-policy.js";
 
 export interface DerivedQualificationEvidence {
   gate:QualificationGateKind;
@@ -31,6 +32,7 @@ export function deriveWorkspaceQualificationEvidence(input:{
   freshIdentityAccountIds?:readonly string[];
 }):readonly DerivedQualificationEvidence[]{
   const {workspaceId,releaseSha,stored,runtime}=input,out:DerivedQualificationEvidence[]=[];
+  const requiredReplays=resolveQualificationReplays();
   const freshIdentity=input.freshIdentityAccountIds?new Set(input.freshIdentityAccountIds):null;
   const routes=stored.config.routes.filter(route=>route.enabled),requiredRoutes=routes.filter(route=>route.requirement==="REQUIRED");
   const routedLaneIds=[...new Set(routes.map(route=>route.laneId))];
@@ -78,7 +80,7 @@ export function deriveWorkspaceQualificationEvidence(input:{
 
   const routeQualified=(route:typeof requiredRoutes[number]):boolean=>{
     const test=tests.get(route.routeId),surface=surfaces.get(`${route.accountId}|${route.postingProfileId}`);
-    return Boolean(test&&test.releaseSha===releaseSha&&test.sourcePassed&&test.sessionPassed&&test.identityPassed&&test.prepareOnlyPasses>=3&&test.verificationPassed&&surface?.surfaceContract==="CALIBRATED"&&test.surfaceContractId&&test.surfaceContractId===surface.contractId);
+    return Boolean(test&&test.releaseSha===releaseSha&&test.sourcePassed&&test.sessionPassed&&test.identityPassed&&test.prepareOnlyPasses>=requiredReplays&&test.verificationPassed&&surface?.surfaceContract==="CALIBRATED"&&test.surfaceContractId&&test.surfaceContractId===surface.contractId);
   };
   if(requiredRoutes.length>0&&requiredRoutes.every(routeQualified))out.push({
     gate:"ROUTE_QUALIFICATION",passed:true,
@@ -89,13 +91,13 @@ export function deriveWorkspaceQualificationEvidence(input:{
   const platformPrepare=(platform:"instagram"|"tiktok")=>{
     const platformRoutes=requiredRoutes.filter(route=>route.platform===platform);
     return platformRoutes.length>0&&platformRoutes.every(route=>{
-      const test=tests.get(route.routeId);return Boolean(test&&test.releaseSha===releaseSha&&test.prepareOnlyPasses>=3);
+      const test=tests.get(route.routeId);return Boolean(test&&test.releaseSha===releaseSha&&test.prepareOnlyPasses>=requiredReplays);
     })?platformRoutes:null;
   };
   const igPrepare=platformPrepare("instagram");
-  if(igPrepare)out.push({gate:"INSTAGRAM_PREPARE",passed:true,summary:`${igPrepare.length} REQUIRED Instagram route(s) each have at least 3 prepare-only passes on this release.`,artifactRefs:igPrepare.map(route=>dbRef(workspaceId,"prepare-only",`${route.routeId}@${releaseSha}`))});
+  if(igPrepare)out.push({gate:"INSTAGRAM_PREPARE",passed:true,summary:`${igPrepare.length} REQUIRED Instagram route(s) each have at least ${requiredReplays} prepare-only pass(es) on this release.`,artifactRefs:igPrepare.map(route=>dbRef(workspaceId,"prepare-only",`${route.routeId}@${releaseSha}`))});
   const ttPrepare=platformPrepare("tiktok");
-  if(ttPrepare)out.push({gate:"TIKTOK_PREPARE",passed:true,summary:`${ttPrepare.length} REQUIRED TikTok route(s) each have at least 3 prepare-only passes on this release.`,artifactRefs:ttPrepare.map(route=>dbRef(workspaceId,"prepare-only",`${route.routeId}@${releaseSha}`))});
+  if(ttPrepare)out.push({gate:"TIKTOK_PREPARE",passed:true,summary:`${ttPrepare.length} REQUIRED TikTok route(s) each have at least ${requiredReplays} prepare-only pass(es) on this release.`,artifactRefs:ttPrepare.map(route=>dbRef(workspaceId,"prepare-only",`${route.routeId}@${releaseSha}`))});
 
   const secretComplete=(platform:"instagram"|"tiktok")=>requiredRoutes.some(route=>{
     if(route.platform!==platform)return false;

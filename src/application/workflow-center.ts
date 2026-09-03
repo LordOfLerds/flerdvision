@@ -1,5 +1,6 @@
 import type { ControlCenterRuntimeSnapshot } from "../domain/control-center-ports.js";
 import type { StoredDistributionConfiguration } from "../domain/distribution-ports.js";
+import { resolveQualificationReplays } from "./qualification-policy.js";
 
 export type WorkflowStatus = "READY" | "NEEDS_ACTION" | "BLOCKED" | "SAFE_FROZEN";
 
@@ -32,7 +33,8 @@ function routeQualification(stored:StoredDistributionConfiguration,runtime:Contr
   if(!channel?.identityVerified)return{qualified:false,reason:"identity not verified"};
   if(surface?.surfaceContract!=="CALIBRATED")return{qualified:false,reason:`surface ${surface?.surfaceContract??"UNVERIFIED"}`};
   if(!test?.sourcePassed||!test.sessionPassed||!test.identityPassed)return{qualified:false,reason:"observer route tests incomplete"};
-  if(test.prepareOnlyPasses<3)return{qualified:false,reason:`prepare-only ${test.prepareOnlyPasses}/3`};
+  const requiredReplays=resolveQualificationReplays();
+  if(test.prepareOnlyPasses<requiredReplays)return{qualified:false,reason:`prepare-only ${test.prepareOnlyPasses}/${requiredReplays}`};
   if(!test.verificationPassed)return{qualified:false,reason:"verification test incomplete"};
   return{qualified:true,reason:"qualified"};
 }

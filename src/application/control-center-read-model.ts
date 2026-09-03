@@ -1,4 +1,5 @@
 import type { SocialAccount, SessionHealthState } from "../domain/browser-identity.js";
+import { resolveQualificationReplays } from "./qualification-policy.js";
 import type {
   BacklogItem,
   ContentAsset,
@@ -52,6 +53,7 @@ export interface RouteTestReadiness {
   verificationPassed: boolean;
   cleanupPassed: boolean;
   releaseSha?: string;
+  surfaceFingerprint?: string;
   surfaceContractId?: string;
 }
 
@@ -207,7 +209,7 @@ export function projectControlCenter(input: ControlCenterProjectionInput): Contr
       test?.sourcePassed &&
       test.sessionPassed &&
       test.identityPassed &&
-      test.prepareOnlyPasses >= 3 &&
+      test.prepareOnlyPasses >= resolveQualificationReplays() &&
       test.verificationPassed
     );
 

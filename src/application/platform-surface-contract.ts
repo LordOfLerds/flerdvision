@@ -3,6 +3,7 @@ import type { PostingProfile } from "../domain/distribution.js";
 import type { UiLocator } from "../domain/platform-ui.js";
 import type { PlatformSurfaceContract, SurfaceLocatorCandidate, SurfaceReplayEvidence, SurfaceStepObservation } from "../domain/platform-surface.js";
 import { surfaceRecipeForPostingProfile } from "../domain/platform-surface.js";
+import { assertReplayCount, resolveQualificationReplays } from "./qualification-policy.js";
 
 function locatorKey(locator:UiLocator):string{return JSON.stringify([locator.kind,locator.role??"",locator.value,locator.exact??false]);}
 function rank(candidate:SurfaceLocatorCandidate):number{const confidence=candidate.confidence==="HIGH"?0:candidate.confidence==="MEDIUM"?10:20;const kind=candidate.locator.kind==="role"?0:candidate.locator.kind==="label"?1:candidate.locator.kind==="css"?2:3;return confidence+kind;}
@@ -17,6 +18,8 @@ export function buildRecordedSurfaceContract(input:{accountId:string;profile:Pos
   return{contractId,accountId:input.accountId,platform:recipe.platform,format:recipe.format,postingProfileId:input.profile.postingProfileId,environment,steps,status:"RECORDED",createdAt:new Date(input.createdAt).toISOString()};
 }
 
-export function qualifySurfaceContract(contract:PlatformSurfaceContract,evidence:readonly SurfaceReplayEvidence[],calibratedAt:string):PlatformSurfaceContract{
-  const relevant=evidence.filter(item=>item.contractId===contract.contractId).sort((a,b)=>a.checkedAt.localeCompare(b.checkedAt)),lastThree=relevant.slice(-3);if(lastThree.length<3)throw new Error("Surface contract requires three successful prepare-only replays");if(lastThree.some(item=>!item.passed||!item.reachedFinalActionBoundary))throw new Error("Latest three surface replays must pass and reach the final-action boundary");if(lastThree.some(item=>item.finalActionInvoked))throw new Error("Surface calibration replay must never invoke final publish action");if(lastThree.some(item=>item.environmentFingerprint!==contract.environment.fingerprint))throw new Error("Surface replay environment differs from the recorded contract");return{...contract,status:"CALIBRATED",calibratedAt:new Date(calibratedAt).toISOString()};
+/** The replay count is a setting, not a constant: the operator default is one real replay. */
+export function qualifySurfaceContract(contract:PlatformSurfaceContract,evidence:readonly SurfaceReplayEvidence[],calibratedAt:string,requiredReplays:number=resolveQualificationReplays()):PlatformSurfaceContract{
+  const required=assertReplayCount(requiredReplays,"Surface calibration replay count");
+  const relevant=evidence.filter(item=>item.contractId===contract.contractId).sort((a,b)=>a.checkedAt.localeCompare(b.checkedAt)),latest=relevant.slice(-required);if(latest.length<required)throw new Error(`Surface contract requires ${required} successful prepare-only replay(s)`);if(latest.some(item=>!item.passed||!item.reachedFinalActionBoundary))throw new Error(`Latest ${required} surface replay(s) must pass and reach the final-action boundary`);if(latest.some(item=>item.finalActionInvoked))throw new Error("Surface calibration replay must never invoke final publish action");if(latest.some(item=>item.environmentFingerprint!==contract.environment.fingerprint))throw new Error("Surface replay environment differs from the recorded contract");return{...contract,status:"CALIBRATED",calibratedAt:new Date(calibratedAt).toISOString()};
 }

@@ -3,6 +3,8 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { AccountIdentityGuard, BrowserSessionHealthService } from "./browser-identity-service.js";
 import { buildCalibrationReplayPlan } from "./platform-execution-plan.js";
+import { assertReplayCount, resolveQualificationReplays } from "./qualification-policy.js";
+import { computeSurfaceFingerprint } from "./surface-fingerprint.js";
 import { PlatformSurfaceRegistryService } from "./platform-surface-registry.js";
 import { workspaceRuntimeLayout } from "./workspaces.js";
 import type { DistributionPostingContext } from "../domain/distribution-publish-ports.js";
@@ -80,6 +82,8 @@ export interface AutonomousRouteQualificationResult {
   assetId: string;
   surfaceContractId: string;
   prepareOnlyPasses: number;
+  requiredPrepareOnlyPasses: number;
+  surfaceFingerprint: string;
   verificationEvidence: number;
   artifactRefs: readonly string[];
 }
@@ -95,6 +99,8 @@ export class AutonomousRouteQualifier {
   private readonly runtime: ChromiumCdpRuntimeAdapter;
   private readonly locks: DurableBrowserProfileLockAdapter;
   private readonly env: Record<string, string | undefined>;
+  private readonly replays: number;
+  private readonly surfaceFingerprint: string;
 
   constructor(private readonly options: {
     runtimeRoot: string;
@@ -103,9 +109,15 @@ export class AutonomousRouteQualifier {
     env?: Record<string, string | undefined>;
     chromiumExecutablePath?: string;
     headless?: boolean;
+    /** Real PREPARE_ONLY replays per qualification; defaults to the configured count (1). */
+    replays?: number;
   }) {
     if (!options.releaseSha.trim()) throw new Error("Autonomous route qualification requires an exact release SHA");
     this.env = options.env ?? process.env;
+    this.replays = options.replays === undefined ? resolveQualificationReplays(this.env) : assertReplayCount(options.replays, "replays");
+    // What the qualification proves is bound to the surface code it ran against, not to the
+    // release SHA: an unrelated commit must not invalidate a passed channel.
+    this.surfaceFingerprint = computeSurfaceFingerprint();
     this.layout = workspaceRuntimeLayout(resolve(options.runtimeRoot), options.workspaceId);
     this.config = new JsonDistributionConfigurationStore(resolve(this.layout.configDir, "distribution.json"));
     this.control = new SqliteControlPlaneStore(this.layout.databasePath);
@@ -170,7 +182,7 @@ export class AutonomousRouteQualifier {
 
   private record(routeId: string, key: RouteTestEvidenceKey, checkedAt: string, summary: string, artifactRefs: readonly string[], surfaceContractId?: string): RouteTestEvidenceRecord {
     if (artifactRefs.length === 0) throw new Error(`Passing ${key} evidence requires at least one durable artifact reference`);
-    return this.routeEvidence.record({ evidenceId: evidenceId(routeId, key, checkedAt, summary), routeId, testKey: key, status: "PASS", checkedAt, releaseSha: this.options.releaseSha, ...(surfaceContractId ? { surfaceContractId } : {}), summary, artifactRefs: [...artifactRefs] });
+    return this.routeEvidence.record({ evidenceId: evidenceId(routeId, key, checkedAt, summary), routeId, testKey: key, status: "PASS", checkedAt, releaseSha: this.options.releaseSha, surfaceFingerprint: this.surfaceFingerprint, ...(surfaceContractId ? { surfaceContractId } : {}), summary, artifactRefs: [...artifactRefs] });
   }
 
   async qualify(routeId: string, now = new Date().toISOString()): Promise<AutonomousRouteQualificationResult> {
@@ -232,7 +244,7 @@ export class AutonomousRouteQualifier {
       if (!recordedContract) throw new Error("Autonomous surface discovery did not produce a durable contract");
 
       const replayArtifacts: string[] = [];
-      for (let index = 0; index < 3; index += 1) {
+      for (let index = 0; index < this.replays; index += 1) {
         const replayAt = isoAt(at, 10_000 + index * 10_000);
         const owner = `headless-surface-replay:${routeId}:${index + 1}`;
         const replayLock = this.locks.acquire(ctx.identity, owner, replayAt);
@@ -260,7 +272,7 @@ export class AutonomousRouteQualifier {
             artifactRefs: [...execution.artifactRefs]
           });
           if (!evidence.passed) throw new Error(`Prepare-only replay ${index + 1} did not match the recorded surface environment`);
-          this.record(routeId, "PREPARE_ONLY", replayAt, `Autonomous prepare-only replay ${index + 1}/3 reached final boundary without publishing`, evidence.artifactRefs, recordedContract.contract.contractId);
+          this.record(routeId, "PREPARE_ONLY", replayAt, `Autonomous prepare-only replay ${index + 1}/${this.replays} reached final boundary without publishing`, evidence.artifactRefs, recordedContract.contract.contractId);
           replayArtifacts.push(...evidence.artifactRefs);
         } finally {
           if (replaySession) { await discardPreparedDraft(replaySession).catch(() => {}); await replaySession.close().catch(() => {}); }
@@ -268,9 +280,9 @@ export class AutonomousRouteQualifier {
         }
       }
       allArtifacts.push(...replayArtifacts);
-      const calibrated = this.registry.qualify(ctx.route.accountId, ctx.postingProfile, isoAt(at, 45_000));
+      const calibrated = this.registry.qualify(ctx.route.accountId, ctx.postingProfile, isoAt(at, 45_000), this.replays);
       const surfaceRef = writeEvidence(sourceEvidenceRoot, `${routeId}-surface`, { checkedAt: isoAt(at, 45_000), contract: calibrated.contract, versionId: calibrated.versionId });
-      this.record(routeId, "SURFACE", isoAt(at, 45_001), `Surface ${calibrated.contract.contractId} calibrated from three autonomous replays`, [surfaceRef, ...replayArtifacts.slice(-3)], calibrated.contract.contractId);
+      this.record(routeId, "SURFACE", isoAt(at, 45_001), `Surface ${calibrated.contract.contractId} calibrated from ${this.replays} autonomous replay(s)`, [surfaceRef, ...replayArtifacts.slice(-this.replays)], calibrated.contract.contractId);
       allArtifacts.push(surfaceRef);
 
       const verificationPath = resolve(this.layout.configDir, "profile-verification.json");
@@ -309,11 +321,12 @@ export class AutonomousRouteQualifier {
         sourcePassed: true,
         sessionPassed: true,
         identityPassed: true,
-        prepareOnlyPasses: 3,
+        prepareOnlyPasses: this.replays,
         secretLivePassed: false,
         verificationPassed: true,
         cleanupPassed: false,
         releaseSha: this.options.releaseSha,
+        surfaceFingerprint: this.surfaceFingerprint,
         surfaceContractId: calibrated.contract.contractId
       }, isoAt(at, 50_001));
 
@@ -324,7 +337,9 @@ export class AutonomousRouteQualifier {
         format: ctx.postingProfile.format,
         assetId: ctx.asset.assetId,
         surfaceContractId: calibrated.contract.contractId,
-        prepareOnlyPasses: 3,
+        prepareOnlyPasses: this.replays,
+        requiredPrepareOnlyPasses: this.replays,
+        surfaceFingerprint: this.surfaceFingerprint,
         verificationEvidence: verificationEvidence.length,
         artifactRefs: allArtifacts
       };

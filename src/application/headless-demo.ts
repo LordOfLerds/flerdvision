@@ -5,6 +5,7 @@ import { bootstrapHeadlessWorkspace } from "./headless-bootstrap.js";
 import { ensureHeadlessLogin } from "./headless-login.js";
 import { AutonomousRouteQualifier, type AutonomousRouteQualificationResult } from "./autonomous-surface-qualification.js";
 import { accountIdForChannel } from "./workspace-spec-compiler.js";
+import { resolveQualificationReplays } from "./qualification-policy.js";
 import { workspaceRuntimeLayout } from "./workspaces.js";
 import { calibratedSessionProbeFor, loadSessionProbeConfigFile } from "../adapters/browser/session-probe-config.js";
 import { JsonDistributionConfigurationStore } from "../adapters/distribution/json-config-store.js";
@@ -156,7 +157,7 @@ export async function runHeadlessDemo(input: {
       qualifications.push(await qualifier.qualify(route.routeId));
     }
     if (qualifications.length === 0) throw new Error("No selected route was qualified");
-    stages.push({ stage: "QUALIFY", status: "PASS", summary: `${qualifications.length} route(s) calibrated with three real prepare-only replays each` });
+    stages.push({ stage: "QUALIFY", status: "PASS", summary: `${qualifications.length} route(s) calibrated with ${qualifications[0]?.requiredPrepareOnlyPasses ?? resolveQualificationReplays()} real prepare-only replay(s) each` });
     input.onProgress?.(`QUALIFY PASS · ${qualifications.length} route(s)`);
   } finally { qualifier.close(); }
 
