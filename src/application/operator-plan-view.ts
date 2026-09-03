@@ -1,3 +1,4 @@
+import type { StoredDistributionConfiguration } from "../domain/distribution-ports.js";
 import type { StoredPublicationIntent, ScheduleReservation } from "../domain/control-plane.js";
 import type { StoredContentAssetRevision } from "../domain/distribution-runtime-ports.js";
 import type { Incident, KillSwitch } from "../domain/operations.js";
@@ -6,6 +7,7 @@ import type { PublicationState } from "../domain/states.js";
 import { businessDateForInstant } from "../domain/scheduling.js";
 import { filenameParts } from "../adapters/publish/workspace-payload-resolver.js";
 import {
+  driveFolderUrl,
   germanBlocker,
   germanBlockReason,
   germanDayLabel,
@@ -57,6 +59,28 @@ export interface OperatorPlanViewStores {
   pauses: { listSchedulePauses(): readonly SchedulePause[] };
   /** Optional release state per channel; without it a channel without posts is simply named. */
   channelStatus?: () => readonly OperatorChannelStatus[];
+}
+
+/**
+ * Gives every channel the Google-Drive folder that actually feeds it, resolved through its own
+ * enabled route and lane. Without this the operator is told to "put a video in Drive" and then
+ * has to go and work out which of the folders that means.
+ */
+export function withDriveFolders(
+  channels: readonly OperatorChannelRef[],
+  stored: StoredDistributionConfiguration | undefined
+): readonly OperatorChannelRef[] {
+  if (!stored) return channels;
+  const driveConnections = new Set(stored.config.sources.filter((source) => source.kind === "google_drive").map((source) => source.connectionId));
+  const laneById = new Map(stored.config.lanes.map((lane) => [lane.laneId, lane]));
+  return channels.map((channel) => {
+    const lanes = stored.config.routes
+      .filter((route) => route.enabled && route.accountId === channel.accountId)
+      .map((route) => laneById.get(route.laneId))
+      .filter((lane) => lane?.enabled && driveConnections.has(lane.connectionId));
+    const url = driveFolderUrl(lanes[0]?.folderRef);
+    return url ? { ...channel, driveFolderUrl: url } : channel;
+  });
 }
 
 /**
@@ -323,7 +347,9 @@ function blockedAssetLines(pipeline: OperatorPipelineSummary): string[] {
 
 /** Suffix that says what a checklist row means, in the words the operator uses. */
 function statusLabel(state: PublicationState): string | undefined {
-  if (state === "PUBLISH_UNCERTAIN") return "unsicher, eingefroren (verify im Terminal)";
+  // The operator's part here is to leave it alone; the verify step belongs to the one message
+  // that reports the uncertain click, not to a checklist row.
+  if (state === "PUBLISH_UNCERTAIN") return "unsicher, eingefroren — wartet auf Prüfung von Hand";
   if (state === "VERIFIED" || state === "PLANNED" || state === "READY" || state === "SCHEDULED") return undefined;
   return germanState(state);
 }

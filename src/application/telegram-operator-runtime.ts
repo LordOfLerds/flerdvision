@@ -6,7 +6,7 @@ import type { StoredContentAssetRevision } from "../domain/distribution-runtime-
 import type { HeadlessDoctorReport } from "./headless-status.js";
 import { KillSwitchGate, KillSwitchService } from "./operations.js";
 import { OperatorCommandService, type OperatorCommandControlReads } from "./operator-commands.js";
-import type { OperatorChannelRef, OperatorPlanViewStores } from "./operator-plan-view.js";
+import { operatorChannelStatusFromDoctor, type OperatorChannelRef, type OperatorChannelStatus, type OperatorPlanViewStores } from "./operator-plan-view.js";
 import { OperatorReportService, type OperatorReportTickResult } from "./operator-reports.js";
 import { CompositeOperationalPublishGate, SchedulePauseGate } from "./schedule-pause.js";
 import { SessionHealthAlarmService, type SessionHealthAlarmTickResult } from "./session-health-alarm.js";
@@ -59,7 +59,21 @@ export class TelegramOperatorService {
 
   private constructor(private readonly options: TelegramOperatorRuntimeOptions, botToken: string, chatId: string) {
     this.log = options.log ?? (() => {});
-    const stores: OperatorPlanViewStores = { control: options.control, state: options.state, pauses: options.operatorState };
+    // The checklist has to name a channel that is not released yet, and only the doctor knows
+    // that. It opens the workspace database, so one reading per minute is plenty for a message
+    // that changes at most once a cycle; a failing doctor degrades to the last known answer.
+    let cached: { atMs: number; value: readonly OperatorChannelStatus[] } | undefined;
+    const channelStatus = (): readonly OperatorChannelStatus[] => {
+      const atMs = Date.now();
+      if (cached && atMs - cached.atMs < 60_000) return cached.value;
+      try {
+        cached = { atMs, value: operatorChannelStatusFromDoctor(options.doctor()) };
+      } catch (error) {
+        this.log(`telegram-operator: channel status unavailable: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      return cached?.value ?? [];
+    };
+    const stores: OperatorPlanViewStores = { control: options.control, state: options.state, pauses: options.operatorState, channelStatus };
     const messenger = new TelegramChatMessenger({ botToken, chatId, ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}) });
     const commands = new OperatorCommandService({
       channels: options.channels,

@@ -73,7 +73,7 @@ test("render shows checkmarks, uncertainty freeze, pipeline and disturbances in 
   assert.match(text, /📋 Tagesplan So 30\. Aug/);
   // Names and platform, not spec keys: the operator reads "Reels (Instagram)", not "reels".
   assert.match(text, /✅ 09:30 · Reels \(Instagram\) · „morgen-reel“/);
-  assert.match(text, /🛑 14:00 · Reels \(Instagram\) · „Video unbekannt“ · unsicher, eingefroren \(verify im Terminal\)/);
+  assert.match(text, /🛑 14:00 · Reels \(Instagram\) · „Video unbekannt“ · unsicher, eingefroren — wartet auf Prüfung von Hand/);
   assert.match(text, /⬜ 18:00 · Clips \(TikTok\) · „abend-clip“/);
   // Counts come from the asset store and are phrased for a person, not for the pipeline.
   assert.match(text, /📥 Drive: 1 Video bereit · 1 unbrauchbar \(„kaputt“\) · 1 in Prüfung/);
