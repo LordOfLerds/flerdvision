@@ -127,6 +127,9 @@ export class CompositeReconciliationPolicy implements ReconciliationPolicy {
       };
     }
 
+    // Only a real absence observation counts here. `inconclusive_profile_check` is explicitly not
+    // in this filter: "I read the surface and could not tell" must keep the intent UNCERTAIN
+    // forever rather than accumulate towards a retry.
     const negatives = relevant
       .filter((item) => !item.positive && item.kind === "negative_profile_check")
       .sort((a, b) => millis(a.observedAt) - millis(b.observedAt));

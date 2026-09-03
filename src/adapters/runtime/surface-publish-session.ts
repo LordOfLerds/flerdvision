@@ -8,6 +8,7 @@ import type { Actor } from "../../domain/control-plane.js";
 import type { PublicationIntentStorePort } from "../../domain/control-plane-ports.js";
 import type { IngressStorePort } from "../../domain/ingress-ports.js";
 import type { LocalMediaArtifact, UiLocator } from "../../domain/platform-ui.js";
+import { composePostedCaption } from "../../domain/platform-ui.js";
 import type { MediaMaterializerPort, PrepareArtifactSinkPort, PublicationPayloadResolverPort } from "../../domain/platform-ui-ports.js";
 import type { PublicationIntent, PublishAttempt, VerificationEvidence } from "../../domain/model.js";
 import type { FinalActionInvokerPort, PublishAttemptStorePort } from "../../domain/verification-ports.js";
@@ -56,7 +57,7 @@ export class SurfacePublishPreparationService {
       // ends up in one MP4 beside this intent's screenshots. Nothing here can fail the prepare.
       recording=await beginScreencast(page,this.artifacts.recordingDirectory?.(record.intent),`screencast-prepare-${record.intent.platform}`);
       await new BrowserSessionHealthService(this.store,probe).check(identity.identityId,page,this.now(),actor);new AccountIdentityGuard(this.store).assertReady(identity.identityId);materialized=await this.media.materialize(content);
-      const caption=payload.caption!==undefined?[payload.caption,...(payload.hashtags??[]).map(tag=>`#${tag}`)].filter(Boolean).join(payload.hashtags?.length?" ":""):undefined;
+      const caption=composePostedCaption(payload);
       const execution=await new SafePlatformExecutionRunner(page,this.artifacts,this.now).execute(plan,identity,{mediaPath:materialized.localPath,...(caption!==undefined?{caption}:{}),...(payload.title!==undefined?{title:payload.title}:{})});
       if(!execution.reachedFinalActionBoundary||execution.finalActionInvoked)throw new SurfacePublishSessionError("Surface preparation did not stop safely at final boundary");if(execution.environmentFingerprint!==surface.contract.environment.fingerprint)throw new SurfacePublishSessionError("Surface environment changed during preparation");
       const recordedPath=await recording?.stop()??null;recording=null;
