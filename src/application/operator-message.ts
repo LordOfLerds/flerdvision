@@ -520,6 +520,8 @@ function build(kind: OperatorMessageKind, context: OperatorMessageContext): Oper
         subject: join([
           kind === "DAY_END" ? "🌙 Tagesabschluss" : "📅 Wochenbericht",
           safe(context.planLabel),
+          // "2 von 2 geplanten Posts sind live" belongs in the subject: it is the whole report.
+          safe(context.headline),
           kind === "DAY_END" ? (context.ok ? "✅" : "⚠️") : undefined
         ]),
         body: block([...ownLines(context), ...sectionLines(context), nextSlotLine(context.nextSlot)])
