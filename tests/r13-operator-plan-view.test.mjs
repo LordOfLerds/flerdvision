@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { collectOperatorPlanView, renderOperatorPlan } from "../dist/application/operator-plan-view.js";
+import {
+  collectOperatorPlanView,
+  operatorChannelStatusFromDoctor,
+  renderOperatorPlan,
+  withDriveFolders
+} from "../dist/application/operator-plan-view.js";
 
 // R13: the /plan reply and the morning checklist are the same German compact view: entries named
 // after the source video file, checked off as VERIFIED, plus Drive pipeline state and disturbances.
@@ -148,4 +153,57 @@ test("a verified entry carries the live post link, an unverified one carries non
   assert.match(text, /https:\/\/www\.instagram\.com\/reel\/ABC\//);
   const pending = withLink.entries.find((entry) => entry.state !== "VERIFIED");
   assert.equal(pending.permalink, undefined);
+});
+
+test("a channel gets the Drive folder of the lane its own enabled route reads", () => {
+  const stored = {
+    config: {
+      sources: [
+        { connectionId: "drive", displayName: "Drive", kind: "google_drive", rootRef: "root", enabled: true },
+        { connectionId: "local", displayName: "Ordner", kind: "local_folder", rootRef: "/srv/videos", enabled: true }
+      ],
+      lanes: [
+        { laneId: "lane:reels", connectionId: "drive", displayName: "Reels", folderRef: "1ReelsFolderIdAbCdEf", folderPath: "Videos / Reels", interpretation: { kind: "flat" }, enabled: true },
+        { laneId: "lane:clips", connectionId: "drive", displayName: "Clips", folderRef: "1ClipsFolderIdAbCdEf", folderPath: "Videos / Clips", interpretation: { kind: "flat" }, enabled: true },
+        { laneId: "lane:local", connectionId: "local", displayName: "Lokal", folderRef: "shorts", folderPath: "shorts", interpretation: { kind: "flat" }, enabled: true }
+      ],
+      routes: [
+        { routeId: "r1", displayName: "IG", laneId: "lane:reels", accountId: "account:instagram:reels", platform: "instagram", postingProfileId: "p", copyProfileId: "c", schedulePolicyId: "s", requirement: "REQUIRED", enabled: true },
+        { routeId: "r2", displayName: "TT", laneId: "lane:clips", accountId: "account:tiktok:clips", platform: "tiktok", postingProfileId: "p", copyProfileId: "c", schedulePolicyId: "s", requirement: "REQUIRED", enabled: true },
+        { routeId: "r3", displayName: "YT", laneId: "lane:local", accountId: "account:youtube:shorts", platform: "youtube", postingProfileId: "p", copyProfileId: "c", schedulePolicyId: "s", requirement: "REQUIRED", enabled: true }
+      ],
+      postingProfiles: [], copyProfiles: [], activationCursors: []
+    }
+  };
+  const resolved = withDriveFolders([
+    ...channels,
+    { key: "shorts", name: "Shorts", platform: "youtube", accountId: "account:youtube:shorts" }
+  ], stored);
+  assert.equal(resolved[0].driveFolderUrl, "https://drive.google.com/drive/folders/1ReelsFolderIdAbCdEf");
+  assert.equal(resolved[1].driveFolderUrl, "https://drive.google.com/drive/folders/1ClipsFolderIdAbCdEf");
+  // A local folder is not a Drive link, and inventing one would send the operator nowhere.
+  assert.equal(resolved[2].driveFolderUrl, undefined);
+  // Without a compiled configuration the channels are simply returned as they came in.
+  assert.deepEqual(withDriveFolders(channels, undefined), channels);
+});
+
+test("doctor rows become the one sentence the checklist needs", () => {
+  const status = operatorChannelStatusFromDoctor({
+    channels: [
+      { channelKey: "reels", routes: [{ readyForAutonomousPublish: true, blockers: [], readyAssets: 4 }] },
+      { channelKey: "clips", routes: [{ readyForAutonomousPublish: false, blockers: ["no_ready_asset"], readyAssets: 0 }] },
+      { channelKey: "shorts", routes: [{ readyForAutonomousPublish: false, blockers: ["route_readiness_missing", "no_ready_asset"], readyAssets: 0 }] },
+      // One released route is enough to keep a channel posting; the other is skipped, not fatal.
+      { channelKey: "mixed", routes: [
+        { readyForAutonomousPublish: false, blockers: ["surface_not_calibrated"], readyAssets: 0 },
+        { readyForAutonomousPublish: true, blockers: [], readyAssets: 2 }
+      ] }
+    ]
+  });
+  assert.deepEqual(status, [
+    { channelKey: "reels", qualified: true, readyAssets: 4 },
+    { channelKey: "clips", qualified: true, readyAssets: 0 },
+    { channelKey: "shorts", qualified: false, reason: "Qualifikation fehlt", readyAssets: 0 },
+    { channelKey: "mixed", qualified: true, readyAssets: 2 }
+  ]);
 });
