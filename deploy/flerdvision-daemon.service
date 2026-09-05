@@ -1,24 +1,18 @@
-# Flerdvision — autonomer Posting-Daemon (Canary-Modus).
+# Flerdvision — autonomer Posting-Daemon fuer die Brother-VPS-Installation.
 #
-# ExecStart ruft dist/cli/flerdvision.js direkt mit node auf (kein `npm run`, das wuerde bei jedem
-# Start neu bauen); dist/ wird von deploy/update-release.sh via `npm test` (enthaelt build) erzeugt.
+# Code ist immutable unter /opt/flerdvision/releases/<sha>; /opt/flerdvision/current ist nur der
+# atomar umschaltbare Symlink auf die freigegebene Release-SHA. Config/Secrets und Runtime-State
+# liegen ausserhalb des Releases und werden bei Updates nie kopiert.
 #
-# Der Daemon verweigert den Start hart, solange nicht ALLE drei Freigaben vorliegen
-# (src/cli/flerdvision.ts, authorizedMode):
-#   1. ALLOW_FINAL_PUBLISH=true in /etc/flerdvision/flerdvision.env,
-#   2. --confirm AUTONOMOUS_FINAL_PUBLISH (hier fest verdrahtet),
-#   3. mindestens ein --channel (aus $FLERDVISION_DAEMON_CHANNEL_ARGS in flerdvision.env).
-# Diese Unit wird NICHT beim Installieren enabled. Enable + ALLOW_FINAL_PUBLISH=true ist die
-# explizite Canary-Autorisierung nach der Qualifikationsleiter aus docs/23 (erst PREPARE_ONLY,
-# dann ggf. private E2E, dann EIN run-once-Canary, erst danach Daemon). --mode production ist
-# hier bewusst nicht vorgesehen; dafuer ist eine eigene, spaetere Freigabe noetig.
-#
-# Der Daemon laeuft headless (kein --show-browser) und braucht kein Display. DISPLAY=:99 ist nur
-# fuer einen bewussten Debug-Umbau gesetzt; wer unter dieser Unit wirklich headful fahren will,
-# muss zusaetzlich PrivateTmp=false setzen (X11-Socket liegt in /tmp/.X11-unix).
+# Final publishing bleibt dreifach fail-closed:
+#   1. ALLOW_FINAL_PUBLISH=true in /etc/flerdvision/secrets.env,
+#   2. --confirm AUTONOMOUS_FINAL_PUBLISH ist in dieser Unit explizit verdrahtet,
+#   3. FLERDVISION_DAEMON_CHANNEL_ARGS muss mindestens einen erlaubten Kanal enthalten.
+# FLERDVISION_DAEMON_MODE startet als canary und wird erst nach Brother-Canary auf production
+# umgestellt. FLERDVISION_WORKSPACE_ROLE bleibt production; test-now ist damit auf diesem Host tot.
 
 [Unit]
-Description=Flerdvision autonomous posting daemon (canary)
+Description=Flerdvision autonomous posting daemon
 Wants=network-online.target
 After=network-online.target flerdvision-xvfb.service
 StartLimitIntervalSec=600
@@ -28,14 +22,13 @@ StartLimitBurst=3
 Type=simple
 User=flerdvision
 Group=flerdvision
-WorkingDirectory=/opt/flerdvision/app
-EnvironmentFile=/etc/flerdvision/flerdvision.env
+WorkingDirectory=/opt/flerdvision/current
+EnvironmentFile=/etc/flerdvision/secrets.env
 EnvironmentFile=/etc/flerdvision/release.env
 Environment=NODE_ENV=production
 Environment=DISPLAY=:99
-# Chromium/fontconfig-Caches raus aus $HOME (ProtectHome=true) und rein in den Runtime-Root.
 Environment=XDG_CACHE_HOME=/var/lib/flerdvision/cache
-ExecStart=/usr/bin/node /opt/flerdvision/app/dist/cli/flerdvision.js daemon --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH --interval 60 $FLERDVISION_DAEMON_CHANNEL_ARGS
+ExecStart=/usr/bin/node /opt/flerdvision/current/dist/cli/flerdvision.js daemon --mode $FLERDVISION_DAEMON_MODE --confirm AUTONOMOUS_FINAL_PUBLISH --interval 60 $FLERDVISION_DAEMON_CHANNEL_ARGS
 Restart=on-failure
 RestartSec=30
 TimeoutStopSec=45
@@ -45,7 +38,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/flerdvision
+ReadWritePaths=/var/lib/flerdvision /var/backups/flerdvision
 RestrictSUIDSGID=true
 LockPersonality=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
