@@ -1,5 +1,6 @@
 import { join, resolve } from "node:path";
 import type { WorkspaceRuntimeLayout } from "../../domain/workspace.js";
+import type { RuntimeOperationsPort } from "../../domain/runtime-supervisor-ports.js";
 import { workspaceRuntimeLayout } from "../../application/workspaces.js";
 import { SourceActivationCommandService } from "../../application/source-activation-command.js";
 import { DistributionSourceScanCoordinator } from "../../application/distribution-source-scan.js";
@@ -41,6 +42,7 @@ import { DistributionPlanProvenanceService, DistributionIntentMaterializer } fro
 import { ProvenancedRuntimePlannerAdapter, RuntimeDistributionIntentMaterializerAdapter } from "../../application/runtime-distribution-adapters.js";
 import { ControlPlaneRuntimeCycleLeaseAdapter, SqliteRuntimeCycleReportStore } from "./sqlite-cycle-runtime.js";
 import { FrozenRuntimeDueExecutionAdapter, RecoveryOnlyRuntimeReconciliationAdapter, W6RuntimeOperationsAdapter } from "./safe-phase-adapters.js";
+import { AutoDiagnosingRuntimeOperationsAdapter, createWorkspaceAutoDiagnosis } from "./workspace-auto-diagnosis.js";
 
 export interface WorkspaceDistributionRuntimeOptions {
   runtimeRoot:string;
@@ -78,7 +80,7 @@ export class WorkspaceDistributionRuntime {
   readonly due:FrozenRuntimeDueExecutionAdapter;
   readonly reconciliation:RecoveryOnlyRuntimeReconciliationAdapter;
   readonly disposition:RuntimeDistributionDispositionAdapter;
-  readonly operations:W6RuntimeOperationsAdapter;
+  readonly operations:RuntimeOperationsPort;
 
   constructor(private readonly options:WorkspaceDistributionRuntimeOptions){
     const env=options.env??process.env;
@@ -120,7 +122,17 @@ export class WorkspaceDistributionRuntime {
     const aggregates=new DistributionDeliveryAggregateProjector(this.state,this.provenance,this.control,this.control),dispositionAdapters=buildWorkspaceDispositionAdapterRegistry(this.config.load(),this.control,driveToken),dispositionExecutor=new ConfiguredDistributionDispositionExecutor(this.control,dispositionAdapters);
     this.disposition=new RuntimeDistributionDispositionAdapter(this.config,this.state,aggregates,dispositionExecutor);
 
-    this.operations=new W6RuntimeOperationsAdapter(this.control,notificationChannelKeys,options.timeZone??"Europe/Vienna",{distributionConfig:this.config,distributionRuntime:this.state,...((options.remoteScreenUrl??env.FLERDVISION_REMOTE_SCREEN_URL)?{remoteScreenUrl:(options.remoteScreenUrl??env.FLERDVISION_REMOTE_SCREEN_URL)!}:{}),...(options.channels?{channels:options.channels}:{}),...(notificationDispatcher?{notificationDispatcher}:{})});
+    const baseOperations=new W6RuntimeOperationsAdapter(this.control,notificationChannelKeys,options.timeZone??"Europe/Vienna",{distributionConfig:this.config,distributionRuntime:this.state,...((options.remoteScreenUrl??env.FLERDVISION_REMOTE_SCREEN_URL)?{remoteScreenUrl:(options.remoteScreenUrl??env.FLERDVISION_REMOTE_SCREEN_URL)!}:{}),...(options.channels?{channels:options.channels}:{}),...(notificationDispatcher?{notificationDispatcher}:{})});
+    const autoDiagnosis=createWorkspaceAutoDiagnosis({
+      store:this.control,
+      configDir:this.layout.configDir,
+      evidenceDir:this.layout.evidenceDir,
+      releaseSha,
+      adapterVersion:"workspace-runtime:auto-diagnosis-v1",
+      env,
+      onUnavailable:(message)=>console.error(message)
+    });
+    this.operations=autoDiagnosis?new AutoDiagnosingRuntimeOperationsAdapter(baseOperations,autoDiagnosis):baseOperations;
   }
 
   supervisor(ownerId:string,clock:()=>string=()=>new Date().toISOString()):RuntimeSupervisor{return new RuntimeSupervisor({lease:this.lease,source:this.source,planner:this.planner,intents:this.intents,due:this.due,reconciliation:this.reconciliation,disposition:this.disposition,operations:this.operations,reports:this.reports},ownerId,clock);}
