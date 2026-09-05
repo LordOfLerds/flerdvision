@@ -41,8 +41,11 @@ export class RuntimeSupervisor {
   constructor(
     private readonly ports:RuntimeSupervisorPorts,
     private readonly ownerId:string,
-    private readonly clock:()=>string=()=>new Date().toISOString()
-  ){}
+    private readonly clock:()=>string=()=>new Date().toISOString(),
+    private readonly heartbeatIntervalMs:number=30_000
+  ){
+    if(!Number.isFinite(heartbeatIntervalMs)||heartbeatIntervalMs<1)throw new Error("Runtime supervisor heartbeat interval must be at least 1 ms");
+  }
 
   async runCycle(now:string,businessDate:string):Promise<RuntimeCycleReport>{
     const startedAt=new Date(now).toISOString();
@@ -53,9 +56,20 @@ export class RuntimeSupervisor {
     const heartbeat=():void=>{lease.heartbeat?.(this.clock());};
     const run=async<T>(phase:RuntimePhase,fn:()=>Promise<T>,summary:(value:T)=>string):Promise<T|undefined>=>{
       let value:T|undefined;
-      try{value=await fn();phases.push({phase,status:"PASS",summary:summary(value)});}
+      let heartbeatFailure:unknown;
+      const pulse=()=>{try{heartbeat();}catch(error){heartbeatFailure??=error;}};
+      pulse();
+      const timer=lease.heartbeat?setInterval(pulse,this.heartbeatIntervalMs):undefined;
+      timer?.unref?.();
+      try{
+        value=await fn();
+        if(heartbeatFailure)throw heartbeatFailure;
+        pulse();
+        if(heartbeatFailure)throw heartbeatFailure;
+        phases.push({phase,status:"PASS",summary:summary(value)});
+      }
       catch(error){phases.push({phase,status:"FAIL",summary:errorText(error)});}
-      heartbeat();
+      finally{if(timer)clearInterval(timer);}
       return value;
     };
     try{
