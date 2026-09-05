@@ -20,6 +20,7 @@ import { WorkspaceMediaMaterializer } from "../publish/workspace-media-materiali
 import { WorkspacePublicationPayloadResolver } from "../publish/workspace-payload-resolver.js";
 import { SqliteControlPlaneStore } from "../storage/sqlite.js";
 import { LocalVerificationArtifactSink } from "../verify/artifacts.js";
+import { DirectYoutubeVerificationCollector } from "../verify/direct-youtube.js";
 import { PayloadExpectedPublicationCopy } from "../verify/expected-copy.js";
 import { WorkspaceProfileVerificationCollector } from "../verify/workspace-profile.js";
 import { RetainedSurfaceFinalActionInvoker, RetainedSurfacePublishSessionRegistry, SurfacePublishPreparationService } from "./surface-publish-session.js";
@@ -53,8 +54,10 @@ export class WorkspaceSurfacePublisher {
     // resolver produced for the publisher; the runtime state adds the ffprobe duration that only
     // ever disambiguates two posts with the same caption.
     const expectedCopy=new PayloadExpectedPublicationCopy(payloads,this.runtimeState=new SqliteDistributionRuntimeStateStore(layout.databasePath));
-    const verification=new WorkspaceProfileVerificationCollector(this.control,chromium,locks,new LocalVerificationArtifactSink(resolve(layout.evidenceDir,"verification")),layout.configDir,`${ownerId}:verification`,options.headless??true,now,expectedCopy);
-    this.reconciliation=new ReconciliationService(this.control,[verification],new CompositeReconciliationPolicy(),now);
+    const verificationArtifacts=new LocalVerificationArtifactSink(resolve(layout.evidenceDir,"verification"));
+    const directYoutube=new DirectYoutubeVerificationCollector(this.control,chromium,locks,verificationArtifacts,layout.configDir,`${ownerId}:youtube-direct-verification`,options.headless??true,now,expectedCopy);
+    const verification=new WorkspaceProfileVerificationCollector(this.control,chromium,locks,verificationArtifacts,layout.configDir,`${ownerId}:verification`,options.headless??true,now,expectedCopy);
+    this.reconciliation=new ReconciliationService(this.control,[directYoutube,verification],new CompositeReconciliationPolicy(),now);
   }
 
   async close():Promise<void>{await this.registry.closeAll();this.surfaces.close();this.runtimeState.close();this.provenance.close();this.control.close();}
