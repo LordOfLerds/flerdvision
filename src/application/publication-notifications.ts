@@ -18,7 +18,7 @@ export interface PublicationOutcomeNotificationInput {
   outcome: "VERIFIED" | "UNCERTAIN";
   permalink?: string;
   screenshotPath?: string;
-  /** MP4 recording of the run (upload to boundary); sent as a Telegram video when present. */
+  /** Optional diagnostic MP4 for an uncertain/failed run. VERIFIED outcomes never transport it. */
   videoPath?: string;
   timeZone?: string;
   /** Spec display name of the channel (customer-facing); falls back to the bare handle. */
@@ -85,7 +85,7 @@ function contextFor(input: PublicationOutcomeNotificationInput): OperatorMessage
     ...(input.title ? { title: input.title } : {}),
     ...(input.permalink ? { permalink: input.permalink } : {}),
     ...(input.screenshotPath ? { screenshotPath: input.screenshotPath } : {}),
-    ...(input.videoPath ? { videoPath: input.videoPath } : {}),
+    ...(input.outcome !== "VERIFIED" && input.videoPath ? { videoPath: input.videoPath } : {}),
     ...(input.reason ? { reason: input.reason } : {}),
     ...(input.nextStep ? { nextStep: input.nextStep } : {})
   };
@@ -108,7 +108,7 @@ export function publicationOutcomeMessage(input: PublicationOutcomeNotificationI
       runId: input.runId,
       ...(input.permalink ? { permalink: input.permalink} : {}),
       ...(input.screenshotPath ? { screenshotPath: input.screenshotPath } : {}),
-      ...(input.videoPath ? { videoPath: input.videoPath } : {})
+      ...(!verified && input.videoPath ? { videoPath: input.videoPath } : {})
     }
   };
 }
@@ -139,7 +139,7 @@ export async function notifyPublicationOutcome(
  * Wave bundling: several channels often post in the same slot; the operator hears ONE message
  * per wave instead of one ping per platform. Every outcome contributes its own line -- channel,
  * format, video, hashtags, link -- and every screenshot rides along as one album so the evidence
- * matches the text. Failures stay individually loud with reason and next step.
+ * matches the text. Only uncertain entries may contribute diagnostic video metadata.
  */
 export function publicationWaveMessage(
   outcomes: readonly PublicationOutcomeNotificationInput[],
@@ -152,6 +152,7 @@ export function publicationWaveMessage(
   const rendered = renderOperatorMessage("WAVE", header);
   const allVerified = outcomes.every((item) => item.outcome === "VERIFIED");
   const screenshots = outcomes.map((item) => item.screenshotPath).filter((path): path is string => Boolean(path));
+  const diagnosticVideo = outcomes.find((item) => item.outcome !== "VERIFIED" && item.videoPath)?.videoPath;
   return {
     notificationId: `publication-wave:${first.intent.scheduledFor}:${new Date(now).getTime().toString(36)}`,
     dedupeKey: `publication-wave:${first.intent.scheduledFor}:${outcomes.map((item) => item.intent.intentId).sort().join("|")}`,
@@ -162,7 +163,7 @@ export function publicationWaveMessage(
     body: rendered.body,
     metadata: {
       ...(screenshots.length > 0 ? { screenshotPaths: screenshots.slice(0, 10) } : {}),
-      ...(outcomes.find((item) => item.videoPath)?.videoPath ? { videoPath: outcomes.find((item) => item.videoPath)!.videoPath! } : {})
+      ...(diagnosticVideo ? { videoPath: diagnosticVideo } : {})
     }
   };
 }
