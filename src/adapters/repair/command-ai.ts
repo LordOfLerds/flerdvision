@@ -53,11 +53,11 @@ function runJsonCommand<T>(options: CommandAiAdapterOptions, payload: unknown): 
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => {
       stdout += chunk;
-      if (Buffer.byteLength(stdout) > MAX_OUTPUT_BYTES) abortForOutput();
+      if (Buffer.from(stdout).length > MAX_OUTPUT_BYTES) abortForOutput();
     });
     child.stderr.on("data", (chunk: string) => {
       stderr += chunk;
-      if (Buffer.byteLength(stderr) > MAX_OUTPUT_BYTES) abortForOutput();
+      if (Buffer.from(stderr).length > MAX_OUTPUT_BYTES) abortForOutput();
     });
     child.on("error", (error) => finish(error));
     child.on("close", (code, signal) => {
