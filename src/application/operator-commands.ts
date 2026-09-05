@@ -2,9 +2,10 @@ import type { StoredBrowserIdentity, SessionHealthCheck } from "../domain/browse
 import type { KillSwitch, KillSwitchScopeType } from "../domain/operations.js";
 import type { SchedulePauseStorePort } from "../domain/operator-ports.js";
 import type { HeadlessDoctorReport } from "./headless-status.js";
-import type { ScheduleCommandService } from "./schedule-commands.js";
+import type { ScheduleCommandService, ScheduleTargetView } from "./schedule-commands.js";
 import { businessDateForInstant } from "../domain/scheduling.js";
 import { collectOperatorPlanView, describeDrivePipeline, renderOperatorPlan, type OperatorChannelRef, type OperatorPlanViewStores } from "./operator-plan-view.js";
+import { customerAwareChannels, customerAwarePlanView, customerChannelLabel } from "./customer-operator-view.js";
 import { germanBlocker, germanDayLabel, germanDoctorCheck, germanPlatformLabel, germanState, operatorMessageText, renderOperatorMessage } from "./operator-message.js";
 
 export interface OperatorCommandControlReads {
@@ -87,6 +88,13 @@ export class OperatorCommandService {
 
   private today(): string { return businessDateForInstant(this.clock(), this.deps.timeZone); }
 
+  /** Business projection only. A broken optional customer view never changes operational state. */
+  private scheduleViews(): readonly ScheduleTargetView[] {
+    if (!this.deps.scheduleCommands) return [];
+    try { return this.deps.scheduleCommands.show(); }
+    catch { return []; }
+  }
+
   private resolveScope(argument: string | undefined, verb: string): { scopeKey: string; channelKey: string; label: string } | string {
     if (!argument) return `⚠️ Kanal fehlt. ${verb} <kanal>. Verfügbar: ${this.channelList()}`;
     const normalized = argument.toLocaleLowerCase("en-US");
@@ -97,16 +105,25 @@ export class OperatorCommandService {
     if (matches.length > 1) return `⚠️ „${argument}“ ist mehrdeutig. Verfügbar: ${this.channelList()}`;
     const channel = matches[0];
     if (!channel) return `⚠️ Unbekannter Kanal „${argument}“. Verfügbar: ${this.channelList()}`;
-    return { scopeKey: channel.accountId, channelKey: channel.key, label: `${channel.name} (${germanPlatformLabel(channel.platform)})` };
+    return {
+      scopeKey: channel.accountId,
+      channelKey: channel.key,
+      label: `${customerChannelLabel(channel.key, channel.name, this.scheduleViews())} (${germanPlatformLabel(channel.platform)})`
+    };
   }
 
   private channelList(): string {
-    return `${this.deps.channels.map((channel) => `${channel.name} (${channel.key})`).join(", ")}, alle`;
+    const views = this.scheduleViews();
+    return `${this.deps.channels.map((channel) => `${customerChannelLabel(channel.key, channel.name, views)} (${channel.key})`).join(", ")}, alle`;
   }
 
   private status(): string {
     const now = this.clock();
-    const view = collectOperatorPlanView(this.deps.stores, this.deps.channels, this.today(), this.deps.timeZone, now);
+    const scheduleViews = this.scheduleViews();
+    const view = customerAwarePlanView(
+      collectOperatorPlanView(this.deps.stores, this.deps.channels, this.today(), this.deps.timeZone, now),
+      scheduleViews
+    );
     const identities = this.deps.stores.control.listBrowserIdentities();
     const lines: string[] = [];
     for (const channel of this.deps.channels) {
@@ -116,7 +133,8 @@ export class OperatorCommandService {
       const paused = view.pauses.some((pause) => pause.scopeKey === "*" || pause.scopeKey === channel.accountId);
       const stopped = view.killSwitches.some((item) =>
         item.scopeType === "GLOBAL" || (item.scopeType === "ACCOUNT" && item.scopeKey === channel.accountId) || (item.scopeType === "PLATFORM" && item.scopeKey === channel.platform));
-      lines.push(`${SESSION_BADGE[state] ?? "⚠️"} ${channel.name} (${germanPlatformLabel(channel.platform)}) · ${germanState(state)}${paused ? " · ⏸️ pausiert" : ""}${stopped ? " · 🛑 Kill-Switch" : ""}`);
+      const label = customerChannelLabel(channel.key, channel.name, scheduleViews);
+      lines.push(`${SESSION_BADGE[state] ?? "⚠️"} ${label} (${germanPlatformLabel(channel.platform)}) · ${germanState(state)}${paused ? " · ⏸️ pausiert" : ""}${stopped ? " · 🛑 Kill-Switch" : ""}`);
     }
     const verified = view.entries.filter((entry) => entry.state === "VERIFIED").length;
     const blocked = view.entries.filter((entry) => entry.state === "BLOCKED").length;
@@ -133,10 +151,12 @@ export class OperatorCommandService {
   }
 
   private plan(): string {
-    return renderOperatorPlan(
+    const scheduleViews = this.scheduleViews();
+    const view = customerAwarePlanView(
       collectOperatorPlanView(this.deps.stores, this.deps.channels, this.today(), this.deps.timeZone, this.clock()),
-      this.deps.channels
+      scheduleViews
     );
+    return renderOperatorPlan(view, customerAwareChannels(this.deps.channels, scheduleViews));
   }
 
   private schedule(): string {
@@ -188,6 +208,7 @@ export class OperatorCommandService {
     let report: HeadlessDoctorReport;
     try { report = this.deps.doctor(); }
     catch (error) { return `🛑 Doctor fehlgeschlagen: ${error instanceof Error ? error.message : String(error)}`; }
+    const scheduleViews = this.scheduleViews();
     const lines = [`Release ${report.releaseSha}`];
     for (const check of report.checks.filter((item) => item.status !== "PASS").slice(0, 10)) {
       lines.push(`${DOCTOR_BADGE[check.status] ?? "⚠️"} ${germanDoctorCheck(check.key)}: ${germanState(check.status)}`);
@@ -197,7 +218,8 @@ export class OperatorCommandService {
       const ready = channel.routes.filter((route) => route.readyForAutonomousPublish).length;
       const blockers = [...new Set(channel.routes.flatMap((route) => route.blockers))].map(germanBlocker);
       const ok = ready === channel.routes.length && channel.routes.length > 0;
-      return `${ok ? "✅" : "⚠️"} ${named?.name ?? channel.channelKey} · ${germanState(channel.latestSessionState)} · ${ready}/${channel.routes.length} Routen bereit${ok || blockers.length === 0 ? "" : ` — ${blockers.join(", ")}`}`;
+      const label = named ? customerChannelLabel(named.key, named.name, scheduleViews) : channel.channelKey;
+      return `${ok ? "✅" : "⚠️"} ${label} · ${germanState(channel.latestSessionState)} · ${ready}/${channel.routes.length} Routen bereit${ok || blockers.length === 0 ? "" : ` — ${blockers.join(", ")}`}`;
     });
     return operatorMessageText(renderOperatorMessage("DOCTOR", {
       badge: DOCTOR_BADGE[report.overall] ?? "⚠️",
