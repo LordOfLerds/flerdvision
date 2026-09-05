@@ -92,8 +92,27 @@ function telegramFingerprint(env: Record<string, string | undefined>): string | 
   const bot = env.FLERDVISION_TELEGRAM_BOT_TOKEN?.trim();
   const chat = env.FLERDVISION_TELEGRAM_CHAT_ID?.trim();
   if (!bot || !chat) return undefined;
-  // Persist only a one-way fingerprint; neither token nor chat id is written to onboarding.json.
   return digest(`${digest(bot)}|${digest(chat)}`);
+}
+
+function withoutTopologyAndActivation(state: PersistedOnboardingState): PersistedOnboardingState {
+  const {
+    topologyFingerprint: _topologyFingerprint,
+    topologyConfirmedAt: _topologyConfirmedAt,
+    activationFingerprint: _activationFingerprint,
+    activationConfirmedAt: _activationConfirmedAt,
+    ...rest
+  } = state;
+  return rest;
+}
+
+function withoutActivation(state: PersistedOnboardingState): PersistedOnboardingState {
+  const {
+    activationFingerprint: _activationFingerprint,
+    activationConfirmedAt: _activationConfirmedAt,
+    ...rest
+  } = state;
+  return rest;
 }
 
 class OnboardingStateStore {
@@ -209,9 +228,7 @@ export class HeadlessOnboardingService {
     const { bootstrap, persisted } = await this.snapshot(at);
     if (!bootstrap.topology.verified) throw new Error("Source root kann erst nach erfolgreicher Drive-Verbindung bestätigt werden.");
     const store = new OnboardingStateStore(bootstrap.configDir);
-    const rootFp = rootFingerprint(bootstrap.spec, bootstrap.topology);
-    // A root change invalidates every dependent confirmation below it.
-    store.write({ schemaVersion: 1, ...persisted, rootFingerprint: rootFp, rootConfirmedAt: at, topologyFingerprint: undefined, topologyConfirmedAt: undefined, activationFingerprint: undefined, activationConfirmedAt: undefined });
+    store.write({ ...withoutTopologyAndActivation(persisted), rootFingerprint: rootFingerprint(bootstrap.spec, bootstrap.topology), rootConfirmedAt: at });
     return await this.status(at);
   }
 
@@ -222,7 +239,7 @@ export class HeadlessOnboardingService {
     const currentRoot = rootFingerprint(bootstrap.spec, bootstrap.topology);
     if (persisted.rootFingerprint !== currentRoot) throw new Error("Source root muss zuerst auf dem aktuellen Stand bestätigt werden.");
     const store = new OnboardingStateStore(bootstrap.configDir);
-    store.write({ schemaVersion: 1, ...persisted, topologyFingerprint: topologyFingerprint(bootstrap.topology), topologyConfirmedAt: at, activationFingerprint: undefined, activationConfirmedAt: undefined });
+    store.write({ ...withoutActivation(persisted), topologyFingerprint: topologyFingerprint(bootstrap.topology), topologyConfirmedAt: at });
     return await this.status(at);
   }
 
