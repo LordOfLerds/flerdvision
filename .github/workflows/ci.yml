@@ -47,6 +47,9 @@ jobs:
       - name: Build TypeScript
         run: npm run build
 
+      - name: WP2 customer schedule regressions
+        run: node --test tests/headless-workspace-spec.test.mjs tests/headless-compiler.test.mjs tests/r13-operator-commands.test.mjs tests/r13-telegram-operator-runtime.test.mjs tests/r25-schedule-commands.test.mjs tests/r25-schedule-cli.test.mjs
+
       - name: WP3 cross-account isolation regression
         run: node --test tests/r7-due-worker-isolation.test.mjs
 
