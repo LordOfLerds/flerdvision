@@ -36,7 +36,7 @@ export interface TelegramOperatorTickResult {
 
 /**
  * Composition root of the interactive operator layer. One instance owns:
- * - the long-polling command loop (/status /plan /zeitplan /slot /limit /doctor /pause /fortsetzen /stopp),
+ * - the long-polling command loop (/status /plan /kunden /kunde /browser /zeitplan /slot /limit /doctor /pause /fortsetzen /stopp),
  * - the morning checklist + evening/weekly reports,
  * - the session-health alarm that pauses a channel and calls for a manual re-login.
  *
@@ -74,6 +74,7 @@ export class TelegramOperatorService {
     const stores: OperatorPlanViewStores = { control: options.control, state: options.state, pauses: options.operatorState, channelStatus };
     const messenger = new TelegramChatMessenger({ botToken, chatId, ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}) });
     const specPath = options.env.FLERDVISION_SPEC?.trim();
+    const remoteScreenUrl = options.env.FLERDVISION_REMOTE_SCREEN_URL?.trim();
     const scheduleCommands = specPath
       ? new ScheduleCommandService(specPath, {
           async apply(path: string) { await bootstrapHeadlessWorkspace({ specPath: path, env: options.env }); }
@@ -86,6 +87,7 @@ export class TelegramOperatorService {
       killSwitches: new KillSwitchService(options.control),
       doctor: options.doctor,
       ...(scheduleCommands ? { scheduleCommands } : {}),
+      ...(remoteScreenUrl ? { remoteScreenUrl } : {}),
       timeZone: options.timeZone,
       ...(options.clock ? { clock: options.clock } : {})
     });
@@ -93,14 +95,13 @@ export class TelegramOperatorService {
       { stores, channels: options.channels, chatState: options.operatorState, messenger },
       { timeZone: options.timeZone, ...(options.clock ? { clock: options.clock } : {}) }
     );
-    const remoteScreenUrl = options.env.FLERDVISION_REMOTE_SCREEN_URL;
     this.alarmService = new SessionHealthAlarmService({
       control: options.control,
       channels: options.channels,
       pauses: options.operatorState,
       chatState: options.operatorState,
       messenger,
-      ...(remoteScreenUrl?.trim() ? { remoteScreenUrl: remoteScreenUrl.trim() } : {}),
+      ...(remoteScreenUrl ? { remoteScreenUrl } : {}),
       ...(options.clock ? { clock: options.clock } : {})
     });
     this.loop = new TelegramCommandLoop({
@@ -123,7 +124,7 @@ export class TelegramOperatorService {
 
   /**
    * One daemon-cycle step: session alarm first, then checklist/report upkeep. Telegram failures are
-   * contained and reported -- a broken chat channel must never break the publishing cycle.
+   * contained and reported -- a broken chat channel must never break the publishing cycle it narrates.
    */
   async tick(now = new Date().toISOString()): Promise<TelegramOperatorTickResult> {
     const errors: string[] = [];
