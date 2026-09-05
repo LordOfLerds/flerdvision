@@ -6,6 +6,15 @@ export interface OperatorCustomerRef {
   customerName: string;
 }
 
+export interface OperatorCustomerSummary extends OperatorCustomerRef {
+  channelKeys: readonly string[];
+  planned: number;
+  verified: number;
+  blocked: number;
+  uncertain: number;
+  gaps: number;
+}
+
 /**
  * One business/customer map derived from the canonical schedule/spec read model. A channel may
  * have several formats, but every format must project the same customer. Conflicting projections
@@ -68,4 +77,52 @@ export function customerAwarePlanView(view: OperatorPlanView, scheduleViews: rea
         }
       : {})
   };
+}
+
+/** Compact customer health for /kunden; audit/runtime state stays in the ordinary plan view. */
+export function summarizeCustomers(
+  view: OperatorPlanView,
+  scheduleViews: readonly ScheduleTargetView[]
+): readonly OperatorCustomerSummary[] {
+  const customerChannels = new Map<string, { customerName: string; channelKeys: Set<string> }>();
+  for (const item of scheduleViews) {
+    const existing = customerChannels.get(item.customerKey);
+    if (existing && existing.customerName !== item.customerName) {
+      throw new Error(`Kunde ${item.customerKey} hat widersprüchliche Namen.`);
+    }
+    const row = existing ?? { customerName: item.customerName, channelKeys: new Set<string>() };
+    row.channelKeys.add(item.channelKey);
+    customerChannels.set(item.customerKey, row);
+  }
+  return [...customerChannels.entries()]
+    .map(([customerKey, customer]) => {
+      const channelKeys = [...customer.channelKeys];
+      const entries = view.entries.filter((entry) => customer.channelKeys.has(entry.channelKey));
+      const gaps = view.channelGaps.filter((gap) => customer.channelKeys.has(gap.channelKey));
+      return {
+        customerKey,
+        customerName: customer.customerName,
+        channelKeys,
+        planned: entries.length,
+        verified: entries.filter((entry) => entry.state === "VERIFIED").length,
+        blocked: entries.filter((entry) => entry.state === "BLOCKED").length,
+        uncertain: entries.filter((entry) => entry.state === "PUBLISH_UNCERTAIN").length,
+        gaps: gaps.length
+      };
+    })
+    .sort((a, b) => a.customerName.localeCompare(b.customerName, "de"));
+}
+
+export function resolveCustomer(
+  query: string,
+  scheduleViews: readonly ScheduleTargetView[]
+): OperatorCustomerRef | undefined {
+  const normalized = query.trim().toLocaleLowerCase("de-DE");
+  if (!normalized) return undefined;
+  const unique = new Map<string, OperatorCustomerRef>();
+  for (const item of scheduleViews) unique.set(item.customerKey, { customerKey: item.customerKey, customerName: item.customerName });
+  const matches = [...unique.values()].filter((customer) =>
+    customer.customerKey.toLocaleLowerCase("de-DE") === normalized || customer.customerName.toLocaleLowerCase("de-DE") === normalized);
+  if (matches.length > 1) throw new Error(`„${query}“ ist als Kunde mehrdeutig.`);
+  return matches[0];
 }
