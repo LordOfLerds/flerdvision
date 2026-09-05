@@ -63,6 +63,7 @@ if $CHECK_ONLY; then
   check "canonical spec $ETC_DIR/flerdvision.json" "test -f $ETC_DIR/flerdvision.json"
   check "runtime root $RUNTIME_DIR/runtime"        "test -d $RUNTIME_DIR/runtime"
   check "Xvfb service active"                      "systemctl is-active flerdvision-xvfb"
+  check "loopback noVNC backend active"            "systemctl is-active flerdvision-novnc"
   check "daemon unit installed"                    "test -f /etc/systemd/system/flerdvision-daemon.service"
   check "firewall enabled"                         "ufw status | grep -q 'Status: active'"
   exit $status
@@ -193,13 +194,15 @@ fi
 # --------------------------------------------------------- systemd
 say "systemd units"
 install -m 644 "$CURRENT_LINK/deploy/flerdvision-xvfb.service" /etc/systemd/system/
+install -m 644 "$CURRENT_LINK/deploy/flerdvision-novnc.service" /etc/systemd/system/
 install -m 644 "$CURRENT_LINK/deploy/flerdvision-daemon.service" /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now flerdvision-xvfb
+systemctl enable --now flerdvision-novnc
 # Never auto-authorize posting on install/update.
 systemctl disable flerdvision-daemon >/dev/null 2>&1 || true
 systemctl stop flerdvision-daemon >/dev/null 2>&1 || true
-ok "Xvfb active; posting daemon remains disabled"
+ok "Xvfb + loopback-only noVNC active; posting daemon remains disabled"
 
 cat <<NEXT
 
@@ -218,8 +221,9 @@ Brother setup (own accounts/state only):
   3. cd $CURRENT_LINK && node dist/cli/flerdvision.js setup status
   4. drive-auth -> setup confirm-root -> setup confirm-topology -> setup activate
   5. login each social channel; notify-test; setup status must reach READY
-  6. configure FLERDVISION_REMOTE_SCREEN_URL only through a private/authenticated gateway;
-     deploy/novnc-session.sh itself binds 127.0.0.1 and MUST NOT be exposed publicly
+  6. loopback noVNC is already running on 127.0.0.1:6080. Configure FLERDVISION_REMOTE_SCREEN_URL
+     only to an authenticated/private HTTPS or tailnet gateway that proxies this loopback endpoint.
+     NEVER expose 6080/5900 publicly.
   7. qualify this host/accounts, then explicitly authorize ONE canary before enabling the daemon
 
 The installer never copies Luca's DB, browser profiles, Drive refresh token or Telegram secrets.
