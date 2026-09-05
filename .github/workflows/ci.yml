@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - 'repair/**'
+      - 'recovery/**'
 
 permissions:
   contents: read
