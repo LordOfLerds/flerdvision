@@ -60,6 +60,22 @@ test("a message carrying a local screenshot goes out as sendPhoto with caption",
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test("a screenshot wins over a run video when both are present", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "flerdvision-tg-shot-first-"));
+  const shot = join(dir, "evidence.png");
+  const video = join(dir, "run.mp4");
+  writeFileSync(shot, "png-bytes");
+  writeFileSync(video, "mp4-bytes");
+  try {
+    const { calls, fetchImpl } = capturingFetch([]);
+    const adapter = new TelegramNotificationAdapter({ channelKey: "telegram", botToken: "tok", chatId: "123", fetchImpl });
+    await adapter.send(message({ metadata: { screenshotPath: shot, videoPath: video } }));
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].url, /sendPhoto/);
+    assert.doesNotMatch(calls[0].url, /sendVideo/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("a telegram API error surfaces as a throw so the outbox retries", async () => {
   const fetchImpl = async () => ({ ok: false, status: 403, json: async () => ({ ok: false, description: "bot was blocked" }) });
   const adapter = new TelegramNotificationAdapter({ channelKey: "telegram", botToken: "tok", chatId: "123", fetchImpl });
