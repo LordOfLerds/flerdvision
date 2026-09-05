@@ -8,6 +8,8 @@ export interface TelegramNotificationAdapterOptions {
   botToken: string;
   chatId: string;
   fetchImpl?: typeof fetch;
+  requestTimeoutMs?: number;
+  mediaRequestTimeoutMs?: number;
 }
 
 const SEVERITY_BADGE: Readonly<Record<NotificationMessage["severity"], string>> = {
@@ -23,6 +25,10 @@ const MAX_CAPTION = 1024;
 const MAX_MEDIA_GROUP = 10;
 /** Telegram refuses bot uploads above 50 MB; a bigger video falls back to text. */
 const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
+const DEFAULT_REQUEST_TIMEOUT_MS = 8_000;
+const DEFAULT_MEDIA_REQUEST_TIMEOUT_MS = 45_000;
+const MIN_REQUEST_TIMEOUT_MS = 100;
+const MAX_REQUEST_TIMEOUT_MS = 120_000;
 
 function textValue(value: NotificationMessage["metadata"][string] | undefined): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value : undefined;
@@ -41,27 +47,51 @@ function readableFile(path: string | undefined, maxBytes?: number): string | und
   catch { return undefined; }
 }
 
+function validTimeout(value: number): boolean {
+  return Number.isInteger(value) && value >= MIN_REQUEST_TIMEOUT_MS && value <= MAX_REQUEST_TIMEOUT_MS;
+}
+
 /**
  * Sends workspace notifications into one Telegram chat. Plugs into the durable outbox +
  * retry dispatcher like every NotificationPort. Evidence is screenshot-first: several screenshots
  * become one album, a single screenshot becomes sendPhoto, and a diagnostic video is used only
  * when no screenshot is available. A lifecycle update carries the already-sent message_id and
- * edits that exact text/caption instead of creating another chat message. Everything else is
- * plain text. The bot token and chat id come from the operator's private environment and are never
- * logged.
+ * edits that exact text/caption instead of creating another chat message. Every Telegram request
+ * has a hard abort deadline so notification transport can never wait forever. The bot token and
+ * chat id come from the operator's private environment and are never logged.
  */
 export class TelegramNotificationAdapter implements NotificationPort {
   readonly channelKey: string;
   private readonly fetchImpl: typeof fetch;
+  private readonly requestTimeoutMs: number;
+  private readonly mediaRequestTimeoutMs: number;
 
   constructor(private readonly options: TelegramNotificationAdapterOptions) {
     if (!options.botToken.trim() || !options.chatId.trim()) throw new Error("Telegram adapter requires botToken and chatId");
+    this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+    this.mediaRequestTimeoutMs = options.mediaRequestTimeoutMs ?? DEFAULT_MEDIA_REQUEST_TIMEOUT_MS;
+    if (!validTimeout(this.requestTimeoutMs) || !validTimeout(this.mediaRequestTimeoutMs)) {
+      throw new Error(`Telegram request timeouts must be integer milliseconds from ${MIN_REQUEST_TIMEOUT_MS} to ${MAX_REQUEST_TIMEOUT_MS}`);
+    }
     this.channelKey = options.channelKey;
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
   private api(method: string): string {
     return `https://api.telegram.org/bot${this.options.botToken}/${method}`;
+  }
+
+  private async request(method: string, init: RequestInit, timeoutMs = this.requestTimeoutMs): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await this.fetchImpl(this.api(method), { ...init, signal: controller.signal });
+    } catch (error) {
+      if (controller.signal.aborted) throw new Error(`Telegram request timed out after ${timeoutMs}ms`);
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   private text(message: NotificationMessage): string {
@@ -95,7 +125,7 @@ export class TelegramNotificationAdapter implements NotificationPort {
   }
 
   private async sendMessage(text: string): Promise<NotificationReceipt> {
-    const response = await this.fetchImpl(this.api("sendMessage"), {
+    const response = await this.request("sendMessage", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ chat_id: this.options.chatId, text, disable_web_page_preview: false })
@@ -104,7 +134,7 @@ export class TelegramNotificationAdapter implements NotificationPort {
   }
 
   private async editMessageText(messageId: string, text: string): Promise<NotificationReceipt> {
-    const response = await this.fetchImpl(this.api("editMessageText"), {
+    const response = await this.request("editMessageText", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ chat_id: this.options.chatId, message_id: Number(messageId), text: text.slice(0, MAX_TEXT), disable_web_page_preview: false })
@@ -113,7 +143,7 @@ export class TelegramNotificationAdapter implements NotificationPort {
   }
 
   private async editMessageCaption(messageId: string, text: string): Promise<NotificationReceipt> {
-    const response = await this.fetchImpl(this.api("editMessageCaption"), {
+    const response = await this.request("editMessageCaption", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ chat_id: this.options.chatId, message_id: Number(messageId), caption: text.slice(0, MAX_CAPTION) })
@@ -126,7 +156,7 @@ export class TelegramNotificationAdapter implements NotificationPort {
     body.set("chat_id", this.options.chatId);
     body.set("caption", text.slice(0, MAX_CAPTION));
     body.set("photo", new File([readFileSync(path)], "evidence.png", { type: "image/png" }));
-    const receipt = await this.receipt(await this.fetchImpl(this.api("sendPhoto"), { method: "POST", body }));
+    const receipt = await this.receipt(await this.request("sendPhoto", { method: "POST", body }, this.mediaRequestTimeoutMs));
     return await this.overflow(text, receipt);
   }
 
@@ -136,7 +166,7 @@ export class TelegramNotificationAdapter implements NotificationPort {
     body.set("caption", text.slice(0, MAX_CAPTION));
     const name = `video${extname(path) || ".mp4"}`;
     body.set("video", new File([readFileSync(path)], name, { type: "video/mp4" }));
-    const receipt = await this.receipt(await this.fetchImpl(this.api("sendVideo"), { method: "POST", body }));
+    const receipt = await this.receipt(await this.request("sendVideo", { method: "POST", body }, this.mediaRequestTimeoutMs));
     return await this.overflow(text, receipt);
   }
 
@@ -151,7 +181,7 @@ export class TelegramNotificationAdapter implements NotificationPort {
     }));
     body.set("media", JSON.stringify(media));
     paths.forEach((path, index) => body.set(`photo${index}`, new File([readFileSync(path)], `evidence${index}.png`, { type: "image/png" })));
-    const response = await this.fetchImpl(this.api("sendMediaGroup"), { method: "POST", body });
+    const response = await this.request("sendMediaGroup", { method: "POST", body }, this.mediaRequestTimeoutMs);
     const receipt = await this.receipt(response, true);
     return await this.overflow(text, receipt);
   }
