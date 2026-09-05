@@ -17,7 +17,7 @@ function positionals(argv: readonly string[]): string[] {
 }
 
 function renderView(item: ScheduleTargetView): string {
-  return `${item.channelName} · ${item.format} · ${item.times.join(", ")} · ${item.capacity} Slot${item.capacity === 1 ? "" : "s"}/Tag`;
+  return `${item.customerName} · ${item.channelName} · ${item.format} · ${item.times.join(", ")} · ${item.capacity} Slot${item.capacity === 1 ? "" : "s"}/Tag`;
 }
 
 function renderMutation(result: ScheduleMutationResult): readonly string[] {
