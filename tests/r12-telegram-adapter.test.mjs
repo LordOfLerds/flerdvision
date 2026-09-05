@@ -5,11 +5,6 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { TelegramNotificationAdapter, telegramAdapterFromEnv } from "../dist/adapters/notify/telegram.js";
 
-// Telegram is Luca's chosen operator channel (decision 2026-08-30): German compact messages,
-// verification screenshot as photo, permalink in the text. The adapter plugs into the durable
-// outbox + retry dispatcher like every NotificationPort; credentials come from the private env
-// and must never end up inside the message payloads.
-
 function message(extra = {}) {
   return {
     notificationId: "n1", dedupeKey: "d1", kind: "TEST", severity: "WARNING",
@@ -25,10 +20,7 @@ function capturingFetch(responses) {
     fetchImpl: async (url, init) => {
       calls.push({ url, init });
       const payload = responses.shift() ?? { ok: true, result: { message_id: 42 } };
-      return {
-        ok: true, status: 200,
-        json: async () => payload
-      };
+      return { ok: true, status: 200, json: async () => payload };
     }
   };
 }
@@ -74,6 +66,29 @@ test("a screenshot wins over a run video when both are present", async () => {
     assert.match(calls[0].url, /sendPhoto/);
     assert.doesNotMatch(calls[0].url, /sendVideo/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("lifecycle metadata edits the existing text or photo caption instead of sending again", async () => {
+  const textTransport = capturingFetch([]);
+  const textAdapter = new TelegramNotificationAdapter({ channelKey: "telegram", botToken: "tok", chatId: "123", fetchImpl: textTransport.fetchImpl });
+  const textReceipt = await textAdapter.send(message({ metadata: { editExternalMessageId: "77", editMode: "text" } }));
+  assert.equal(textReceipt.externalMessageId, "42");
+  assert.match(textTransport.calls[0].url, /editMessageText/);
+  assert.equal(JSON.parse(textTransport.calls[0].init.body).message_id, 77);
+
+  const captionTransport = capturingFetch([{ ok: true, result: true }]);
+  const captionAdapter = new TelegramNotificationAdapter({ channelKey: "telegram", botToken: "tok", chatId: "123", fetchImpl: captionTransport.fetchImpl });
+  const captionReceipt = await captionAdapter.send(message({ metadata: { editExternalMessageId: "88", editMode: "caption" } }));
+  assert.equal(captionReceipt.externalMessageId, "88");
+  assert.match(captionTransport.calls[0].url, /editMessageCaption/);
+  assert.equal(JSON.parse(captionTransport.calls[0].init.body).message_id, 88);
+});
+
+test("a repeated lifecycle edit tolerates Telegram's message-is-not-modified response", async () => {
+  const fetchImpl = async () => ({ ok: false, status: 400, json: async () => ({ ok: false, description: "Bad Request: message is not modified" }) });
+  const adapter = new TelegramNotificationAdapter({ channelKey: "telegram", botToken: "tok", chatId: "123", fetchImpl });
+  const receipt = await adapter.send(message({ metadata: { editExternalMessageId: "91", editMode: "text" } }));
+  assert.equal(receipt.externalMessageId, "91");
 });
 
 test("a telegram API error surfaces as a throw so the outbox retries", async () => {

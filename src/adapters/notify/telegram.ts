@@ -45,10 +45,10 @@ function readableFile(path: string | undefined, maxBytes?: number): string | und
  * Sends workspace notifications into one Telegram chat. Plugs into the durable outbox +
  * retry dispatcher like every NotificationPort. Evidence is screenshot-first: several screenshots
  * become one album, a single screenshot becomes sendPhoto, and a diagnostic video is used only
- * when no screenshot is available. Everything else is plain text. A media caption is hard-capped
- * at 1024 characters by Telegram, so a longer text follows immediately as its own message instead
- * of being silently truncated. The bot token and chat id come from the operator's private
- * environment and are never logged.
+ * when no screenshot is available. A lifecycle update carries the already-sent message_id and
+ * edits that exact text/caption instead of creating another chat message. Everything else is
+ * plain text. The bot token and chat id come from the operator's private environment and are never
+ * logged.
  */
 export class TelegramNotificationAdapter implements NotificationPort {
   readonly channelKey: string;
@@ -74,6 +74,14 @@ export class TelegramNotificationAdapter implements NotificationPort {
 
   async send(message: NotificationMessage): Promise<NotificationReceipt> {
     const text = this.text(message);
+    const editExternalMessageId = textValue(message.metadata.editExternalMessageId);
+    if (editExternalMessageId) {
+      const mode = textValue(message.metadata.editMode);
+      return mode === "caption"
+        ? await this.editMessageCaption(editExternalMessageId, text)
+        : await this.editMessageText(editExternalMessageId, text);
+    }
+
     const screenshots = listValue(message.metadata.screenshotPaths).filter((path) => existsSync(path)).slice(0, MAX_MEDIA_GROUP);
     if (screenshots.length > 1) return await this.sendMediaGroup(screenshots, text);
 
@@ -93,6 +101,24 @@ export class TelegramNotificationAdapter implements NotificationPort {
       body: JSON.stringify({ chat_id: this.options.chatId, text, disable_web_page_preview: false })
     });
     return await this.receipt(response);
+  }
+
+  private async editMessageText(messageId: string, text: string): Promise<NotificationReceipt> {
+    const response = await this.fetchImpl(this.api("editMessageText"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chat_id: this.options.chatId, message_id: Number(messageId), text: text.slice(0, MAX_TEXT), disable_web_page_preview: false })
+    });
+    return await this.receipt(response, false, messageId, /message is not modified/i);
+  }
+
+  private async editMessageCaption(messageId: string, text: string): Promise<NotificationReceipt> {
+    const response = await this.fetchImpl(this.api("editMessageCaption"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chat_id: this.options.chatId, message_id: Number(messageId), caption: text.slice(0, MAX_CAPTION) })
+    });
+    return await this.receipt(response, false, messageId, /message is not modified/i);
   }
 
   private async sendPhoto(path: string, text: string): Promise<NotificationReceipt> {
@@ -137,15 +163,17 @@ export class TelegramNotificationAdapter implements NotificationPort {
     return receipt;
   }
 
-  private async receipt(response: Response, group = false): Promise<NotificationReceipt> {
-    const payload = await response.json().catch(() => null) as { ok?: boolean; result?: { message_id?: number } | { message_id?: number }[]; description?: string } | null;
+  private async receipt(response: Response, group = false, fallbackMessageId?: string, tolerate?: RegExp): Promise<NotificationReceipt> {
+    const payload = await response.json().catch(() => null) as { ok?: boolean; result?: { message_id?: number } | { message_id?: number }[] | boolean; description?: string } | null;
     if (!response.ok || !payload?.ok) {
+      if (fallbackMessageId && tolerate && payload?.description && tolerate.test(payload.description)) return { externalMessageId: fallbackMessageId };
       throw new Error(`Telegram send failed: HTTP ${response.status}${payload?.description ? ` · ${payload.description}` : ""}`);
     }
     const result = payload.result;
     const first = group && Array.isArray(result) ? result[0] : (Array.isArray(result) ? result[0] : result);
-    const externalMessageId = first?.message_id;
-    return externalMessageId !== undefined ? { externalMessageId: String(externalMessageId) } : {};
+    const externalMessageId = typeof first === "object" && first !== null ? first.message_id : undefined;
+    if (externalMessageId !== undefined) return { externalMessageId: String(externalMessageId) };
+    return fallbackMessageId ? { externalMessageId: fallbackMessageId } : {};
   }
 }
 

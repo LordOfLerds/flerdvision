@@ -4,12 +4,15 @@ import { resolve } from "node:path";
 import { aiProviderPreflight } from "../../application/ai-provider.js";
 import { AutoDiagnosisCoordinator, type IncidentDiagnosisRunnerPort } from "../../application/auto-diagnosis.js";
 import { RepairPolicy, validateAiDiagnosisDraft } from "../../application/ai-repair.js";
+import { DiagnosisNotificationProjector } from "../../application/diagnosis-notifications.js";
+import { NotificationDispatcher } from "../../application/notifications.js";
 import type { Actor } from "../../domain/control-plane.js";
 import type { AiProviderConfig, AiProviderMode } from "../../domain/ai-provider.js";
 import type { IncidentStorePort } from "../../domain/operations-ports.js";
 import type { RuntimeOperationsPort, RuntimeOperationsReport } from "../../domain/runtime-supervisor-ports.js";
 import type { AiDiagnosisPort, IncidentEvidenceBundleBuilderPort, RepairStorePort } from "../../domain/repair-ports.js";
 import type { AiDiagnosis, RepairPolicyVerdict } from "../../domain/repair.js";
+import { telegramAdapterFromEnv } from "../notify/telegram.js";
 import { CommandAiDiagnosisAdapter } from "../repair/command-ai.js";
 import { IncidentEvidenceBundleBuilder, SafeLocalArtifactTextReader } from "../repair/redaction.js";
 import type { SqliteControlPlaneStore } from "../storage/sqlite.js";
@@ -40,8 +43,6 @@ export function parseAiProviderConfig(value: unknown): AiProviderConfig {
   if (typeof item.timeoutMs === "number") Object.assign(config, { timeoutMs: item.timeoutMs });
   return config;
 }
-
-type DiagnosisStore = IncidentStorePort & RepairStorePort;
 
 /** Diagnosis-only runtime service. It has no repair-proposal or workspace mutation capability. */
 export class PersistingIncidentDiagnosisRunner implements IncidentDiagnosisRunnerPort {
@@ -87,6 +88,10 @@ export interface WorkspaceAutoDiagnosisOptions {
   onUnavailable?: (message: string) => void;
 }
 
+export interface AutoDiagnosisRunner {
+  run(now: string): Promise<unknown>;
+}
+
 function commandEnvironment(env: Record<string, string | undefined>): Record<string, string> {
   const output: Record<string, string> = {};
   for (const key of AI_ENV_KEYS) {
@@ -96,12 +101,33 @@ function commandEnvironment(env: Record<string, string | undefined>): Record<str
   return output;
 }
 
+class WorkspaceAutoDiagnosisLifecycle implements AutoDiagnosisRunner {
+  constructor(
+    private readonly coordinator: AutoDiagnosisCoordinator,
+    private readonly projector?: DiagnosisNotificationProjector,
+    private readonly dispatcher?: NotificationDispatcher
+  ) {}
+
+  async run(now: string): Promise<unknown> {
+    const report = await this.coordinator.run(now);
+    if (this.projector && this.dispatcher && report.diagnosedIncidentIds.length > 0) {
+      try {
+        const projected = this.projector.enqueueDiagnosed(report.diagnosedIncidentIds, now);
+        if (projected.enqueued > 0) await this.dispatcher.dispatchPending(now, { type: "system", id: "diagnosis-notification" });
+      } catch {
+        // Chat lifecycle updates must not alter the diagnosis result or publishing cycle.
+      }
+    }
+    return report;
+  }
+}
+
 /**
  * Optional by configuration, never by hidden fallback. A missing/disabled provider leaves the
  * publisher untouched. An explicitly enabled but unavailable provider is reported and skipped;
  * diagnosis must never become a publishing availability dependency.
  */
-export function createWorkspaceAutoDiagnosis(options: WorkspaceAutoDiagnosisOptions): AutoDiagnosisCoordinator | undefined {
+export function createWorkspaceAutoDiagnosis(options: WorkspaceAutoDiagnosisOptions): AutoDiagnosisRunner | undefined {
   const configPath = resolve(options.configDir, "ai-provider.json");
   if (!existsSync(configPath)) return undefined;
   let config: AiProviderConfig;
@@ -129,15 +155,15 @@ export function createWorkspaceAutoDiagnosis(options: WorkspaceAutoDiagnosisOpti
   });
   const builder = new IncidentEvidenceBundleBuilder(options.store, new SafeLocalArtifactTextReader(options.evidenceDir));
   const runner = new PersistingIncidentDiagnosisRunner(options.store, options.store, builder, diagnosisPort);
-  return new AutoDiagnosisCoordinator(options.store, options.store, runner, {
+  const coordinator = new AutoDiagnosisCoordinator(options.store, options.store, runner, {
     releaseSha: options.releaseSha,
     adapterVersion: options.adapterVersion,
     maxPerCycle: 1
   });
-}
-
-export interface AutoDiagnosisRunner {
-  run(now: string): Promise<unknown>;
+  const telegram = telegramAdapterFromEnv(env);
+  const projector = telegram ? new DiagnosisNotificationProjector(options.store, telegram.channelKey) : undefined;
+  const dispatcher = telegram ? new NotificationDispatcher(options.store, [telegram]) : undefined;
+  return new WorkspaceAutoDiagnosisLifecycle(coordinator, projector, dispatcher);
 }
 
 /** Operations facts remain authoritative; diagnosis is an additional fail-soft post-projection phase. */
