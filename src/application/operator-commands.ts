@@ -5,7 +5,7 @@ import type { HeadlessDoctorReport } from "./headless-status.js";
 import type { ScheduleCommandService, ScheduleTargetView } from "./schedule-commands.js";
 import { businessDateForInstant } from "../domain/scheduling.js";
 import { collectOperatorPlanView, describeDrivePipeline, renderOperatorPlan, type OperatorChannelRef, type OperatorPlanViewStores } from "./operator-plan-view.js";
-import { customerAwareChannels, customerAwarePlanView, customerChannelLabel } from "./customer-operator-view.js";
+import { customerAwareChannels, customerAwarePlanView, customerChannelLabel, resolveCustomer, summarizeCustomers } from "./customer-operator-view.js";
 import { germanBlocker, germanDayLabel, germanDoctorCheck, germanPlatformLabel, germanState, operatorMessageText, renderOperatorMessage } from "./operator-message.js";
 
 export interface OperatorCommandControlReads {
@@ -39,6 +39,8 @@ const HELP_TEXT = [
   "ℹ️ Flerdvision Operator-Befehle:",
   "/status — Kanäle, Sessions, heutiger Stand",
   "/plan — Tagesplan mit Checkliste",
+  "/kunden — kompakter Stand pro Kunde",
+  "/kunde <name> — ein Kunde mit Zeiten und heutigem Plan",
   "/zeitplan — feste Posting-Zeiten anzeigen",
   "/slot <kanal> + <HH:mm> — Slot hinzufügen",
   "/slot <kanal> - <HH:mm> — Slot entfernen",
@@ -75,6 +77,8 @@ export class OperatorCommandService {
       case "/start": case "/hilfe": case "/help": return HELP_TEXT;
       case "/status": return this.status();
       case "/plan": return this.plan();
+      case "/kunden": return this.customers();
+      case "/kunde": return this.customer(tokens.slice(1).join(" "));
       case "/zeitplan": return this.schedule();
       case "/slot": return await this.slot(tokens.slice(1));
       case "/limit": return await this.limit(tokens.slice(1));
@@ -93,6 +97,10 @@ export class OperatorCommandService {
     if (!this.deps.scheduleCommands) return [];
     try { return this.deps.scheduleCommands.show(); }
     catch { return []; }
+  }
+
+  private rawPlan() {
+    return collectOperatorPlanView(this.deps.stores, this.deps.channels, this.today(), this.deps.timeZone, this.clock());
   }
 
   private resolveScope(argument: string | undefined, verb: string): { scopeKey: string; channelKey: string; label: string } | string {
@@ -118,12 +126,8 @@ export class OperatorCommandService {
   }
 
   private status(): string {
-    const now = this.clock();
     const scheduleViews = this.scheduleViews();
-    const view = customerAwarePlanView(
-      collectOperatorPlanView(this.deps.stores, this.deps.channels, this.today(), this.deps.timeZone, now),
-      scheduleViews
-    );
+    const view = customerAwarePlanView(this.rawPlan(), scheduleViews);
     const identities = this.deps.stores.control.listBrowserIdentities();
     const lines: string[] = [];
     for (const channel of this.deps.channels) {
@@ -152,11 +156,59 @@ export class OperatorCommandService {
 
   private plan(): string {
     const scheduleViews = this.scheduleViews();
-    const view = customerAwarePlanView(
-      collectOperatorPlanView(this.deps.stores, this.deps.channels, this.today(), this.deps.timeZone, this.clock()),
-      scheduleViews
+    return renderOperatorPlan(
+      customerAwarePlanView(this.rawPlan(), scheduleViews),
+      customerAwareChannels(this.deps.channels, scheduleViews)
     );
-    return renderOperatorPlan(view, customerAwareChannels(this.deps.channels, scheduleViews));
+  }
+
+  private customers(): string {
+    if (!this.deps.scheduleCommands) return "⚠️ Kundenansicht ist in dieser Installation nicht verbunden.";
+    try {
+      const views = this.deps.scheduleCommands.show();
+      const summaries = summarizeCustomers(this.rawPlan(), views);
+      if (summaries.length === 0) return "👥 Kunden\nKeine Kunden konfiguriert.";
+      const lines = summaries.map((item) => {
+        const badge = item.uncertain > 0 ? "🛑" : item.blocked > 0 || item.gaps > 0 ? "⚠️" : item.planned > 0 && item.verified === item.planned ? "✅" : "⬜";
+        return `${badge} ${item.customerName} · ${item.channelKeys.length} Kanäle · ${item.verified}/${item.planned} live · ${item.blocked} blockiert · ${item.gaps} ohne Post`;
+      });
+      return ["👥 Kunden", ...lines, "", "Details: /kunde <name>"].join("\n");
+    } catch (error) {
+      return `⚠️ Kundenansicht nicht verfügbar: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+
+  private customer(query: string): string {
+    if (!this.deps.scheduleCommands) return "⚠️ Kundenansicht ist in dieser Installation nicht verbunden.";
+    if (!query.trim()) return "⚠️ Verwendung: /kunde <name>";
+    try {
+      const views = this.deps.scheduleCommands.show();
+      const customer = resolveCustomer(query, views);
+      if (!customer) {
+        const names = [...new Set(views.map((item) => item.customerName))].join(", ");
+        return `⚠️ Unbekannter Kunde „${query}“. Verfügbar: ${names || "keine"}`;
+      }
+      const ownSchedule = views.filter((item) => item.customerKey === customer.customerKey);
+      const channelKeys = new Set(ownSchedule.map((item) => item.channelKey));
+      const raw = this.rawPlan();
+      const entries = raw.entries.filter((entry) => channelKeys.has(entry.channelKey));
+      const gaps = raw.channelGaps.filter((gap) => channelKeys.has(gap.channelKey));
+      const summary = summarizeCustomers(raw, views).find((item) => item.customerKey === customer.customerKey);
+      const lines = [`👤 ${customer.customerName}`];
+      for (const item of ownSchedule) {
+        lines.push(`• ${item.channelName} · ${item.format} · ${item.times.join(", ")} (${item.capacity}/Tag)`);
+      }
+      lines.push("");
+      lines.push(`Heute: ${summary?.verified ?? 0}/${summary?.planned ?? 0} live · ${summary?.blocked ?? 0} blockiert · ${summary?.uncertain ?? 0} unsicher`);
+      for (const entry of entries) {
+        const badge = entry.state === "VERIFIED" ? "✅" : entry.state === "PUBLISH_UNCERTAIN" ? "🛑" : entry.state === "BLOCKED" ? "⚠️" : "⬜";
+        lines.push(`${badge} ${entry.timeLocal} · ${entry.channelName} · „${entry.videoLabel}“${entry.reason ? ` — ${entry.reason}` : ""}`);
+      }
+      for (const gap of gaps) lines.push(`${gap.badge} ${gap.channelName} · ${gap.reason}`);
+      return lines.join("\n");
+    } catch (error) {
+      return `⚠️ Kunde konnte nicht gelesen werden: ${error instanceof Error ? error.message : String(error)}`;
+    }
   }
 
   private schedule(): string {
