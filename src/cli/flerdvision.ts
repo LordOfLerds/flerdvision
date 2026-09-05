@@ -8,6 +8,7 @@ import { inspectHeadlessWorkspace } from "../application/headless-status.js";
 import { accountIdForChannel } from "../application/workspace-spec-compiler.js";
 import { WorkspacePrivateE2ECommands } from "../adapters/runtime/workspace-private-e2e.js";
 import { applyScreencastDefault } from "../adapters/browser/screencast-recorder.js";
+import { runScheduleCli } from "./schedule-cli.js";
 
 function value(argv: readonly string[], name: string): string | undefined {
   const index = argv.indexOf(name);
@@ -49,7 +50,7 @@ function authorizedMode(argv: readonly string[]): "canary" | "production" {
   return mode;
 }
 function usage(): never {
-  console.error(`Flerdvision headless commands:\n\n  npm run flerdvision -- bootstrap [--spec <flerdvision.json>]\n  npm run flerdvision -- drive-auth [--spec <flerdvision.json>]\n  npm run flerdvision -- login --channel <channel-key>\n  npm run flerdvision -- doctor [--release-sha <sha>]\n  npm run flerdvision -- demo [--channel <key>] [--private-publish] [--force-login] [--headless]\n  npm run flerdvision -- notify-test\n  npm run flerdvision -- verify --run-id <id> [--release-sha <sha>]\n  npm run flerdvision -- cleanup --run-id <id> --confirm PRIVATE_E2E_TEST_POST_DELETED --note <evidence>\n  npm run flerdvision -- run-once --channel <key> --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH\n  npm run flerdvision -- daemon --channel <key> --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH [--interval 60]\n\nSet FLERDVISION_SCREENCAST=1 or 0 to force the optional browser recording (an MP4 beside the screenshots); every run records by default so the operator gets the video of each post. Set FLERDVISION_SPEC once to avoid repeating --spec. The default product path has no setup/calibration UI. A social login browser opens only when human login or 2FA is needed. Final publishing additionally requires ALLOW_FINAL_PUBLISH=true.`);
+  console.error(`Flerdvision headless commands:\n\n  npm run flerdvision -- bootstrap [--spec <flerdvision.json>]\n  npm run flerdvision -- drive-auth [--spec <flerdvision.json>]\n  npm run flerdvision -- login --channel <channel-key>\n  npm run flerdvision -- doctor [--release-sha <sha>]\n  npm run flerdvision -- schedule show\n  npm run flerdvision -- schedule add <kanal[/format]> <HH:mm>\n  npm run flerdvision -- schedule remove <kanal[/format]> <HH:mm>\n  npm run flerdvision -- schedule set <kanal[/format]> <HH:mm> [HH:mm ...]\n  npm run flerdvision -- capacity <kanal[/format]> <anzahl>\n  npm run flerdvision -- demo [--channel <key>] [--private-publish] [--force-login] [--headless]\n  npm run flerdvision -- notify-test\n  npm run flerdvision -- verify --run-id <id> [--release-sha <sha>]\n  npm run flerdvision -- cleanup --run-id <id> --confirm PRIVATE_E2E_TEST_POST_DELETED --note <evidence>\n  npm run flerdvision -- run-once --channel <key> --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH\n  npm run flerdvision -- daemon --channel <key> --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH [--interval 60]\n\nSet FLERDVISION_SCREENCAST=1 or 0 to force the optional rolling browser evidence. When enabled, only the final ~30 seconds are retained as a diagnostic clip; successful Telegram posts use the final verified screenshot instead. Set FLERDVISION_SPEC once to avoid repeating --spec. The default product path has no setup/calibration UI. A social login browser opens only when human login or 2FA is needed. Final publishing additionally requires ALLOW_FINAL_PUBLISH=true.`);
   process.exitCode = 2;
   throw new Error("invalid arguments");
 }
@@ -58,6 +59,10 @@ async function main(): Promise<void> {
   const [command, ...argv] = process.argv.slice(2);
   if (!command || command === "help" || flag(argv, "--help")) return usage();
   const specPath = canonicalSpecPath(argv);
+  if (command === "schedule" || command === "capacity") {
+    await runScheduleCli(command, argv, specPath);
+    return;
+  }
   if (command === "bootstrap") {
     const result = await bootstrapHeadlessWorkspace({ specPath });
     console.log(JSON.stringify({
@@ -96,8 +101,8 @@ async function main(): Promise<void> {
     return;
   }
   if (command === "demo" || command === "auto") {
-    // A demo (and the private E2E it carries) is watched by a human afterwards, so it records by
-    // default; the unattended runtime below does not. Either default yields to FLERDVISION_SCREENCAST.
+    // A demo (and the private E2E it carries) is watched by a human afterwards. Recording, when
+    // enabled, is only a bounded diagnostic tail; it never participates in a publish decision.
     applyScreencastDefault(process.env, true);
     const spec = loadWorkspaceSpecFile(specPath);
     const selected = values(argv, "--channel");
@@ -175,8 +180,8 @@ async function main(): Promise<void> {
     return;
   }
   if (command === "run-once" || command === "daemon") {
-    // The operator wants to watch every real post, so the unattended runtime records too; the
-    // 14-day pruning beside the screenshots keeps the evidence disk bounded.
+    // The unattended runtime retains only a rolling diagnostic tail. Successful notifications use
+    // the final verified screenshot; the clip exists only as optional failure evidence.
     applyScreencastDefault(process.env, true);
     const channels = values(argv, "--channel");
     if (channels.length === 0) throw new Error("Autonomous runtime requires at least one explicit --channel allowlist entry");
