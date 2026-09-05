@@ -22,10 +22,36 @@ test("one spec normalizes the full user-facing contract and defaults the Flerdvi
   assert.equal(parsed.workspace.id, "flerdvision-demo");
   assert.equal(parsed.workspace.ownerEmail, "info@flerdvision.com");
   assert.equal(parsed.workspace.timezone, "Europe/Vienna");
+  assert.deepEqual(parsed.customers, [{ key: "default", name: "Flerdvision" }], "legacy specs become one explicit business grouping without changing operator input");
+  assert.equal(parsed.channels[0].customerKey, "default");
   assert.equal(parsed.channels[0].handle, "flerdvision");
   assert.deepEqual(parsed.channels[0].formats[0].times, ["12:00", "19:00"]);
   assert.equal(parsed.channels[0].formats[0].settings.commentsEnabled, undefined);
   assert.equal(parsed.notifications.onUncertain, "immediate");
+});
+
+test("multiple customers require an explicit valid customer reference on every channel", () => {
+  const input = base();
+  input.customers = [{ key: "kunde-a", name: "Kunde A" }, { key: "kunde-b", name: "Kunde B" }];
+  assert.throws(() => parseWorkspaceSpec(input), /customerKey is required when multiple customers exist/);
+
+  input.channels[0].customerKey = "kunde-a";
+  const parsed = parseWorkspaceSpec(input);
+  assert.deepEqual(parsed.customers, input.customers);
+  assert.equal(parsed.channels[0].customerKey, "kunde-a");
+
+  input.channels[0].customerKey = "nicht-da";
+  assert.throws(() => parseWorkspaceSpec(input), /references unknown customer/);
+
+  input.customers[1].key = "kunde-a";
+  assert.throws(() => parseWorkspaceSpec(input), /customer keys must be unique/);
+});
+
+test("one explicit customer is the safe default for channels that omit customerKey", () => {
+  const input = base();
+  input.customers = [{ key: "aurena", name: "Aurena" }];
+  const parsed = parseWorkspaceSpec(input);
+  assert.equal(parsed.channels[0].customerKey, "aurena");
 });
 
 test("explicit times are canonicalized chronologically and must agree with frequency", () => {
