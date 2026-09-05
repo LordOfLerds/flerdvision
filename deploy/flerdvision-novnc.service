@@ -1,0 +1,29 @@
+[Unit]
+Description=Flerdvision loopback-only remote browser backend
+Wants=network-online.target
+After=network-online.target flerdvision-xvfb.service
+Requires=flerdvision-xvfb.service
+
+[Service]
+Type=simple
+User=flerdvision
+Group=flerdvision
+WorkingDirectory=/opt/flerdvision/current
+EnvironmentFile=-/etc/flerdvision/secrets.env
+Environment=DISPLAY=:99
+ExecStart=/usr/bin/env bash /opt/flerdvision/current/deploy/novnc-loopback.sh
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+# Must see the host X11 socket under /tmp/.X11-unix.
+PrivateTmp=false
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/flerdvision
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
