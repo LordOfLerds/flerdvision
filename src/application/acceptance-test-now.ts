@@ -7,7 +7,7 @@ import type { DistributionRuntimeStateStorePort } from "../domain/distribution-r
 import type { ContentAsset, DailyPlan, PlannedDelivery } from "../domain/distribution.js";
 import type { Platform } from "../domain/model.js";
 import type { WorkspaceSpecV1 } from "../domain/workspace-spec.js";
-import { businessDateForInstant } from "../domain/scheduling.js";
+import { businessDateForInstant, instantForLocalDateTime } from "../domain/scheduling.js";
 import { captureDailyPlanProvenance } from "./distribution-plan-provenance.js";
 import { publicationIntentForDelivery } from "./distribution-planner.js";
 import { accountIdForChannel } from "./workspace-spec-compiler.js";
@@ -19,7 +19,7 @@ export interface TestNowMaterializerPort {
 }
 
 export interface TestNowExecutionPort {
-  runIntent(intentId: string, now: string): Promise<unknown>;
+  runIntent(intentId: string, channelKey: string, now: string): Promise<unknown>;
 }
 
 export interface TestNowResult {
@@ -88,7 +88,7 @@ function channelFor(spec: WorkspaceSpecV1, customerKey: string, platform: Platfo
   if (matches.length !== 1) {
     throw new Error(matches.length === 0
       ? `Für diesen Kunden ist kein ${platform}-Kanal konfiguriert.`
-      : `Für diesen Kunden sind mehrere ${platform}-Kanäle konfiguriert; test-now verweigert eine geratenen Auswahl.`);
+      : `Für diesen Kunden sind mehrere ${platform}-Kanäle konfiguriert; test-now verweigert eine geratene Auswahl.`);
   }
   return matches[0]!;
 }
@@ -146,7 +146,7 @@ export class AcceptanceTestNowService {
       const record = envelope ? this.deps.control.getIntent(envelope.envelope.intent.intentId) : null;
       if (!record) continue;
       if (record.state === "SCHEDULED") {
-        await this.deps.execution.runIntent(record.intent.intentId, now);
+        await this.deps.execution.runIntent(record.intent.intentId, channel.key, now);
         const after = this.deps.control.getIntent(record.intent.intentId) ?? record;
         return finalResult(after, customer.name, channel.name, input.platform, this.deps.state.getAsset(delivery.assetId)?.asset.filename ?? "Video", true);
       }
@@ -182,8 +182,25 @@ export class AcceptanceTestNowService {
     if (accountIntents.some((item) => item.state === "PREPARING" || item.state === "PUBLISHING" || item.state === "VERIFYING")) {
       throw new Error(`Für ${customer.name} · ${channel.name} läuft bereits eine Veröffentlichung.`);
     }
-    const guardMinutes = Math.max(5, schedule.minimumSpacingMinutes);
+
+    // test-now is deliberately an OUT-OF-SLOT acceptance tool. Refusing normal slot windows keeps
+    // the ordinary runOnce path deterministic: no regular due/catch-up candidate may outrank the
+    // one-shot reservation we are about to create.
     const nowMs = new Date(now).getTime();
+    const insideNormalWindow = schedule.slots.some((slot) => {
+      const target = instantForLocalDateTime(businessDate, slot.localTime, schedule.timeZone);
+      return Math.abs(new Date(target).getTime() - nowMs) <= schedule.windowMinutes * 60_000;
+    });
+    if (insideNormalWindow) throw new Error("test-now ist nur außerhalb eines normalen Slot-Fensters erlaubt; nutze dort den normalen Scheduler.");
+
+    const existingDue = [...this.deps.control.listDueReservations(now), ...this.deps.control.listMissedReservations(now)].find((reservation) => {
+      if (reservation.accountId !== accountId) return false;
+      const record = this.deps.control.getIntent(reservation.intentId);
+      return record?.state === "SCHEDULED";
+    });
+    if (existingDue) throw new Error(`Für ${customer.name} · ${channel.name} wartet bereits ein normaler Due/Catch-up-Post; test-now bleibt gesperrt.`);
+
+    const guardMinutes = Math.max(5, schedule.minimumSpacingMinutes);
     const nearby = this.deps.control.listReservations(accountId, businessDate).find((reservation) => {
       const record = this.deps.control.getIntent(reservation.intentId);
       if (!record || (record.state !== "SCHEDULED" && record.state !== "READY")) return false;
@@ -250,7 +267,7 @@ export class AcceptanceTestNowService {
     const reservation: ScheduleReservation | null = this.deps.control.getReservationForIntent(intent.intentId);
     if (!reservation || reservation.targetAt !== now) throw new Error("test-now PublicationIntent hat keine exakte One-Shot-Reservation.");
 
-    await this.deps.execution.runIntent(intent.intentId, now);
+    await this.deps.execution.runIntent(intent.intentId, channel.key, now);
     const after = this.deps.control.getIntent(intent.intentId) ?? record;
     return finalResult(after, customer.name, channel.name, input.platform, asset.filename, false);
   }
