@@ -3,12 +3,14 @@ import { TelegramCommandLoop, type TelegramPollReport } from "../adapters/notify
 import type { HumanActionStorePort, KillSwitchStorePort } from "../domain/operations-ports.js";
 import type { OperatorStatePort } from "../domain/operator-ports.js";
 import type { StoredContentAssetRevision } from "../domain/distribution-runtime-ports.js";
+import { bootstrapHeadlessWorkspace } from "./headless-bootstrap.js";
 import type { HeadlessDoctorReport } from "./headless-status.js";
 import { KillSwitchGate, KillSwitchService } from "./operations.js";
 import { OperatorCommandService, type OperatorCommandControlReads } from "./operator-commands.js";
 import { operatorChannelStatusFromDoctor, type OperatorChannelRef, type OperatorChannelStatus, type OperatorPlanViewStores } from "./operator-plan-view.js";
 import { OperatorReportService, type OperatorReportTickResult } from "./operator-reports.js";
 import { CompositeOperationalPublishGate, SchedulePauseGate } from "./schedule-pause.js";
+import { ScheduleCommandService } from "./schedule-commands.js";
 import { SessionHealthAlarmService, type SessionHealthAlarmTickResult } from "./session-health-alarm.js";
 
 export interface TelegramOperatorRuntimeOptions {
@@ -34,14 +36,13 @@ export interface TelegramOperatorTickResult {
 
 /**
  * Composition root of the interactive operator layer. One instance owns:
- * - the long-polling command loop (/status /plan /doctor /pause /fortsetzen /stopp),
+ * - the long-polling command loop (/status /plan /zeitplan /slot /limit /doctor /pause /fortsetzen /stopp),
  * - the morning checklist + evening/weekly reports,
  * - the session-health alarm that pauses a channel and calls for a manual re-login.
  *
- * It is constructed from the daemon's already-open stores and NEVER opens a browser, claims an
- * intent or performs any publish step. Its only write powers are: schedule pauses (both ways),
- * kill switches (enable only) and Telegram messages. Wire `publishGate()` into the due worker
- * so pauses take effect; without that the pause is display-only.
+ * It never opens a social browser, claims an intent or performs a publish step. Schedule mutation,
+ * when FLERDVISION_SPEC is configured, goes through the same canonical ScheduleCommandService as
+ * the CLI and recompiles via the ordinary bootstrap path. Kill switches remain enable-only in chat.
  */
 export class TelegramOperatorService {
   private readonly reportService: OperatorReportService;
@@ -59,9 +60,6 @@ export class TelegramOperatorService {
 
   private constructor(private readonly options: TelegramOperatorRuntimeOptions, botToken: string, chatId: string) {
     this.log = options.log ?? (() => {});
-    // The checklist has to name a channel that is not released yet, and only the doctor knows
-    // that. It opens the workspace database, so one reading per minute is plenty for a message
-    // that changes at most once a cycle; a failing doctor degrades to the last known answer.
     let cached: { atMs: number; value: readonly OperatorChannelStatus[] } | undefined;
     const channelStatus = (): readonly OperatorChannelStatus[] => {
       const atMs = Date.now();
@@ -75,12 +73,19 @@ export class TelegramOperatorService {
     };
     const stores: OperatorPlanViewStores = { control: options.control, state: options.state, pauses: options.operatorState, channelStatus };
     const messenger = new TelegramChatMessenger({ botToken, chatId, ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}) });
+    const specPath = options.env.FLERDVISION_SPEC?.trim();
+    const scheduleCommands = specPath
+      ? new ScheduleCommandService(specPath, {
+          async apply(path: string) { await bootstrapHeadlessWorkspace({ specPath: path, env: options.env }); }
+        })
+      : undefined;
     const commands = new OperatorCommandService({
       channels: options.channels,
       stores: { ...stores, control: options.control },
       pauses: options.operatorState,
       killSwitches: new KillSwitchService(options.control),
       doctor: options.doctor,
+      ...(scheduleCommands ? { scheduleCommands } : {}),
       timeZone: options.timeZone,
       ...(options.clock ? { clock: options.clock } : {})
     });
@@ -117,9 +122,8 @@ export class TelegramOperatorService {
   }
 
   /**
-   * One daemon-cycle step: session alarm first (pausing precedes any further due work), then
-   * checklist/report upkeep. Telegram failures are contained and reported -- a broken chat
-   * channel must never break the publishing cycle.
+   * One daemon-cycle step: session alarm first, then checklist/report upkeep. Telegram failures are
+   * contained and reported -- a broken chat channel must never break the publishing cycle.
    */
   async tick(now = new Date().toISOString()): Promise<TelegramOperatorTickResult> {
     const errors: string[] = [];
