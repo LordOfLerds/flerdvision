@@ -1,114 +1,107 @@
 #!/usr/bin/env bash
-# Flerdvision — sauberes Release-Update auf eine exakte, gepinnte Git-SHA.
+# Flerdvision — switch to one exact immutable release on an installed VPS.
 #
-# Ablauf: Daemon stoppen -> fetch -> checkout <SHA> (detached) -> npm ci -> npm test (enthaelt
-# build) -> Release-SHA nach /etc/flerdvision/release.env pinnen. Bei rotem Test bricht das
-# Skript ab und laesst den Daemon GESTOPPT; die alte SHA bleibt in release.env gepinnt.
+# Creates /opt/flerdvision/releases/<sha> if absent, builds/smoke-checks it, then atomically moves
+# /opt/flerdvision/current. Persistent config/state are never copied or rewritten.
 #
-# QUALIFIKATIONSLEITER (AGENTS.md, docs/23): Eine neue SHA ist auf diesem Host NICHT qualifiziert,
-# nur weil die Tests gruen sind. Nach jedem Update gilt, bevor der Daemon wieder laeuft:
-#   1. PREPARE_ONLY-Qualifikation auf exakt dieser SHA (demo ohne --private-publish),
-#   2. falls die Leiter es verlangt: private E2E laut docs/23 Abschnitt 10,
-#   3. erst dann Daemon starten.
-# Darum startet dieses Skript den Daemon standardmaessig NICHT neu; --restart-daemon ist fuer den
-# Operator NACH erledigter Qualifikation.
+#   sudo deploy/update-release.sh --sha <exact-sha>
+#   sudo deploy/update-release.sh --sha <exact-sha> --restart-daemon
 #
-# Aufruf (als root):
-#   deploy/update-release.sh --sha <exakte-git-sha> [--restart-daemon] [--app-dir /opt/flerdvision/app] [--service flerdvision-daemon] [--app-user flerdvision]
+# Full-suite testing is intentionally NOT repeated here. The SHA must have passed the release gate
+# before production deployment. This host only proves that the exact release builds and starts.
 
 set -euo pipefail
 
-APP_DIR="/opt/flerdvision/app"
-SERVICE="flerdvision-daemon"
-APP_USER="flerdvision"
-RELEASE_ENV="/etc/flerdvision/release.env"
+PREFIX=/opt/flerdvision
+SOURCE_DIR="$PREFIX/source"
+RELEASES_DIR="$PREFIX/releases"
+CURRENT_LINK="$PREFIX/current"
+SERVICE=flerdvision-daemon
+APP_USER=flerdvision
+RELEASE_ENV=/etc/flerdvision/release.env
+PREVIOUS_ENV=/etc/flerdvision/previous-release.env
 SHA=""
 RESTART=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --sha) SHA="$2"; shift 2;;
+    --sha) SHA="${2:-}"; shift 2;;
     --restart-daemon) RESTART=1; shift;;
-    --app-dir) APP_DIR="$2"; shift 2;;
-    --service) SERVICE="$2"; shift 2;;
-    --app-user) APP_USER="$2"; shift 2;;
-    --release-env) RELEASE_ENV="$2"; shift 2;;
     -h|--help) grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
     *) echo "Unbekannte Option: $1" >&2; exit 2;;
   esac
 done
 
-[[ -n "$SHA" ]] || { echo "Pflicht: --sha <exakte-git-sha> (kein Branch-Name, kein Tag)" >&2; exit 2; }
-[[ "$(id -u)" -eq 0 ]] || { echo "Als root ausfuehren (systemctl + $RELEASE_ENV)." >&2; exit 3; }
-[[ -d "$APP_DIR/.git" ]] || { echo "Kein Git-Repo unter $APP_DIR" >&2; exit 4; }
+[[ -n "$SHA" ]] || { echo "Pflicht: --sha <exakte-git-sha>" >&2; exit 2; }
+[[ "$(id -u)" -eq 0 ]] || { echo "Als root ausfuehren." >&2; exit 3; }
+[[ -d "$SOURCE_DIR/.git" ]] || { echo "Source cache fehlt: $SOURCE_DIR (zuerst deploy/install-vps.sh)." >&2; exit 4; }
 
 as_app() { runuser -u "$APP_USER" -- "$@"; }
-
-echo "[1/7] Fetch"
-as_app git -C "$APP_DIR" fetch origin --prune
-
-as_app git -C "$APP_DIR" cat-file -e "${SHA}^{commit}" \
-  || { echo "SHA $SHA existiert nach fetch nicht in $APP_DIR" >&2; exit 5; }
-FULL_SHA="$(as_app git -C "$APP_DIR" rev-parse "${SHA}^{commit}")"
+as_app_shell() { runuser -u "$APP_USER" -- bash -lc "$1"; }
 
 WAS_ACTIVE=0
 if systemctl is-active --quiet "$SERVICE"; then WAS_ACTIVE=1; fi
-echo "[2/7] Daemon stoppen (war aktiv: $WAS_ACTIVE)"
 systemctl stop "$SERVICE" 2>/dev/null || true
 
-echo "[3/7] Checkout $FULL_SHA (detached)"
-DIRTY="$(as_app git -C "$APP_DIR" status --porcelain)"
-[[ -z "$DIRTY" ]] || { echo "Arbeitsbaum unter $APP_DIR ist nicht sauber — erst klaeren, nichts wird verworfen:" >&2; echo "$DIRTY" >&2; exit 6; }
-as_app git -C "$APP_DIR" checkout --detach "$FULL_SHA"
-
-echo "[4/7] npm ci"
-as_app env HOME="$(getent passwd "$APP_USER" | cut -d: -f6)" npm --prefix "$APP_DIR" ci
-
-echo "[5/7] npm test (voller Suite-Lauf inkl. Build)"
-if ! as_app env HOME="$(getent passwd "$APP_USER" | cut -d: -f6)" TZ=Europe/Vienna npm --prefix "$APP_DIR" test; then
-  cat >&2 <<'RED'
-
-================= TEST ROT — UPDATE ABGEBROCHEN =================
-Der Daemon bleibt GESTOPPT. Die vorherige Release-SHA bleibt in
-release.env gepinnt. Fehler-Output oben aufbewahren (Evidence),
-kleinste implicierte Stelle reparieren, Regressionstest ergaenzen
-(docs/22-ENGINEERING-EXECUTION-PROTOCOL.md), dann Update mit der
-neuen SHA wiederholen. NICHT den alten Stand blind neu starten,
-ohne zu wissen, warum die neue SHA rot ist.
-=================================================================
-RED
-  exit 7
+CURRENT_SHA=""
+if [[ -L "$CURRENT_LINK" && -d "$CURRENT_LINK" ]]; then
+  CURRENT_SHA="$(as_app git -C "$CURRENT_LINK" rev-parse HEAD 2>/dev/null || true)"
 fi
 
-READBACK="$(as_app git -C "$APP_DIR" rev-parse HEAD)"
-[[ "$READBACK" == "$FULL_SHA" ]] || { echo "Readback-HEAD $READBACK != erwartete SHA $FULL_SHA" >&2; exit 8; }
+echo "[1/6] Fetch exact release"
+as_app git -C "$SOURCE_DIR" fetch origin --prune
+as_app git -C "$SOURCE_DIR" cat-file -e "${SHA}^{commit}" || { echo "SHA $SHA existiert nach fetch nicht." >&2; exit 5; }
+FULL_SHA="$(as_app git -C "$SOURCE_DIR" rev-parse "${SHA}^{commit}")"
+RELEASE_DIR="$RELEASES_DIR/$FULL_SHA"
 
-echo "[6/7] Release-SHA pinnen: $RELEASE_ENV"
-umask 077
+if [[ "$CURRENT_SHA" == "$FULL_SHA" ]]; then
+  echo "Bereits auf $FULL_SHA; kein Release-Wechsel noetig."
+  if [[ "$RESTART" -eq 1 && "$WAS_ACTIVE" -eq 1 ]]; then systemctl start "$SERVICE"; fi
+  exit 0
+fi
+
+echo "[2/6] Build immutable release $FULL_SHA"
+if [[ ! -d "$RELEASE_DIR" ]]; then
+  as_app git -C "$SOURCE_DIR" worktree add --quiet --detach "$RELEASE_DIR" "$FULL_SHA"
+  as_app_shell "cd '$RELEASE_DIR' && npm ci --silent && npm run build"
+else
+  READBACK="$(as_app git -C "$RELEASE_DIR" rev-parse HEAD 2>/dev/null || true)"
+  [[ "$READBACK" == "$FULL_SHA" ]] || { echo "Existing release dir does not match $FULL_SHA" >&2; exit 6; }
+  [[ -f "$RELEASE_DIR/dist/cli/flerdvision.js" ]] || as_app_shell "cd '$RELEASE_DIR' && npm ci --silent && npm run build"
+fi
+[[ -f "$RELEASE_DIR/dist/cli/flerdvision.js" ]] || { echo "Build artifact missing." >&2; exit 7; }
+node --check "$RELEASE_DIR/dist/cli/flerdvision.js" >/dev/null
+
+echo "[3/6] Record previous release"
+if [[ -n "$CURRENT_SHA" ]]; then
+  printf 'FLERDVISION_PREVIOUS_RELEASE_SHA=%s\n' "$CURRENT_SHA" > "$PREVIOUS_ENV"
+  chown root:"$APP_USER" "$PREVIOUS_ENV"
+  chmod 640 "$PREVIOUS_ENV"
+fi
+
+echo "[4/6] Atomic current switch"
+TMP_LINK="$PREFIX/.current-$$"
+rm -f "$TMP_LINK"
+ln -s "$RELEASE_DIR" "$TMP_LINK"
+mv -Tf "$TMP_LINK" "$CURRENT_LINK"
+[[ "$(as_app git -C "$CURRENT_LINK" rev-parse HEAD)" == "$FULL_SHA" ]] || { echo "current readback mismatch" >&2; exit 8; }
+
+echo "[5/6] Pin release + refresh generic unit"
 printf 'FLERDVISION_RELEASE_SHA=%s\n' "$FULL_SHA" > "$RELEASE_ENV"
-chown root:"$APP_USER" "$RELEASE_ENV" 2>/dev/null || true
+chown root:"$APP_USER" "$RELEASE_ENV"
 chmod 640 "$RELEASE_ENV"
+install -m 644 "$CURRENT_LINK/deploy/flerdvision-daemon.service" /etc/systemd/system/flerdvision-daemon.service
+install -m 644 "$CURRENT_LINK/deploy/flerdvision-xvfb.service" /etc/systemd/system/flerdvision-xvfb.service
+systemctl daemon-reload
 
-echo "[7/7] Abschluss"
+echo "[6/6] Done"
 if [[ "$RESTART" -eq 1 ]]; then
   systemctl start "$SERVICE"
   systemctl --no-pager --lines=5 status "$SERVICE" || true
-  echo "Daemon neu gestartet auf $FULL_SHA — nur zulaessig, wenn diese SHA bereits qualifiziert ist."
+  echo "Daemon gestartet on $FULL_SHA. This flag is only for an already-authorized canary/production release."
 else
-  cat <<LADDER
-
-Update auf $FULL_SHA ist gebaut und getestet. Daemon ist GESTOPPT (Absicht).
-
-QUALIFIKATIONSLEITER vor dem Neustart (docs/23, AGENTS.md):
-  1. set -a; . /etc/flerdvision/flerdvision.env; . $RELEASE_ENV; set +a
-  2. PREPARE_ONLY auf exakt dieser SHA (kein --private-publish):
-       cd $APP_DIR && DISPLAY=:99 npm run flerdvision -- demo --channel <key> --release-sha \$FLERDVISION_RELEASE_SHA
-     Erwartet: BOOTSTRAP/INGEST_PLAN/QUALIFY/SCHEDULE PASS, PRIVATE_PUBLISH SKIPPED, success=true.
-  3. Falls die Leiter es fuer dieses Release verlangt: private E2E laut docs/23 Abschnitt 10
-     (separate menschliche Freigabe, one-shot).
-  4. Erst danach: systemctl start $SERVICE   (oder dieses Skript mit --restart-daemon)
-LADDER
-  if [[ "$WAS_ACTIVE" -eq 1 ]]; then
-    echo "Hinweis: der Daemon lief vor dem Update und wurde bewusst nicht wieder gestartet."
-  fi
+  echo "Current release is $FULL_SHA. Daemon remains stopped intentionally."
+  [[ "$WAS_ACTIVE" -eq 1 ]] && echo "It was active before the update; explicit restart is required after the deployment gate."
 fi
+
+echo "Rollback target: ${CURRENT_SHA:-none}. Use deploy/rollback-release.sh."
