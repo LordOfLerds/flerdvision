@@ -41,11 +41,12 @@ test("capacity expansion preserves existing slots and all schedule writes stay c
     const service = new ScheduleCommandService(runtime.path, {
       apply(path) { applied.push(parseWorkspaceSpec(JSON.parse(readFileSync(path, "utf8")))); }
     });
-    assert.deepEqual(service.show().map((entry) => [entry.platform, entry.format, entry.times, entry.capacity]), [
-      ["instagram", "reel", ["12:00", "19:00"], 2]
+    assert.deepEqual(service.show().map((entry) => [entry.customerKey, entry.customerName, entry.platform, entry.format, entry.times, entry.capacity]), [
+      ["default", "Test", "instagram", "reel", ["12:00", "19:00"], 2]
     ]);
 
     const expanded = await service.capacity("instagram", 3);
+    assert.equal(expanded.customerName, "Test");
     assert.deepEqual(expanded.beforeTimes, ["12:00", "19:00"]);
     assert.deepEqual(expanded.times, ["12:00", "15:00", "19:00"]);
     assert.equal(expanded.capacity, 3);
@@ -60,6 +61,22 @@ test("capacity expansion preserves existing slots and all schedule writes stay c
     raw = JSON.parse(readFileSync(runtime.path, "utf8"));
     assert.deepEqual(raw.channels[0].formats[0].times, ["10:00", "15:00", "20:00"]);
     assert.equal(applied.length, 4);
+  } finally { rmSync(runtime.dir, { recursive: true, force: true }); }
+});
+
+test("explicit customer name is projected without changing mutation semantics", async () => {
+  const spec = rawSpec();
+  spec.customers = [{ key: "kunde-a", name: "Kunde A" }];
+  spec.channels[0].customerKey = "kunde-a";
+  const runtime = fixture(spec);
+  try {
+    const service = new ScheduleCommandService(runtime.path);
+    const [shown] = service.show();
+    assert.equal(shown.customerKey, "kunde-a");
+    assert.equal(shown.customerName, "Kunde A");
+    const changed = await service.add("instagram", "16:00");
+    assert.equal(changed.customerName, "Kunde A");
+    assert.deepEqual(changed.times, ["12:00", "16:00", "19:00"]);
   } finally { rmSync(runtime.dir, { recursive: true, force: true }); }
 });
 
