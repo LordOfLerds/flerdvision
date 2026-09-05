@@ -59,6 +59,9 @@ async function main(): Promise<void> {
   const [command, ...argv] = process.argv.slice(2);
   if (!command || command === "help" || flag(argv, "--help")) return usage();
   const specPath = canonicalSpecPath(argv);
+  // One canonical spec path for the entire process. In particular Telegram schedule commands must
+  // see the same file even when the operator supplied it with --spec instead of an env variable.
+  process.env.FLERDVISION_SPEC = specPath;
   if (command === "schedule" || command === "capacity") {
     await runScheduleCli(command, argv, specPath);
     return;
@@ -120,8 +123,6 @@ async function main(): Promise<void> {
     return;
   }
   if (command === "notify-test") {
-    // Sends one test notification through the configured Telegram channel so the operator can
-    // prove the bot wiring end to end before any real event depends on it.
     const { telegramAdapterFromEnv } = await import("../adapters/notify/telegram.js");
     const adapter = telegramAdapterFromEnv(process.env);
     if (!adapter) throw new Error("Telegram ist nicht konfiguriert: FLERDVISION_TELEGRAM_BOT_TOKEN und FLERDVISION_TELEGRAM_CHAT_ID setzen (private Env-Datei)");
@@ -139,10 +140,6 @@ async function main(): Promise<void> {
     return;
   }
   if (command === "verify") {
-    // Read-only reconciliation of an existing private-E2E run. PUBLISH_UNCERTAIN froze exactly
-    // as designed after the first live click; the platform completed the share late, and this
-    // is the authoritative path that resolves the frozen state from real surface evidence.
-    // It repeats safely and never invokes any publish action.
     const spec = loadWorkspaceSpecFile(specPath);
     const sha = releaseSha(argv);
     const commands = new WorkspacePrivateE2ECommands({
@@ -180,8 +177,6 @@ async function main(): Promise<void> {
     return;
   }
   if (command === "run-once" || command === "daemon") {
-    // The unattended runtime retains only a rolling diagnostic tail. Successful notifications use
-    // the final verified screenshot; the clip exists only as optional failure evidence.
     applyScreencastDefault(process.env, true);
     const channels = values(argv, "--channel");
     if (channels.length === 0) throw new Error("Autonomous runtime requires at least one explicit --channel allowlist entry");
@@ -217,8 +212,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
-  // A bare "fetch failed" cost a live acceptance window twice: undici hides the socket-level
-  // cause (ENOTFOUND, ECONNRESET, proxy, TLS) one level down. Print the whole cause chain.
   let current: unknown = error;
   const lines: string[] = [];
   while (current) {
