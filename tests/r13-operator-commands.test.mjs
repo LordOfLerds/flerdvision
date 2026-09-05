@@ -59,6 +59,7 @@ function fixture() {
     pauses: operator,
     killSwitches: new KillSwitchService(control),
     scheduleCommands: schedule.service,
+    remoteScreenUrl: "https://browser.example.invalid/flerdvision",
     doctor: () => ({ schemaVersion: 1, checkedAt: "2026-08-30T07:00:00Z", workspaceId: "ws", ownerEmail: "x@y.z", releaseSha: "sha", overall: "WARN", checks: [{ key: "drive_auth", status: "FAIL", detail: "Run drive-auth" }, { key: "node", status: "PASS", detail: "ok" }], channels: [{ channelKey: "reels", platform: "instagram", accountId: "account:instagram:reels", identityId: "browser:instagram:reels", accountRegistered: true, identityRegistered: true, latestSessionState: "HEALTHY", sessionProbeCalibrated: true, routes: [{ routeId: "r", format: "reel", readyAssets: 1, surfaceStatus: "CALIBRATED", prepareOnlyPasses: 3, verificationPassed: true, releaseMatches: true, privateE2EPassed: true, cleanupPassedAfterPrivateE2E: true, blockers: [], readyForAutonomousPublish: true }] }] }),
     timeZone: "Europe/Vienna",
     clock: () => "2026-08-30T07:00:00.000Z"
@@ -119,6 +120,25 @@ test("/kunden and /kunde expose business names without internal ids", async () =
   } finally { f.close(); }
 });
 
+test("/browser gives the private link and /status repeats it only when a session needs human action", async () => {
+  const f = fixture();
+  try {
+    const healthyBrowser = await f.service.execute("/browser");
+    assert.match(healthyBrowser, /🔐 Remote-Browser/);
+    assert.match(healthyBrowser, /https:\/\/browser\.example\.invalid\/flerdvision/);
+    assert.match(healthyBrowser, /Aktuell braucht kein Kanal/);
+    assert.doesNotMatch(healthyBrowser, /account:|browser:instagram/);
+    assert.doesNotMatch(await f.service.execute("/status"), /Remote-Browser:/);
+
+    f.control.recordSessionHealth({ checkId: "check-2", identityId: "browser:instagram:reels", checkedAt: "2026-08-30T06:59:00Z", state: "AUTH_REQUIRED", expectedHandle: "reels_handle" }, actor);
+    const browser = await f.service.execute("/browser");
+    assert.match(browser, /Kunde A · Reels \(Instagram\) — Login nötig/);
+    assert.doesNotMatch(browser, /account:/);
+    const status = await f.service.execute("/status");
+    assert.match(status, /🔐 Remote-Browser: https:\/\/browser\.example\.invalid\/flerdvision/);
+  } finally { f.close(); }
+});
+
 test("/stopp enables the kill switch and there is no chat path that disables one", async () => {
   const f = fixture();
   try {
@@ -163,6 +183,7 @@ test("/plan, /doctor and help answer read-only and unknown commands point to hel
     assert.match(doctorText, /✅ Kunde A · Reels · angemeldet · 1\/1 Routen bereit/);
     assert.doesNotMatch(doctorText, /Node-Version/);
     assert.match(await f.service.execute("/hilfe"), /\/kunden/);
+    assert.match(await f.service.execute("/hilfe"), /\/browser/);
     assert.match(await f.service.execute("/hilfe"), /gibt keinen Publish frei/);
     assert.match(await f.service.execute("was geht"), /Unbekannter Befehl/);
     assert.match(await f.service.execute("/status@FlerdvisionBot"), /📊 Status/);
@@ -184,5 +205,6 @@ test("a failing doctor probe answers with an error instead of throwing into the 
     assert.match(await failing.execute("/doctor"), /🛑 Doctor fehlgeschlagen: spec missing/);
     assert.match(await failing.execute("/zeitplan"), /nicht verbunden/);
     assert.match(await failing.execute("/kunden"), /nicht verbunden/);
+    assert.match(await failing.execute("/browser"), /nicht konfiguriert/);
   } finally { f.close(); }
 });
