@@ -21,6 +21,7 @@ export interface AutoDiagnosisCoordinatorOptions {
 export interface AutoDiagnosisCycleReport {
   inspected: number;
   eligible: number;
+  attempted: number;
   diagnosed: number;
   skippedPolicy: number;
   skippedFresh: number;
@@ -86,7 +87,7 @@ export class AutoDiagnosisCoordinator {
     const timestamp = new Date(now).toISOString();
     const unresolved = [...this.incidents.listIncidents(["OPEN", "ACKNOWLEDGED"])]
       .sort((a, b) => b.lastObservedAt.localeCompare(a.lastObservedAt));
-    let eligible = 0, skippedPolicy = 0, skippedFresh = 0, skippedInFlight = 0, failed = 0;
+    let eligible = 0, attempted = 0, skippedPolicy = 0, skippedFresh = 0, skippedInFlight = 0, failed = 0;
     const diagnosedIncidentIds: string[] = [], failedIncidentIds: string[] = [];
 
     for (const incident of unresolved) {
@@ -95,8 +96,9 @@ export class AutoDiagnosisCoordinator {
       const latest = latestDiagnosisAt(this.repairStore, incident.incidentId);
       if (latest && latest >= incident.lastObservedAt) { skippedFresh += 1; continue; }
       if (this.inFlight.has(incident.incidentId)) { skippedInFlight += 1; continue; }
-      if (diagnosedIncidentIds.length >= this.maxPerCycle) continue;
+      if (attempted >= this.maxPerCycle) continue;
 
+      attempted += 1;
       this.inFlight.add(incident.incidentId);
       try {
         await this.runner.diagnoseIncident(incident.incidentId, {
@@ -116,6 +118,7 @@ export class AutoDiagnosisCoordinator {
     return {
       inspected: unresolved.length,
       eligible,
+      attempted,
       diagnosed: diagnosedIncidentIds.length,
       skippedPolicy,
       skippedFresh,
