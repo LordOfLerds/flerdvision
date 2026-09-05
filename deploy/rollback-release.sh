@@ -13,6 +13,7 @@ RELEASES_DIR="$PREFIX/releases"
 CURRENT_LINK="$PREFIX/current"
 APP_USER=flerdvision
 SERVICE=flerdvision-daemon
+NOVNC_SERVICE=flerdvision-novnc
 RELEASE_ENV=/etc/flerdvision/release.env
 PREVIOUS_ENV=/etc/flerdvision/previous-release.env
 SHA=""
@@ -64,7 +65,9 @@ if [[ -n "$CURRENT_SHA" ]]; then
 fi
 install -m 644 "$CURRENT_LINK/deploy/flerdvision-daemon.service" /etc/systemd/system/flerdvision-daemon.service
 install -m 644 "$CURRENT_LINK/deploy/flerdvision-xvfb.service" /etc/systemd/system/flerdvision-xvfb.service
+install -m 644 "$CURRENT_LINK/deploy/flerdvision-novnc.service" /etc/systemd/system/flerdvision-novnc.service
 systemctl daemon-reload
+systemctl restart "$NOVNC_SERVICE" 2>/dev/null || true
 
 echo "Rolled back current: ${CURRENT_SHA:-none} -> $SHA"
 echo "Config/secrets/state were not changed."
