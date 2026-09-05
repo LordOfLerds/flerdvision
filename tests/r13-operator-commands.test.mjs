@@ -84,14 +84,15 @@ test("/pause and /fortsetzen manage the persisted pause per channel and globally
 test("/zeitplan /slot and /limit use one injected canonical schedule service", async () => {
   const f = fixture();
   try {
-    assert.match(await f.service.execute("/zeitplan"), /🗓️ Zeitplan/);
-    assert.match(await f.service.execute("/zeitplan"), /Kunde A · Reels · reel: 12:00 \(1\/Tag\)/);
-    assert.match(await f.service.execute("/slot reels + 16:00"), /Kunde A · Reels · reel/);
-    assert.match(await f.service.execute("/slot reels + 16:00"), /Slots: 12:00, 16:00/);
+    const scheduleReply = await f.service.execute("/zeitplan");
+    assert.match(scheduleReply, /🗓️ Zeitplan/);
+    assert.match(scheduleReply, /Kunde A · Reels · reel: 12:00 \(1\/Tag\)/);
+    const addReply = await f.service.execute("/slot reels + 16:00");
+    assert.match(addReply, /Kunde A · Reels · reel/);
+    assert.match(addReply, /Slots: 12:00, 16:00/);
     assert.match(await f.service.execute("/slot reels - 12:00"), /Slots: 16:00/);
     assert.match(await f.service.execute("/limit reels 3"), /Kunde A · Reels · 3 Slots\/Tag/);
     assert.deepEqual(f.schedule.calls, [
-      ["add", "reels", "16:00"],
       ["add", "reels", "16:00"],
       ["remove", "reels", "12:00"],
       ["capacity", "reels", 3]
