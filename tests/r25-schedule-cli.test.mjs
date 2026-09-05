@@ -33,7 +33,7 @@ test("CLI schedule show and add route through the same schedule service and comp
       applier: { apply: (path) => applied.push(path) }
     });
     assert.equal(applied.length, 0);
-    assert.match(output.join("\n"), /12:00, 19:00/);
+    assert.match(output.join("\n"), /CLI Test · Instagram Test · reel · 12:00, 19:00/);
 
     output.length = 0;
     await runScheduleCli("schedule", ["add", "instagram", "16:00", "--spec", f.path], f.path, {
@@ -42,6 +42,7 @@ test("CLI schedule show and add route through the same schedule service and comp
     });
     assert.equal(applied.length, 1);
     assert.deepEqual(JSON.parse(readFileSync(f.path, "utf8")).channels[0].formats[0].times, ["12:00", "16:00", "19:00"]);
+    assert.match(output.join("\n"), /CLI Test · Instagram Test/);
     assert.match(output.join("\n"), /Bereits materialisierte heutige Posts bleiben/);
     assert.match(output.join("\n"), /\/pause stoppt fällige Posts sofort/);
   } finally { rmSync(f.dir, { recursive: true, force: true }); }
