@@ -43,12 +43,12 @@ function readableFile(path: string | undefined, maxBytes?: number): string | und
 
 /**
  * Sends workspace notifications into one Telegram chat. Plugs into the durable outbox +
- * retry dispatcher like every NotificationPort. What the message carries decides the transport:
- * several evidence screenshots become one album (sendMediaGroup), a small local video becomes
- * sendVideo, a single screenshot becomes sendPhoto and everything else plain text. A media
- * caption is hard-capped at 1024 characters by Telegram, so a longer text follows immediately as
- * its own message instead of being silently truncated. The bot token and chat id come from the
- * operator's private environment and are never logged.
+ * retry dispatcher like every NotificationPort. Evidence is screenshot-first: several screenshots
+ * become one album, a single screenshot becomes sendPhoto, and a diagnostic video is used only
+ * when no screenshot is available. Everything else is plain text. A media caption is hard-capped
+ * at 1024 characters by Telegram, so a longer text follows immediately as its own message instead
+ * of being silently truncated. The bot token and chat id come from the operator's private
+ * environment and are never logged.
  */
 export class TelegramNotificationAdapter implements NotificationPort {
   readonly channelKey: string;
@@ -77,11 +77,11 @@ export class TelegramNotificationAdapter implements NotificationPort {
     const screenshots = listValue(message.metadata.screenshotPaths).filter((path) => existsSync(path)).slice(0, MAX_MEDIA_GROUP);
     if (screenshots.length > 1) return await this.sendMediaGroup(screenshots, text);
 
-    const video = readableFile(textValue(message.metadata.videoPath), MAX_VIDEO_BYTES);
-    if (video) return await this.sendVideo(video, text);
-
     const screenshot = screenshots[0] ?? readableFile(textValue(message.metadata.screenshotPath));
     if (screenshot) return await this.sendPhoto(screenshot, text);
+
+    const video = readableFile(textValue(message.metadata.videoPath), MAX_VIDEO_BYTES);
+    if (video) return await this.sendVideo(video, text);
 
     return await this.sendMessage(text);
   }
