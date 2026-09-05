@@ -6,16 +6,16 @@ import { PublicationScheduler } from "../dist/application/scheduler.js";
 import { instantForLocalDateTime } from "../dist/domain/scheduling.js";
 
 const actor={type:"test",id:"due-isolation"};
-const target=instantForLocalDateTime("2026-09-05","12:00","Europe/Vienna");
+const target=instantForLocalDateTime("2026-09-05","09:00","Europe/Vienna");
 
 function addDue(store,{accountId,platform}){
   const identityId=`browser:${accountId}`;
   const intentId=`intent:${accountId}`;
-  store.registerSocialAccount({accountId,platform,expectedHandle:accountId,enabled:true},"2026-09-05T08:00:00Z",actor);
-  store.registerBrowserIdentity({identityId,accountId,platform,profileKey:`${platform}/${accountId}`,expectedHandle:accountId,enabled:true},"2026-09-05T08:00:01Z",actor);
-  store.createOrGetIntent({intentId,contentId:`content:${accountId}`,creatorId:`creator:${accountId}`,platform,accountId,format:platform==="youtube"?"short":"reel",copyVersionId:`copy:${accountId}`,scheduledFor:target,idempotencyKey:`idem:${accountId}`},"2026-09-05T08:00:02Z",actor);
-  store.transitionIntent(intentId,"READY","2026-09-05T08:00:03Z",actor);
-  new PublicationScheduler(store).scheduleIntent(intentId,"2026-09-05T08:00:04Z",actor);
+  store.registerSocialAccount({accountId,platform,expectedHandle:accountId,enabled:true},"2026-09-05T06:00:00Z",actor);
+  store.registerBrowserIdentity({identityId,accountId,platform,profileKey:`${platform}/${accountId}`,expectedHandle:accountId,enabled:true},"2026-09-05T06:00:01Z",actor);
+  store.createOrGetIntent({intentId,contentId:`content:${accountId}`,creatorId:`creator:${accountId}`,platform,accountId,format:platform==="youtube"?"short":"reel",copyVersionId:`copy:${accountId}`,scheduledFor:target,idempotencyKey:`idem:${accountId}`},"2026-09-05T06:00:02Z",actor);
+  store.transitionIntent(intentId,"READY","2026-09-05T06:00:03Z",actor);
+  new PublicationScheduler(store).scheduleIntent(intentId,"2026-09-05T06:00:04Z",actor);
   return{identityId,intentId};
 }
 
