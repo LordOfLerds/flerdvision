@@ -5,6 +5,8 @@ import { parseWorkspaceSpec, type WorkspaceChannelFormatSpec, type WorkspaceChan
 export class ScheduleCommandError extends Error {}
 
 export interface ScheduleTargetView {
+  customerKey: string;
+  customerName: string;
   channelKey: string;
   channelName: string;
   platform: string;
@@ -143,7 +145,7 @@ interface ResolvedTarget {
 /**
  * The single product service for schedule changes. CLI and Telegram call this same service.
  * It edits only the canonical flerdvision.json; derived runtime configuration is produced by the
- * injected apply step. A failed apply restores the exact previous JSON and best-effort reapplies it.
+ * injected apply step. Customer fields are projection-only and never alter schedule mutation.
  */
 export class ScheduleCommandService {
   private readonly specPath: string;
@@ -154,7 +156,7 @@ export class ScheduleCommandService {
 
   show(): readonly ScheduleTargetView[] {
     const { spec } = this.read();
-    return spec.channels.flatMap((channel) => channel.formats.map((format) => this.view(channel, format)));
+    return spec.channels.flatMap((channel) => channel.formats.map((format) => this.view(spec, channel, format)));
   }
 
   async add(target: string, time: string): Promise<ScheduleMutationResult> {
@@ -214,8 +216,12 @@ export class ScheduleCommandService {
     return { spec, channel, format: channel.formats[formatIndex]!, channelIndex, formatIndex };
   }
 
-  private view(channel: WorkspaceChannelSpec, format: WorkspaceChannelFormatSpec): ScheduleTargetView {
+  private view(spec: WorkspaceSpecV1, channel: WorkspaceChannelSpec, format: WorkspaceChannelFormatSpec): ScheduleTargetView {
+    const customer = spec.customers.find((item) => item.key === channel.customerKey);
+    if (!customer) throw new ScheduleCommandError(`Kanal ${channel.name} verweist auf unbekannten Kunden ${channel.customerKey}.`);
     return {
+      customerKey: customer.key,
+      customerName: customer.name,
       channelKey: channel.key,
       channelName: channel.name,
       platform: channel.platform,
@@ -230,7 +236,7 @@ export class ScheduleCommandService {
     const beforeTimes = [...target.format.times];
     const afterTimes = canonicalTimes(nextTimes);
     const changed = JSON.stringify(beforeTimes) !== JSON.stringify(afterTimes);
-    const result: ScheduleMutationResult = { ...this.view(target.channel, { ...target.format, times: afterTimes }), changed, beforeTimes };
+    const result: ScheduleMutationResult = { ...this.view(target.spec, target.channel, { ...target.format, times: afterTimes }), changed, beforeTimes };
     if (!changed) return result;
 
     const candidate = cloneRaw(raw);
@@ -240,14 +246,12 @@ export class ScheduleCommandService {
     if (!rawFormat) throw new ScheduleCommandError("Formatposition hat sich während der Änderung verändert.");
     rawFormat.times = afterTimes;
     if (rawFormat.frequencyPerDay !== undefined) rawFormat.frequencyPerDay = afterTimes.length;
-    parseWorkspaceSpec(candidate); // fail before any write
+    parseWorkspaceSpec(candidate);
 
     writeAtomic(this.specPath, candidate);
     try {
       await this.applier?.apply(this.specPath);
     } catch (error) {
-      // Restore the exact previous source of truth first. Reapplying it is best effort because a
-      // schedule change must never leave the canonical file pointing at an uncompiled rhythm.
       writeFileSync(this.specPath, rawText, { encoding: "utf8", mode: 0o600 });
       try { await this.applier?.apply(this.specPath); } catch {}
       throw new ScheduleCommandError(`Zeitplan wurde nicht übernommen und zurückgerollt: ${error instanceof Error ? error.message : String(error)}`);
