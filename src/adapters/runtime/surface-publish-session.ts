@@ -52,9 +52,6 @@ export class SurfacePublishPreparationService {
     const close=async()=>{try{if(page)await page.close().catch(()=>{});}finally{try{if(materialized&&this.media.release)await this.media.release(materialized).catch(()=>{});}finally{lock?.release();lock=null;}}};
     try{
       lock=this.profileLocks.acquire(identity,this.options.ownerId,startedAt);page=await this.browser.launch(identity,{headless:this.options.headless??true,initialUrl:"about:blank"});
-      // Optional evidence only, started as soon as there is a browser to record and always
-      // stopped again below: the whole prepare leg -- login readback, upload, every setting --
-      // ends up in one MP4 beside this intent's screenshots. Nothing here can fail the prepare.
       recording=await beginScreencast(page,this.artifacts.recordingDirectory?.(record.intent),`screencast-prepare-${record.intent.platform}`);
       await new BrowserSessionHealthService(this.store,probe).check(identity.identityId,page,this.now(),actor);new AccountIdentityGuard(this.store).assertReady(identity.identityId);materialized=await this.media.materialize(content);
       const caption=composePostedCaption(payload);
@@ -76,27 +73,18 @@ export class RetainedSurfaceFinalActionInvoker implements FinalActionInvokerPort
     const environment=await this.recorder.environment(retained.session);if(environment.fingerprint!==retained.environmentFingerprint)throw new SurfacePublishSessionError("Surface environment changed before final action");const invokedAt=new Date(this.now()).toISOString();
     try{
       const descriptor=await new BrowserDomUiDriver(retained.session).clickIrreversible(retained.finalActionLocators,10_000);
-      // The platform's share is asynchronous: the page keeps uploading/finalizing AFTER the
-      // click and only then submits. Tearing the session down in the same millisecond killed
-      // the in-flight share on the first live attempt (click invoked, no post, UNCERTAIN
-      // forever, zero post-click evidence). The session now stays alive until the surface
-      // shows a definitive signal or a hard deadline passes, with evidence captured either way.
       const clickRefs=await(retained.capture?.("final-action-clicked")??Promise.resolve([]));
       const settlement=await this.settle(retained.session,this.settleOptions.deadlineMs,this.settleOptions.pollMs);
+      const settledUrl=await retained.session.currentUrl().catch(()=>undefined);
       const settleRefs=await(retained.capture?.(settlement.settled?"final-action-settled":"final-action-settle-timeout")??Promise.resolve([]));
       const finishedAt=new Date(this.now()).toISOString();
       return{invokedAt,finishedAt,evidence:[
         {evidenceId:evidenceId(intent.intentId,attempt.attemptId,invokedAt),intentId:intent.intentId,attemptId:attempt.attemptId,kind:"ui_receipt",observedAt:invokedAt,positive:true,locator:descriptor,...(clickRefs[0]?{artifactRef:clickRefs[0]}:{}),note:`Final UI action invoked from CALIBRATED SurfaceContract ${retained.surfaceContractId}; receipt alone is not verification of publication.`},
-        {evidenceId:evidenceId(intent.intentId,attempt.attemptId,finishedAt),intentId:intent.intentId,attemptId:attempt.attemptId,kind:"ui_receipt",observedAt:finishedAt,positive:settlement.settled,...(settleRefs[0]?{artifactRef:settleRefs[0]}:{}),note:settlement.note}
+        {evidenceId:evidenceId(intent.intentId,attempt.attemptId,finishedAt),intentId:intent.intentId,attemptId:attempt.attemptId,kind:"ui_receipt",observedAt:finishedAt,positive:settlement.settled,...(settledUrl?{locator:settledUrl}:{}),...(settleRefs[0]?{artifactRef:settleRefs[0]}:{}),note:`${settlement.note}${settledUrl?` Post-action URL hint: ${settledUrl}`:""}`}
       ]};
     }finally{await this.registry.close(attempt.attemptId);}
   }
 
-  /**
-   * Bounded post-click settlement: poll until the create dialog is gone or the surface shows a
-   * success phrase. Navigation away (destroyed context) counts as the dialog closing. Never
-   * clicks anything; read-only observation with a hard deadline.
-   */
   private async settle(session:BrowserPageSessionPort,deadlineMs:number=90_000,pollMs:number=1_500):Promise<{settled:boolean;note:string}>{
     const startedAt=Date.now();
     let last="";
