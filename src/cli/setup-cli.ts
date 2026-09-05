@@ -7,6 +7,18 @@ export interface SetupCliDependencies {
 
 function badge(value: boolean): string { return value ? "✅" : "⬜"; }
 
+function positionals(argv: readonly string[]): readonly string[] {
+  const withValue = new Set(["--spec", "--release-sha"]);
+  const result: string[] = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index]!;
+    if (withValue.has(token)) { index += 1; continue; }
+    if (token.startsWith("--")) throw new Error(`Unknown setup option ${token}`);
+    result.push(token);
+  }
+  return result;
+}
+
 function renderStatus(status: HeadlessOnboardingStatus): readonly string[] {
   const lines = [
     `Setup · ${status.workspaceName}`,
@@ -41,7 +53,9 @@ export async function runSetupCli(
 ): Promise<void> {
   const output = dependencies.output ?? console.log;
   const env = dependencies.env ?? process.env;
-  const action = (argv[0] ?? "status").trim().toLocaleLowerCase("en-US");
+  const args = positionals(argv);
+  if (args.length > 1) throw new Error("Usage: setup status | setup confirm-root | setup confirm-topology | setup activate");
+  const action = (args[0] ?? "status").trim().toLocaleLowerCase("en-US");
   const service = new HeadlessOnboardingService({ specPath, releaseSha, env });
   let status: HeadlessOnboardingStatus;
   if (action === "status") status = await service.status();
