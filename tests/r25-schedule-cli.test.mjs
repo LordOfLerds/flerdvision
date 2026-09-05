@@ -58,12 +58,13 @@ test("CLI capacity expands without moving existing times and malformed commands 
   } finally { rmSync(f.dir, { recursive: true, force: true }); }
 });
 
-test("canonical product CLI advertises schedule/capacity but no second schedule implementation", () => {
+test("canonical product CLI advertises schedule/capacity, pins one spec path, and has no second schedule implementation", () => {
   const source = readFileSync(new URL("../src/cli/flerdvision.ts", import.meta.url).pathname, "utf8");
   const adapter = readFileSync(new URL("../src/cli/schedule-cli.ts", import.meta.url).pathname, "utf8");
   assert.match(source, /runScheduleCli/);
   assert.match(source, /schedule add/);
   assert.match(source, /capacity <kanal/);
+  assert.match(source, /process\.env\.FLERDVISION_SPEC = specPath/);
   assert.doesNotMatch(source, /writeFileSync\(/);
   assert.match(adapter, /new ScheduleCommandService/);
 });
