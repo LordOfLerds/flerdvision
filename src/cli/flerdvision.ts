@@ -5,11 +5,13 @@ import { authorizeWorkspaceDrive } from "../application/headless-drive-auth.js";
 import { bootstrapHeadlessWorkspace, loadWorkspaceSpecFile } from "../application/headless-bootstrap.js";
 import { runHeadlessDemo } from "../application/headless-demo.js";
 import { ensureHeadlessLogin } from "../application/headless-login.js";
+import { HeadlessOnboardingService } from "../application/headless-onboarding.js";
 import { inspectHeadlessWorkspace } from "../application/headless-status.js";
 import { accountIdForChannel } from "../application/workspace-spec-compiler.js";
 import { WorkspacePrivateE2ECommands } from "../adapters/runtime/workspace-private-e2e.js";
 import { applyScreencastDefault } from "../adapters/browser/screencast-recorder.js";
 import { runScheduleCli } from "./schedule-cli.js";
+import { runSetupCli } from "./setup-cli.js";
 
 function value(argv: readonly string[], name: string): string | undefined {
   const index = argv.indexOf(name);
@@ -62,7 +64,7 @@ function testNowPositionals(argv: readonly string[]): readonly string[] {
   return out;
 }
 function usage(): never {
-  console.error(`Flerdvision headless commands:\n\n  npm run flerdvision -- bootstrap [--spec <flerdvision.json>]\n  npm run flerdvision -- drive-auth [--spec <flerdvision.json>]\n  npm run flerdvision -- login --channel <channel-key>\n  npm run flerdvision -- doctor [--release-sha <sha>]\n  npm run flerdvision -- schedule show\n  npm run flerdvision -- schedule add <kanal[/format]> <HH:mm>\n  npm run flerdvision -- schedule remove <kanal[/format]> <HH:mm>\n  npm run flerdvision -- schedule set <kanal[/format]> <HH:mm> [HH:mm ...]\n  npm run flerdvision -- capacity <kanal[/format]> <anzahl>\n  npm run flerdvision -- test-now <kunde> <instagram|tiktok|youtube> --confirm AUTONOMOUS_FINAL_PUBLISH [--show-browser]\n  npm run flerdvision -- demo [--channel <key>] [--private-publish] [--force-login] [--headless]\n  npm run flerdvision -- notify-test\n  npm run flerdvision -- verify --run-id <id> [--release-sha <sha>]\n  npm run flerdvision -- cleanup --run-id <id> --confirm PRIVATE_E2E_TEST_POST_DELETED --note <evidence>\n  npm run flerdvision -- run-once --channel <key> --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH\n  npm run flerdvision -- daemon --channel <key> --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH [--interval 60]\n\nSet FLERDVISION_SCREENCAST=1 or 0 to force the optional rolling browser evidence. When enabled, only the final ~30 seconds are retained as a diagnostic clip; successful Telegram posts use the final verified screenshot instead. Set FLERDVISION_SPEC once to avoid repeating --spec. test-now additionally requires FLERDVISION_WORKSPACE_ROLE=acceptance and is rejected by production installations. The default product path has no setup/calibration UI. A social login browser opens only when human login or 2FA is needed. Final publishing additionally requires ALLOW_FINAL_PUBLISH=true.`);
+  console.error(`Flerdvision headless commands:\n\n  npm run flerdvision -- setup [status|confirm-root|confirm-topology|activate] [--spec <flerdvision.json>]\n  npm run flerdvision -- bootstrap [--spec <flerdvision.json>]\n  npm run flerdvision -- drive-auth [--spec <flerdvision.json>]\n  npm run flerdvision -- login --channel <channel-key>\n  npm run flerdvision -- doctor [--release-sha <sha>]\n  npm run flerdvision -- schedule show\n  npm run flerdvision -- schedule add <kanal[/format]> <HH:mm>\n  npm run flerdvision -- schedule remove <kanal[/format]> <HH:mm>\n  npm run flerdvision -- schedule set <kanal[/format]> <HH:mm> [HH:mm ...]\n  npm run flerdvision -- capacity <kanal[/format]> <anzahl>\n  npm run flerdvision -- test-now <kunde> <instagram|tiktok|youtube> --confirm AUTONOMOUS_FINAL_PUBLISH [--show-browser]\n  npm run flerdvision -- demo [--channel <key>] [--private-publish] [--force-login] [--headless]\n  npm run flerdvision -- notify-test\n  npm run flerdvision -- verify --run-id <id> [--release-sha <sha>]\n  npm run flerdvision -- cleanup --run-id <id> --confirm PRIVATE_E2E_TEST_POST_DELETED --note <evidence>\n  npm run flerdvision -- run-once --channel <key> --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH\n  npm run flerdvision -- daemon --channel <key> --mode canary --confirm AUTONOMOUS_FINAL_PUBLISH [--interval 60]\n\nSet FLERDVISION_SCREENCAST=1 or 0 to force the optional rolling browser evidence. When enabled, only the final ~30 seconds are retained as a diagnostic clip; successful Telegram posts use the final verified screenshot instead. Set FLERDVISION_SPEC once to avoid repeating --spec. test-now additionally requires FLERDVISION_WORKSPACE_ROLE=acceptance and is rejected by production installations. The default product path has no setup/calibration UI. A social login browser opens only when human login or 2FA is needed. Final publishing additionally requires ALLOW_FINAL_PUBLISH=true.`);
   process.exitCode = 2;
   throw new Error("invalid arguments");
 }
@@ -74,6 +76,10 @@ async function main(): Promise<void> {
   // One canonical spec path for the entire process. In particular Telegram schedule commands must
   // see the same file even when the operator supplied it with --spec instead of an env variable.
   process.env.FLERDVISION_SPEC = specPath;
+  if (command === "setup") {
+    await runSetupCli(argv, specPath, releaseSha(argv), { env: process.env });
+    return;
+  }
   if (command === "schedule" || command === "capacity") {
     await runScheduleCli(command, argv, specPath);
     return;
@@ -167,6 +173,8 @@ async function main(): Promise<void> {
       body: "Der Telegram-Kanal ist verbunden. Ab jetzt melden sich Posts, Plan und Störungen hier.",
       metadata: {}
     });
+    // Only a real successful Telegram API receipt satisfies the onboarding gate.
+    await new HeadlessOnboardingService({ specPath, releaseSha: releaseSha(argv), env: process.env }).markTelegramTested();
     console.log(`Telegram OK${receipt.externalMessageId ? ` · message_id ${receipt.externalMessageId}` : ""}`);
     return;
   }
