@@ -10,6 +10,7 @@ import type { PublicationIntent } from "../domain/model.js";
 import type { KillSwitch, OperationalGateDecision } from "../domain/operations.js";
 import type { OperationalPublishGatePort } from "../domain/operations-ports.js";
 import type { PublishContext } from "../domain/ports.js";
+import { AcceptanceCandidateService } from "./acceptance-candidate.js";
 import { AcceptanceTestNowService, type FlerdvisionRuntimeRole, type TestNowResult } from "./acceptance-test-now.js";
 import { loadWorkspaceSpecFile } from "./headless-bootstrap.js";
 import { KillSwitchGate, OperationalKillSwitchError } from "./operations.js";
@@ -67,6 +68,10 @@ export async function runAcceptanceTestNowCommand(options: AcceptanceTestNowComm
   if (env.ALLOW_FINAL_PUBLISH !== "true") throw new Error("test-now requires independent environment gate ALLOW_FINAL_PUBLISH=true");
   if (!options.confirmed) throw new Error("test-now requires explicit AUTONOMOUS_FINAL_PUBLISH confirmation");
   if (!options.releaseSha.trim()) throw new Error("test-now requires an exact release SHA");
+
+  // No acceptance run may span changing code/spec. This is checked before any runtime store is
+  // opened or one-shot intent is created.
+  new AcceptanceCandidateService({ specPath: options.specPath, releaseSha: options.releaseSha, env }).assertCurrent();
 
   const now = new Date(options.now ?? new Date().toISOString()).toISOString();
   const spec = loadWorkspaceSpecFile(options.specPath);
