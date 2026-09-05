@@ -69,11 +69,11 @@ function fixture() {
 test("/pause and /fortsetzen manage the persisted pause per channel and globally", async () => {
   const f = fixture();
   try {
-    assert.match(await f.service.execute("/pause reels"), /⏸️ Reels \(Instagram\) pausiert/);
+    assert.match(await f.service.execute("/pause reels"), /⏸️ Kunde A · Reels \(Instagram\) pausiert/);
     assert.equal(f.operator.getSchedulePause("account:instagram:reels")?.channelKey, "reels");
     assert.match(await f.service.execute("/pause alle"), /⏸️ ALLE Kanäle pausiert/);
     assert.equal(f.operator.getSchedulePause("*")?.channelKey, "alle");
-    assert.match(await f.service.execute("/fortsetzen reels"), /▶️ Reels \(Instagram\) fortgesetzt/);
+    assert.match(await f.service.execute("/fortsetzen reels"), /▶️ Kunde A · Reels \(Instagram\) fortgesetzt/);
     assert.equal(f.operator.getSchedulePause("account:instagram:reels"), null);
     assert.match(await f.service.execute("/fortsetzen reels"), /war nicht pausiert/);
     assert.match(await f.service.execute("/pause"), /Kanal fehlt/);
@@ -102,6 +102,23 @@ test("/zeitplan /slot and /limit use one injected canonical schedule service", a
   } finally { f.close(); }
 });
 
+test("/kunden and /kunde expose business names without internal ids", async () => {
+  const f = fixture();
+  try {
+    const all = await f.service.execute("/kunden");
+    assert.match(all, /👥 Kunden/);
+    assert.match(all, /Kunde A · 1 Kanäle · 0\/0 live/);
+    assert.doesNotMatch(all, /account:/);
+    const one = await f.service.execute("/kunde Kunde A");
+    assert.match(one, /👤 Kunde A/);
+    assert.match(one, /Reels · reel · 12:00/);
+    assert.match(one, /Heute: 0\/0 live/);
+    assert.doesNotMatch(one, /route|account:|intent/i);
+    assert.match(await f.service.execute("/kunde"), /Verwendung/);
+    assert.match(await f.service.execute("/kunde unbekannt"), /Unbekannter Kunde/);
+  } finally { f.close(); }
+});
+
 test("/stopp enables the kill switch and there is no chat path that disables one", async () => {
   const f = fixture();
   try {
@@ -119,14 +136,14 @@ test("/stopp enables the kill switch and there is no chat path that disables one
   } finally { f.close(); }
 });
 
-test("/status reports sessions, pauses and kill switches per channel in German", async () => {
+test("/status reports sessions, pauses and kill switches with customer names", async () => {
   const f = fixture();
   try {
     await f.service.execute("/pause clips");
     await f.service.execute("/stopp reels");
     const text = await f.service.execute("/status");
     assert.match(text, /📊 Status · So 30\. Aug/);
-    assert.match(text, /✅ Reels \(Instagram\) · angemeldet · 🛑 Kill-Switch/);
+    assert.match(text, /✅ Kunde A · Reels \(Instagram\) · angemeldet · 🛑 Kill-Switch/);
     assert.match(text, /⚠️ Clips \(TikTok\) · nicht eingerichtet · ⏸️ pausiert/);
     assert.match(text, /Heute: 0 von 0 geplanten Posts sind live/);
     assert.doesNotMatch(text, /Offene Störungen/);
@@ -136,13 +153,16 @@ test("/status reports sessions, pauses and kill switches per channel in German",
 test("/plan, /doctor and help answer read-only and unknown commands point to help", async () => {
   const f = fixture();
   try {
-    assert.match(await f.service.execute("/plan"), /📋 Tagesplan So 30\. Aug/);
+    const plan = await f.service.execute("/plan");
+    assert.match(plan, /📋 Tagesplan So 30\. Aug/);
+    assert.match(plan, /Kunde A · Reels/);
     const doctorText = await f.service.execute("/doctor");
     assert.match(doctorText, /⚠️ Doctor · Gesamt: Warnung/);
     assert.match(doctorText, /Release sha/);
     assert.match(doctorText, /🛑 Google-Drive-Zugang: Fehler/);
-    assert.match(doctorText, /✅ Reels · angemeldet · 1\/1 Routen bereit/);
+    assert.match(doctorText, /✅ Kunde A · Reels · angemeldet · 1\/1 Routen bereit/);
     assert.doesNotMatch(doctorText, /Node-Version/);
+    assert.match(await f.service.execute("/hilfe"), /\/kunden/);
     assert.match(await f.service.execute("/hilfe"), /gibt keinen Publish frei/);
     assert.match(await f.service.execute("was geht"), /Unbekannter Befehl/);
     assert.match(await f.service.execute("/status@FlerdvisionBot"), /📊 Status/);
@@ -163,5 +183,6 @@ test("a failing doctor probe answers with an error instead of throwing into the 
     });
     assert.match(await failing.execute("/doctor"), /🛑 Doctor fehlgeschlagen: spec missing/);
     assert.match(await failing.execute("/zeitplan"), /nicht verbunden/);
+    assert.match(await failing.execute("/kunden"), /nicht verbunden/);
   } finally { f.close(); }
 });
