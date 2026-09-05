@@ -167,7 +167,32 @@ test("a persisted diagnosis becomes an edit of the original Telegram incident me
     enqueueNotification: (message, channels) => { enqueued.push({ message, channels }); return []; }
   };
 
-  const report = new DiagnosisNotificationProjector(store).enqueueDiagnosed([incident.incidentId], "2026-09-05T12:02:00.000Z");
+  const projector = new DiagnosisNotificationProjector(store);
+  const started = projector.lifecycleUpdate({
+    stage: "STARTED",
+    incidentId: incident.incidentId,
+    occurrenceCount: 2,
+    at: "2026-09-05T12:01:30.000Z"
+  });
+  assert.ok(started);
+  assert.equal(started.metadata.editExternalMessageId, "77");
+  assert.equal(started.metadata.editMode, "caption");
+  assert.equal(started.metadata.lifecycleStage, "started");
+  assert.match(started.body, /Auto-Diagnose: läuft/);
+
+  const failed = projector.lifecycleUpdate({
+    stage: "FAILED",
+    incidentId: incident.incidentId,
+    occurrenceCount: 2,
+    at: "2026-09-05T12:01:45.000Z"
+  });
+  assert.ok(failed);
+  assert.equal(failed.metadata.editExternalMessageId, "77");
+  assert.equal(failed.metadata.lifecycleStage, "failed");
+  assert.match(failed.body, /keinen Blind-Retry/);
+  assert.doesNotMatch(failed.body, /provider unavailable/);
+
+  const report = projector.enqueueDiagnosed([incident.incidentId], "2026-09-05T12:02:00.000Z");
   assert.equal(report.enqueued, 1);
   assert.equal(enqueued[0].message.metadata.editExternalMessageId, "77");
   assert.equal(enqueued[0].message.metadata.editMode, "caption");
@@ -180,7 +205,10 @@ test("a persisted diagnosis becomes an edit of the original Telegram incident me
 
 test("workspace runtime source wires automatic diagnosis only as an operations decorator", () => {
   const source = readFileSync(new URL("../src/adapters/runtime/workspace-distribution-runtime.ts", import.meta.url).pathname, "utf8");
+  const autoSource = readFileSync(new URL("../src/adapters/runtime/workspace-auto-diagnosis.ts", import.meta.url).pathname, "utf8");
   assert.match(source, /createWorkspaceAutoDiagnosis/);
   assert.match(source, /new AutoDiagnosingRuntimeOperationsAdapter/);
   assert.doesNotMatch(source, /AiRepairService/);
+  assert.match(autoSource, /lifecycle:/);
+  assert.match(autoSource, /lifecycleUpdate/);
 });
