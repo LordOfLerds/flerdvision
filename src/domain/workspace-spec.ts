@@ -13,6 +13,12 @@ export interface WorkspaceSourceSpec {
   maxDepth: number;
 }
 
+/** Business grouping only. Customer metadata never participates in browser/route identity. */
+export interface WorkspaceCustomerSpec {
+  key: string;
+  name: string;
+}
+
 export interface WorkspaceFormatSettings {
   commentsEnabled?: boolean;
   shareToFeed?: boolean;
@@ -46,6 +52,8 @@ export interface WorkspaceChannelFormatSpec {
 export interface WorkspaceChannelSpec {
   key: string;
   name: string;
+  /** Business/customer grouping only; deliberately excluded from route/browser identity. */
+  customerKey: string;
   platform: Platform;
   handle: string;
   formats: readonly WorkspaceChannelFormatSpec[];
@@ -76,6 +84,7 @@ export interface WorkspaceSpecV1 {
     runtimeRoot: string;
   };
   source: WorkspaceSourceSpec;
+  customers: readonly WorkspaceCustomerSpec[];
   channels: readonly WorkspaceChannelSpec[];
   notifications: WorkspaceNotificationSpec;
   privateTest: WorkspacePrivateTestSpec;
@@ -220,7 +229,20 @@ function parseFormat(value: unknown, platformValue: Platform, path: string): Wor
   };
 }
 
-function parseChannel(value: unknown, index: number): WorkspaceChannelSpec {
+function parseCustomers(value: unknown, workspaceName: string): readonly WorkspaceCustomerSpec[] {
+  if (value === undefined) return [{ key: "default", name: workspaceName }];
+  if (!Array.isArray(value) || value.length === 0) throw new WorkspaceSpecError("customers must be a non-empty array when provided");
+  const customers = value.map((entry, index): WorkspaceCustomerSpec => {
+    const path = `customers[${index}]`;
+    const item = record(entry, path);
+    const name = requiredString(item.name, `${path}.name`);
+    return { key: identifier(item.key ?? name, `${path}.key`), name };
+  });
+  if (new Set(customers.map((customer) => customer.key)).size !== customers.length) throw new WorkspaceSpecError("customer keys must be unique");
+  return customers;
+}
+
+function parseChannel(value: unknown, index: number, customerKeys: ReadonlySet<string>, defaultCustomerKey?: string): WorkspaceChannelSpec {
   const path = `channels[${index}]`;
   const item = record(value, path);
   const platformValue = platform(item.platform, `${path}.platform`);
@@ -228,9 +250,15 @@ function parseChannel(value: unknown, index: number): WorkspaceChannelSpec {
   const formats = item.formats.map((entry, formatIndex) => parseFormat(entry, platformValue, `${path}.formats[${formatIndex}]`));
   if (new Set(formats.map((entry) => entry.type)).size !== formats.length) throw new WorkspaceSpecError(`${path}.formats contains duplicate types`);
   const handle = normalizeSocialHandle(requiredString(item.handle ?? item.name, `${path}.handle`));
+  const customerKey = item.customerKey === undefined
+    ? defaultCustomerKey
+    : identifier(item.customerKey, `${path}.customerKey`);
+  if (!customerKey) throw new WorkspaceSpecError(`${path}.customerKey is required when multiple customers exist`);
+  if (!customerKeys.has(customerKey)) throw new WorkspaceSpecError(`${path}.customerKey references unknown customer ${customerKey}`);
   return {
     key: identifier(item.key ?? `${platformValue}-${handle}`, `${path}.key`),
     name: requiredString(item.name ?? handle, `${path}.name`),
+    customerKey,
     platform: platformValue,
     handle,
     formats
@@ -241,13 +269,18 @@ export function parseWorkspaceSpec(value: unknown): WorkspaceSpecV1 {
   const root = record(value, "spec");
   if (root.schemaVersion !== 1) throw new WorkspaceSpecError("spec.schemaVersion must be 1");
   const workspace = record(root.workspace, "workspace");
+  const workspaceId = identifier(workspace.id, "workspace.id");
+  const workspaceName = requiredString(workspace.name, "workspace.name");
   const source = record(root.source, "source");
   const sourceKind = source.kind;
   if (sourceKind !== "google_drive" && sourceKind !== "local_folder") throw new WorkspaceSpecError("source.kind must be google_drive or local_folder");
   const activation = source.activation ?? "NEW_ONLY";
   if (activation !== "NEW_ONLY" && activation !== "IMPORT_BACKLOG") throw new WorkspaceSpecError("source.activation must be NEW_ONLY or IMPORT_BACKLOG");
+  const customers = parseCustomers(root.customers, workspaceName);
+  const customerKeys = new Set(customers.map((customer) => customer.key));
+  const defaultCustomerKey = customers.length === 1 ? customers[0]!.key : undefined;
   if (!Array.isArray(root.channels) || root.channels.length === 0) throw new WorkspaceSpecError("channels must be a non-empty array");
-  const channels = root.channels.map(parseChannel);
+  const channels = root.channels.map((entry, index) => parseChannel(entry, index, customerKeys, defaultCustomerKey));
   if (new Set(channels.map((channel) => channel.key)).size !== channels.length) throw new WorkspaceSpecError("channel keys must be unique");
   const accountScopes = channels.map((channel) => `${channel.platform}|${channel.handle}`);
   if (new Set(accountScopes).size !== accountScopes.length) throw new WorkspaceSpecError("each platform/handle account may appear only once; put all formats under the same channel entry");
@@ -274,8 +307,8 @@ export function parseWorkspaceSpec(value: unknown): WorkspaceSpecV1 {
   return {
     schemaVersion: 1,
     workspace: {
-      id: identifier(workspace.id, "workspace.id"),
-      name: requiredString(workspace.name, "workspace.name"),
+      id: workspaceId,
+      name: workspaceName,
       ownerEmail: ownerEmail(workspace.ownerEmail),
       timezone: optionalString(workspace.timezone, "workspace.timezone") ?? "Europe/Vienna",
       runtimeRoot: optionalString(workspace.runtimeRoot, "workspace.runtimeRoot") ?? "runtime"
@@ -287,6 +320,7 @@ export function parseWorkspaceSpec(value: unknown): WorkspaceSpecV1 {
       activation,
       maxDepth: integerValue(source.maxDepth, 4, "source.maxDepth", 1, 8)
     },
+    customers,
     channels,
     notifications: { onSuccess, onBlocked, onUncertain },
     privateTest
