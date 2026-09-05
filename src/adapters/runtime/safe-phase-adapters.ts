@@ -7,7 +7,8 @@ import type { OperationsStorePort } from "../../domain/operations-ports.js";
 import type { PublishAttemptStorePort } from "../../domain/verification-ports.js";
 import type { RuntimeDueExecutionPort, RuntimeOperationsPort, RuntimeReconciliationPort } from "../../domain/runtime-supervisor-ports.js";
 import { RestartRecoveryService } from "../../application/recovery.js";
-import { IncidentReconciliationService, OperationsCycleService, OperationsIncidentProjector } from "../../application/operations.js";
+import { IncidentReconciliationService, OperationsIncidentProjector } from "../../application/operations.js";
+import { GroupedOperationsCycleService } from "../../application/grouped-incident-notifications.js";
 import type { NotificationDispatcher } from "../../application/notifications.js";
 import { projectContentDemand } from "../../application/content-demand.js";
 import { planReadinessAttention } from "../../application/readiness-notification-planner.js";
@@ -42,7 +43,7 @@ export interface W6RuntimeOperationsOptions {
   notificationDispatcher?:NotificationDispatcher;
 }
 
-/** Projects incidents/readiness into the durable outbox, then optionally dispatches that same outbox. */
+/** Projects incidents/readiness into the durable outbox, groups duplicate technical alerts, then optionally dispatches that same outbox. */
 export class W6RuntimeOperationsAdapter implements RuntimeOperationsPort {
   constructor(private readonly store:RuntimeOperationsStore,private readonly channelKeys:readonly string[],private readonly timeZone:string="Europe/Vienna",private readonly options:W6RuntimeOperationsOptions={}){}
   async projectAndNotify(now:string){
@@ -51,7 +52,7 @@ export class W6RuntimeOperationsAdapter implements RuntimeOperationsPort {
       new IncidentReconciliationService(this.store).reconcile(timestamp,{type:"system",id:"runtime-operations"});
       incidentsCreated=new OperationsIncidentProjector(this.store).project(timestamp,{type:"system",id:"runtime-operations"}).created;
     }
-    else{incidentsCreated=new OperationsCycleService(this.store,{channelKeys:this.channelKeys,timeZone:this.timeZone,...(this.options.channels?{channels:this.options.channels}:{})}).run(timestamp,{type:"system",id:"runtime-operations"}).projection.created;}
+    else{incidentsCreated=new GroupedOperationsCycleService(this.store,{channelKeys:this.channelKeys,timeZone:this.timeZone,...(this.options.channels?{channels:this.options.channels}:{})}).run(timestamp,{type:"system",id:"runtime-operations"}).projection.created;}
     if(this.channelKeys.length>0&&this.options.distributionConfig&&this.options.distributionRuntime){
       const stored=this.options.distributionConfig.load(),readinessPolicy=stored.runtimePolicy?.readiness??DEFAULT_DISTRIBUTION_RUNTIME_POLICY.readiness,businessDate=businessDateForInstant(timestamp,readinessPolicy.timeZone),plan=this.options.distributionRuntime.latestDailyPlan(businessDate)?.plan;
       if(plan){
