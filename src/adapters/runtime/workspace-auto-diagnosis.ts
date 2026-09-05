@@ -155,13 +155,24 @@ export function createWorkspaceAutoDiagnosis(options: WorkspaceAutoDiagnosisOpti
   });
   const builder = new IncidentEvidenceBundleBuilder(options.store, new SafeLocalArtifactTextReader(options.evidenceDir));
   const runner = new PersistingIncidentDiagnosisRunner(options.store, options.store, builder, diagnosisPort);
+  const telegram = telegramAdapterFromEnv(env);
+  const projector = telegram ? new DiagnosisNotificationProjector(options.store, telegram.channelKey) : undefined;
   const coordinator = new AutoDiagnosisCoordinator(options.store, options.store, runner, {
     releaseSha: options.releaseSha,
     adapterVersion: options.adapterVersion,
-    maxPerCycle: 1
+    maxPerCycle: 1,
+    ...(telegram && projector ? {
+      lifecycle: {
+        async onLifecycle(event) {
+          if (event.stage === "DIAGNOSED") return;
+          const update = projector.lifecycleUpdate(event, event.at);
+          if (!update) return;
+          try { await telegram.send(update); }
+          catch { /* transient lifecycle edits never affect diagnosis or publishing */ }
+        }
+      }
+    } : {})
   });
-  const telegram = telegramAdapterFromEnv(env);
-  const projector = telegram ? new DiagnosisNotificationProjector(options.store, telegram.channelKey) : undefined;
   const dispatcher = telegram ? new NotificationDispatcher(options.store, [telegram]) : undefined;
   return new WorkspaceAutoDiagnosisLifecycle(coordinator, projector, dispatcher);
 }
