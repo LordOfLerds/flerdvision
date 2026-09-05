@@ -148,6 +148,15 @@ function stageFor(input: Omit<HeadlessOnboardingStatus, "stage" | "ready" | "nex
   return { stage: "READY" };
 }
 
+async function activationIsLive(bootstrap: HeadlessBootstrapResult, env: Record<string, string | undefined>): Promise<boolean> {
+  const config = new JsonDistributionConfigurationStore(resolve(bootstrap.configDir, "distribution.json")).load();
+  const activation = new WorkspaceSourceActivationCommands({ runtimeRoot: bootstrap.runtimeRoot, workspaceId: bootstrap.spec.workspace.id, env });
+  try {
+    const statuses = config.config.lanes.filter((lane) => lane.enabled).map((lane) => activation.status(lane.laneId));
+    return statuses.length > 0 && statuses.every((status) => status.state === "CAPTURED" || status.state === "NOT_REQUIRED");
+  } finally { activation.close(); }
+}
+
 /**
  * Resumable setup state derived from real workspace facts plus three human confirmations. The file
  * never stores OAuth/Telegram secrets. Root/topology confirmations automatically become stale when
@@ -173,6 +182,7 @@ export class HeadlessOnboardingService {
     const rootFp = rootFingerprint(spec, bootstrap.topology);
     const topologyFp = topologyFingerprint(bootstrap.topology);
     const activationFp = activationFingerprint(bootstrap);
+    const activationLive = await activationIsLive(bootstrap, this.env);
     const telegramFp = telegramFingerprint(this.env);
     const base = {
       workspaceName: spec.workspace.name,
@@ -183,7 +193,7 @@ export class HeadlessOnboardingService {
       rootConfirmed: persisted.rootFingerprint === rootFp,
       topologyVerified: bootstrap.topology.verified,
       topologyConfirmed: bootstrap.topology.verified && persisted.topologyFingerprint === topologyFp,
-      activationConfirmed: persisted.activationFingerprint === activationFp,
+      activationConfirmed: activationLive && persisted.activationFingerprint === activationFp,
       accountsLoggedIn: accountLoginReady(doctor),
       telegramConfigured: Boolean(telegramFp),
       telegramTested: Boolean(telegramFp && persisted.telegramFingerprint === telegramFp),
