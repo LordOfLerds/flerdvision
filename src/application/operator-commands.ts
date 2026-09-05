@@ -2,6 +2,7 @@ import type { StoredBrowserIdentity, SessionHealthCheck } from "../domain/browse
 import type { KillSwitch, KillSwitchScopeType } from "../domain/operations.js";
 import type { SchedulePauseStorePort } from "../domain/operator-ports.js";
 import type { HeadlessDoctorReport } from "./headless-status.js";
+import type { ScheduleCommandService } from "./schedule-commands.js";
 import { businessDateForInstant } from "../domain/scheduling.js";
 import { collectOperatorPlanView, describeDrivePipeline, renderOperatorPlan, type OperatorChannelRef, type OperatorPlanViewStores } from "./operator-plan-view.js";
 import { germanBlocker, germanDayLabel, germanDoctorCheck, germanPlatformLabel, germanState, operatorMessageText, renderOperatorMessage } from "./operator-message.js";
@@ -21,6 +22,8 @@ export interface OperatorCommandDeps {
   pauses: SchedulePauseStorePort;
   killSwitches: OperatorKillSwitchWriter;
   doctor: () => HeadlessDoctorReport;
+  /** Same canonical schedule service the CLI uses; absent means this installation is read-only. */
+  scheduleCommands?: Pick<ScheduleCommandService, "show" | "add" | "remove" | "capacity">;
   timeZone: string;
   clock?: () => string;
   operatorId?: string;
@@ -35,20 +38,24 @@ const HELP_TEXT = [
   "ℹ️ Flerdvision Operator-Befehle:",
   "/status — Kanäle, Sessions, heutiger Stand",
   "/plan — Tagesplan mit Checkliste",
+  "/zeitplan — feste Posting-Zeiten anzeigen",
+  "/slot <kanal> + <HH:mm> — Slot hinzufügen",
+  "/slot <kanal> - <HH:mm> — Slot entfernen",
+  "/limit <kanal> <anzahl> — Anzahl Tages-Slots erhöhen",
   "/doctor — Readiness-Prüfung",
   "/pause <kanal|alle> — Zeitplan pausieren",
   "/fortsetzen <kanal|alle> — Zeitplan fortsetzen",
   "/stopp <kanal|alle> — Kill-Switch AKTIVIEREN (Not-Aus)",
   "",
-  "Der Bot postet nie und gibt nichts frei. Kill-Switch deaktivieren geht nur im Terminal."
+  "Zeitplan-Befehle ändern nur die kanonische Planung; bereits materialisierte heutige Posts bleiben aus Sicherheitsgründen bestehen. /pause stoppt fällige Posts sofort.",
+  "Der Bot gibt keinen Publish frei. Kill-Switch deaktivieren geht nur im Terminal."
 ].join("\n");
 
 /**
  * Executes the operator's chat commands against the persisted stores and answers in compact
- * German. Strictly read-only except for two reversible-by-design writes: schedule pauses
- * (both directions) and kill switches (ENABLE ONLY -- disabling a kill switch from chat is
- * forbidden by decision 2026-08-30 and has no code path here). The service can neither publish,
- * approve, resume PUBLISH_UNCERTAIN, nor touch qualification/evidence state.
+ * German. Schedule edits, when configured, go through the exact same ScheduleCommandService as
+ * the CLI. Kill switches remain ENABLE ONLY from chat. The service can neither publish, approve,
+ * resume PUBLISH_UNCERTAIN, nor touch qualification/evidence state.
  */
 export class OperatorCommandService {
   private readonly clock: () => string;
@@ -67,6 +74,9 @@ export class OperatorCommandService {
       case "/start": case "/hilfe": case "/help": return HELP_TEXT;
       case "/status": return this.status();
       case "/plan": return this.plan();
+      case "/zeitplan": return this.schedule();
+      case "/slot": return await this.slot(tokens.slice(1));
+      case "/limit": return await this.limit(tokens.slice(1));
       case "/doctor": return this.doctor();
       case "/pause": return this.pause(argument);
       case "/fortsetzen": return this.resume(argument);
@@ -81,9 +91,6 @@ export class OperatorCommandService {
     if (!argument) return `⚠️ Kanal fehlt. ${verb} <kanal>. Verfügbar: ${this.channelList()}`;
     const normalized = argument.toLocaleLowerCase("en-US");
     if (normalized === "alle" || normalized === "*") return { scopeKey: "*", channelKey: "alle", label: "ALLE Kanäle" };
-    // The chat accepts the key, the key without its platform prefix (that is how the sanitized
-    // messages print it: "tiktok-clips" → "clips"), or the channel's display name. A person
-    // types what they read; a printed "/fortsetzen clips" must work.
     const short = (key: string) => key.toLocaleLowerCase("en-US").replace(/^(instagram|tiktok|youtube)-/, "");
     const matches = this.deps.channels.filter((item) =>
       item.key.toLocaleLowerCase("en-US") === normalized || short(item.key) === normalized || item.name.toLocaleLowerCase("en-US") === normalized);
@@ -115,7 +122,6 @@ export class OperatorCommandService {
     const blocked = view.entries.filter((entry) => entry.state === "BLOCKED").length;
     const uncertain = view.entries.filter((entry) => entry.state === "PUBLISH_UNCERTAIN").length;
     lines.push(`Heute: ${verified} von ${view.entries.length} geplanten Posts sind live · ${blocked} blockiert · ${uncertain} unsicher`);
-    // Only real, open, operator-owned disturbances count; a silent line is the good news.
     if (view.disturbances.length > 0) lines.push(`Offene Störungen: ${view.disturbances.length}`);
     lines.push(describeDrivePipeline(view.pipeline));
     if (uncertain > 0) lines.push("🛑 Unsichere Posts sind eingefroren — sie warten auf eine Prüfung von Hand.");
@@ -133,12 +139,55 @@ export class OperatorCommandService {
     );
   }
 
+  private schedule(): string {
+    if (!this.deps.scheduleCommands) return "⚠️ Zeitplan-Änderungen sind in dieser Installation nicht verbunden.";
+    try {
+      const views = this.deps.scheduleCommands.show();
+      const lines = views.map((item) => `• ${item.channelName} · ${item.format}: ${item.times.join(", ")} (${item.capacity}/Tag)`);
+      return ["🗓️ Zeitplan", ...lines, "", "Ändern: /slot <kanal> +|- <HH:mm> · /limit <kanal> <anzahl>"].join("\n");
+    } catch (error) {
+      return `⚠️ Zeitplan konnte nicht gelesen werden: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+
+  private async slot(args: readonly string[]): Promise<string> {
+    if (!this.deps.scheduleCommands) return "⚠️ Zeitplan-Änderungen sind in dieser Installation nicht verbunden.";
+    if (args.length !== 3 || (args[1] !== "+" && args[1] !== "-")) return "⚠️ Verwendung: /slot <kanal[/format]> +|- <HH:mm>";
+    try {
+      const result = args[1] === "+"
+        ? await this.deps.scheduleCommands.add(args[0]!, args[2]!)
+        : await this.deps.scheduleCommands.remove(args[0]!, args[2]!);
+      return [
+        `✅ Zeitplan aktualisiert: ${result.channelName} · ${result.format}`,
+        `Slots: ${result.times.join(", ")}`,
+        "Bereits materialisierte heutige Posts bleiben bestehen. /pause stoppt fällige Posts sofort."
+      ].join("\n");
+    } catch (error) {
+      return `⚠️ Zeitplan nicht geändert: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+
+  private async limit(args: readonly string[]): Promise<string> {
+    if (!this.deps.scheduleCommands) return "⚠️ Zeitplan-Änderungen sind in dieser Installation nicht verbunden.";
+    if (args.length !== 2) return "⚠️ Verwendung: /limit <kanal[/format]> <anzahl>";
+    const desired = Number(args[1]);
+    if (!Number.isInteger(desired)) return "⚠️ Die Anzahl muss eine ganze Zahl sein.";
+    try {
+      const result = await this.deps.scheduleCommands.capacity(args[0]!, desired);
+      return [
+        `✅ Kapazität aktualisiert: ${result.channelName} · ${result.capacity} Slots/Tag`,
+        `Slots: ${result.times.join(", ")}`,
+        "Zum Verkleinern Slots bewusst mit /slot ... - ... entfernen."
+      ].join("\n");
+    } catch (error) {
+      return `⚠️ Kapazität nicht geändert: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+
   private doctor(): string {
     let report: HeadlessDoctorReport;
     try { report = this.deps.doctor(); }
     catch (error) { return `🛑 Doctor fehlgeschlagen: ${error instanceof Error ? error.message : String(error)}`; }
-    // German sentences for the operator, but the release SHA stays verbatim: it is the one value
-    // a qualification argument actually turns on.
     const lines = [`Release ${report.releaseSha}`];
     for (const check of report.checks.filter((item) => item.status !== "PASS").slice(0, 10)) {
       lines.push(`${DOCTOR_BADGE[check.status] ?? "⚠️"} ${germanDoctorCheck(check.key)}: ${germanState(check.status)}`);
