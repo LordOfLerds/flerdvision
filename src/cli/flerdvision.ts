@@ -45,6 +45,9 @@ function releaseSha(argv: readonly string[]): string {
   if (run.status !== 0 || !run.stdout.trim()) throw new Error("Could not determine exact release SHA; use --release-sha or FLERDVISION_RELEASE_SHA");
   return run.stdout.trim();
 }
+function onboardingReleaseSha(argv: readonly string[]): string {
+  return (value(argv, "--release-sha") ?? process.env.FLERDVISION_RELEASE_SHA)?.trim() || "ONBOARDING_SETUP";
+}
 function authorizedMode(argv: readonly string[]): "canary" | "production" {
   const mode = value(argv, "--mode") ?? "canary";
   if (mode !== "canary" && mode !== "production") throw new Error("--mode must be canary or production");
@@ -73,11 +76,9 @@ async function main(): Promise<void> {
   const [command, ...argv] = process.argv.slice(2);
   if (!command || command === "help" || flag(argv, "--help")) return usage();
   const specPath = canonicalSpecPath(argv);
-  // One canonical spec path for the entire process. In particular Telegram schedule commands must
-  // see the same file even when the operator supplied it with --spec instead of an env variable.
   process.env.FLERDVISION_SPEC = specPath;
   if (command === "setup") {
-    await runSetupCli(argv, specPath, releaseSha(argv), { env: process.env });
+    await runSetupCli(argv, specPath, onboardingReleaseSha(argv), { env: process.env });
     return;
   }
   if (command === "schedule" || command === "capacity") {
@@ -141,8 +142,6 @@ async function main(): Promise<void> {
     return;
   }
   if (command === "demo" || command === "auto") {
-    // A demo (and the private E2E it carries) is watched by a human afterwards. Recording, when
-    // enabled, is only a bounded diagnostic tail; it never participates in a publish decision.
     applyScreencastDefault(process.env, true);
     const spec = loadWorkspaceSpecFile(specPath);
     const selected = values(argv, "--channel");
@@ -173,9 +172,13 @@ async function main(): Promise<void> {
       body: "Der Telegram-Kanal ist verbunden. Ab jetzt melden sich Posts, Plan und Störungen hier.",
       metadata: {}
     });
-    // Only a real successful Telegram API receipt satisfies the onboarding gate.
-    await new HeadlessOnboardingService({ specPath, releaseSha: releaseSha(argv), env: process.env }).markTelegramTested();
-    console.log(`Telegram OK${receipt.externalMessageId ? ` · message_id ${receipt.externalMessageId}` : ""}`);
+    let markerWarning: string | undefined;
+    try {
+      await new HeadlessOnboardingService({ specPath, releaseSha: onboardingReleaseSha(argv), env: process.env }).markTelegramTested();
+    } catch (error) {
+      markerWarning = error instanceof Error ? error.message : String(error);
+    }
+    console.log(`Telegram OK${receipt.externalMessageId ? ` · message_id ${receipt.externalMessageId}` : ""}${markerWarning ? `\n⚠️ Setup-Status konnte danach nicht gespeichert werden: ${markerWarning}. Die Nachricht wurde bereits erfolgreich gesendet; nicht erneut senden.` : ""}`);
     return;
   }
   if (command === "verify") {
@@ -205,12 +208,7 @@ async function main(): Promise<void> {
       operatorId: "headless-cleanup"
     });
     try {
-      commands.confirmCleanup(
-        required(argv, "--run-id"),
-        required(argv, "--confirm"),
-        required(argv, "--note"),
-        new Date().toISOString()
-      );
+      commands.confirmCleanup(required(argv, "--run-id"), required(argv, "--confirm"), required(argv, "--note"), new Date().toISOString());
     } finally { await commands.close(); }
     console.log(JSON.stringify({ cleanup: "PASS", doctor: inspectHeadlessWorkspace({ specPath, releaseSha: sha }) }, null, 2));
     return;
@@ -239,11 +237,7 @@ async function main(): Promise<void> {
       const abort = () => { signal.aborted = true; };
       process.on("SIGINT", abort);
       process.on("SIGTERM", abort);
-      await runtime.runDaemon({
-        intervalSeconds: positiveInteger(value(argv, "--interval"), 60, "--interval", 15, 3600),
-        signal,
-        onCycle: (report) => console.log(JSON.stringify(report))
-      });
+      await runtime.runDaemon({ intervalSeconds: positiveInteger(value(argv, "--interval"), 60, "--interval", 15, 3600), signal, onCycle: (report) => console.log(JSON.stringify(report)) });
       return;
     } finally { await runtime.close(); }
   }
