@@ -122,5 +122,6 @@ test("invoke clicks, captures, settles, captures again, and only then releases",
 
 test("the settlement outcome reaches the evidence trail", () => {
   assert.match(source, /positive:settlement\.settled/);
-  assert.match(source, /note:settlement\.note/);
+  assert.match(source, /note:`\$\{settlement\.note\}/);
+  assert.match(source, /Post-action URL hint:/);
 });
