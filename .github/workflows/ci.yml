@@ -44,8 +44,11 @@ jobs:
           test "${ALLOW_FINAL_PUBLISH}" = "false"
           test -x "${CHROMIUM_EXECUTABLE_PATH}"
 
-      - name: Build and run complete suite
-        run: npm test
+      - name: Build TypeScript
+        run: npm run build
+
+      - name: Run complete test suite
+        run: node --test tests/*.test.mjs
 
       - name: Validate architecture JSON
         run: |
