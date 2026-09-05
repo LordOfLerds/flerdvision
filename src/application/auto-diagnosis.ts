@@ -12,10 +12,25 @@ export interface IncidentDiagnosisRunnerPort {
   ): Promise<{ verdict: RepairPolicyVerdict }>;
 }
 
+export type AutoDiagnosisLifecycleStage = "STARTED" | "DIAGNOSED" | "FAILED";
+
+export interface AutoDiagnosisLifecycleEvent {
+  stage: AutoDiagnosisLifecycleStage;
+  incidentId: string;
+  occurrenceCount: number;
+  at: string;
+  verdict?: RepairPolicyVerdict;
+}
+
+export interface AutoDiagnosisLifecyclePort {
+  onLifecycle(event: AutoDiagnosisLifecycleEvent): Promise<void> | void;
+}
+
 export interface AutoDiagnosisCoordinatorOptions {
   releaseSha: string;
   adapterVersion: string;
   maxPerCycle?: number;
+  lifecycle?: AutoDiagnosisLifecyclePort;
 }
 
 export interface AutoDiagnosisCycleReport {
@@ -63,7 +78,8 @@ function latestDiagnosisAt(store: RepairStorePort, incidentId: string): string |
  * diagnosis eligible. Failures are contained per incident and can retry on a later cycle.
  *
  * This coordinator diagnoses only. It cannot create a repair branch, replay a surface, authorize
- * final publish, resume an intent, or promote code/configuration.
+ * final publish, resume an intent, or promote code/configuration. Lifecycle observers are optional,
+ * receive no raw provider error, and are fail-soft so they cannot change the diagnosis result.
  */
 export class AutoDiagnosisCoordinator {
   private readonly inFlight = new Set<string>();
@@ -83,6 +99,11 @@ export class AutoDiagnosisCoordinator {
     }
   }
 
+  private async emitLifecycle(event: AutoDiagnosisLifecycleEvent): Promise<void> {
+    try { await this.options.lifecycle?.onLifecycle(event); }
+    catch { /* operator lifecycle is observability only */ }
+  }
+
   async run(now: string, actor: Actor = { type: "system", id: "auto-diagnosis" }): Promise<AutoDiagnosisCycleReport> {
     const timestamp = new Date(now).toISOString();
     const unresolved = [...this.incidents.listIncidents(["OPEN", "ACKNOWLEDGED"])]
@@ -100,16 +121,24 @@ export class AutoDiagnosisCoordinator {
 
       attempted += 1;
       this.inFlight.add(incident.incidentId);
+      const lifecycleBase = {
+        incidentId: incident.incidentId,
+        occurrenceCount: incident.occurrenceCount,
+        at: timestamp
+      };
+      await this.emitLifecycle({ stage: "STARTED", ...lifecycleBase });
       try {
-        await this.runner.diagnoseIncident(incident.incidentId, {
+        const result = await this.runner.diagnoseIncident(incident.incidentId, {
           now: timestamp,
           releaseSha: this.options.releaseSha,
           adapterVersion: this.options.adapterVersion
         }, actor);
         diagnosedIncidentIds.push(incident.incidentId);
+        await this.emitLifecycle({ stage: "DIAGNOSED", ...lifecycleBase, verdict: result.verdict });
       } catch {
         failed += 1;
         failedIncidentIds.push(incident.incidentId);
+        await this.emitLifecycle({ stage: "FAILED", ...lifecycleBase });
       } finally {
         this.inFlight.delete(incident.incidentId);
       }
