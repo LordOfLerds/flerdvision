@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { AutoDiagnosisLifecycleEvent } from "./auto-diagnosis.js";
 import { sanitizeOperatorText } from "./operator-message.js";
 import { RepairPolicy } from "./ai-repair.js";
 import type { Actor } from "../domain/control-plane.js";
@@ -34,14 +35,26 @@ export interface DiagnosisNotificationProjectionReport {
 }
 
 /**
- * Turns a persisted diagnosis into an edit of the incident's already-sent Telegram message.
- * The original Telegram message_id is reused from the durable notification delivery; no parallel
- * chat-state table exists. Only sanitized diagnosis text is rendered back to the operator.
+ * Turns diagnosis lifecycle into edits of the incident's already-sent Telegram message.
+ * STARTED/FAILED are transient operator projections. DIAGNOSED remains durable through the outbox.
+ * The original Telegram message_id is reused; there is no parallel chat-state table.
  */
 export class DiagnosisNotificationProjector {
   private readonly policy = new RepairPolicy();
 
   constructor(private readonly store: DiagnosisNotificationStore, private readonly channelKey = "telegram") {}
+
+  lifecycleUpdate(event: AutoDiagnosisLifecycleEvent, now = event.at): NotificationMessage | undefined {
+    if (event.stage === "DIAGNOSED") return undefined;
+    const incident = this.store.getIncident(event.incidentId);
+    if (!incident || incident.occurrenceCount !== event.occurrenceCount) return undefined;
+    const original = this.originalTelegramDelivery(event.incidentId, event.occurrenceCount);
+    if (!original) return undefined;
+    const line = event.stage === "STARTED"
+      ? "Auto-Diagnose: läuft. Du musst aktuell nichts tun."
+      : "Auto-Diagnose: technisch nicht abgeschlossen. Der geschützte Zustand bleibt unverändert; es gibt keinen Blind-Retry.";
+    return this.lifecycleMessage(original.message, original.delivery, event, line, now);
+  }
 
   enqueueDiagnosed(
     incidentIds: readonly string[],
@@ -78,6 +91,33 @@ export class DiagnosisNotificationProjector {
       return { message, delivery };
     }
     return undefined;
+  }
+
+  private lifecycleMessage(
+    original: NotificationMessage,
+    delivery: NotificationDelivery,
+    event: AutoDiagnosisLifecycleEvent,
+    line: string,
+    now: string
+  ): NotificationMessage {
+    const photo = typeof original.metadata.screenshotPath === "string";
+    return {
+      notificationId: stableId("notification", `diagnosis-lifecycle|${event.stage}|${event.incidentId}|${event.occurrenceCount}|${delivery.externalMessageId}`),
+      dedupeKey: `diagnosis-lifecycle:${event.stage}:${event.incidentId}:${event.occurrenceCount}:${this.channelKey}`,
+      kind: "INCIDENT",
+      severity: original.severity,
+      createdAt: new Date(now).toISOString(),
+      subject: original.subject,
+      body: [original.body.trim(), "", line].join("\n"),
+      ...(original.incidentId ? { incidentId: original.incidentId } : {}),
+      ...(original.intentId ? { intentId: original.intentId } : {}),
+      ...(original.accountId ? { accountId: original.accountId } : {}),
+      metadata: {
+        editExternalMessageId: delivery.externalMessageId!,
+        editMode: photo ? "caption" : "text",
+        lifecycleStage: event.stage.toLowerCase()
+      }
+    };
   }
 
   private updateMessage(
