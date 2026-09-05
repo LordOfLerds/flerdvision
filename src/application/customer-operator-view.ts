@@ -1,4 +1,4 @@
-import type { OperatorPlanView } from "./operator-plan-view.js";
+import type { OperatorChannelRef, OperatorPlanView } from "./operator-plan-view.js";
 import type { ScheduleTargetView } from "./schedule-commands.js";
 
 export interface OperatorCustomerRef {
@@ -28,6 +28,16 @@ export function customerChannelLabel(channelKey: string, channelName: string, vi
   return customer ? `${customer.customerName} · ${channelName}` : channelName;
 }
 
+export function customerAwareChannels(
+  channels: readonly OperatorChannelRef[],
+  scheduleViews: readonly ScheduleTargetView[]
+): readonly OperatorChannelRef[] {
+  return channels.map((channel) => ({
+    ...channel,
+    name: customerChannelLabel(channel.key, channel.name, scheduleViews)
+  }));
+}
+
 /**
  * Business overlay only: it never changes intent identity, times, state, evidence or ordering.
  * The ordinary plan renderer remains authoritative for all status/safety wording.
@@ -38,9 +48,24 @@ export function customerAwarePlanView(view: OperatorPlanView, scheduleViews: rea
     const customer = customers.get(channelKey);
     return customer ? `${customer.customerName} · ${channelName}` : channelName;
   };
+  const entries = view.entries.map((entry) => ({ ...entry, channelName: label(entry.channelKey, entry.channelName) }));
+  const channelGaps = view.channelGaps.map((gap) => ({ ...gap, channelName: label(gap.channelKey, gap.channelName) }));
+  const nextSlotEntries = view.nextSlot
+    ? entries.filter((entry) => entry.timeLocal === view.nextSlot!.timeLocal)
+    : [];
   return {
     ...view,
-    entries: view.entries.map((entry) => ({ ...entry, channelName: label(entry.channelKey, entry.channelName) })),
-    channelGaps: view.channelGaps.map((gap) => ({ ...gap, channelName: label(gap.channelKey, gap.channelName) }))
+    entries,
+    channelGaps,
+    ...(view.nextSlot
+      ? {
+          nextSlot: {
+            ...view.nextSlot,
+            channelNames: nextSlotEntries.length > 0
+              ? [...new Set(nextSlotEntries.map((entry) => entry.channelName))]
+              : view.nextSlot.channelNames
+          }
+        }
+      : {})
   };
 }
