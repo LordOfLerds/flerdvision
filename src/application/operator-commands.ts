@@ -25,6 +25,8 @@ export interface OperatorCommandDeps {
   doctor: () => HeadlessDoctorReport;
   /** Same canonical schedule service the CLI uses; absent means this installation is read-only. */
   scheduleCommands?: Pick<ScheduleCommandService, "show" | "add" | "remove" | "capacity">;
+  /** Authenticated/private remote-browser URL; never a raw public noVNC endpoint. */
+  remoteScreenUrl?: string;
   timeZone: string;
   clock?: () => string;
   operatorId?: string;
@@ -34,6 +36,7 @@ const SESSION_BADGE: Readonly<Record<string, string>> = {
   HEALTHY: "✅", AUTH_REQUIRED: "🛑", CHALLENGE: "🛑", IDENTITY_MISMATCH: "🛑", UNREACHABLE: "⚠️", UNKNOWN: "⚠️", MISSING: "⚠️"
 };
 const DOCTOR_BADGE: Readonly<Record<string, string>> = { PASS: "✅", WARN: "⚠️", FAIL: "🛑" };
+const HUMAN_SESSION_STATES = new Set<SessionHealthCheck["state"]>(["AUTH_REQUIRED", "CHALLENGE", "IDENTITY_MISMATCH"]);
 
 const HELP_TEXT = [
   "ℹ️ Flerdvision Operator-Befehle:",
@@ -41,6 +44,7 @@ const HELP_TEXT = [
   "/plan — Tagesplan mit Checkliste",
   "/kunden — kompakter Stand pro Kunde",
   "/kunde <name> — ein Kunde mit Zeiten und heutigem Plan",
+  "/browser — privaten Remote-Browser für Login/2FA öffnen",
   "/zeitplan — feste Posting-Zeiten anzeigen",
   "/slot <kanal> + <HH:mm> — Slot hinzufügen",
   "/slot <kanal> - <HH:mm> — Slot entfernen",
@@ -79,6 +83,7 @@ export class OperatorCommandService {
       case "/plan": return this.plan();
       case "/kunden": return this.customers();
       case "/kunde": return this.customer(tokens.slice(1).join(" "));
+      case "/browser": return this.browser();
       case "/zeitplan": return this.schedule();
       case "/slot": return await this.slot(tokens.slice(1));
       case "/limit": return await this.limit(tokens.slice(1));
@@ -130,6 +135,7 @@ export class OperatorCommandService {
     const view = customerAwarePlanView(this.rawPlan(), scheduleViews);
     const identities = this.deps.stores.control.listBrowserIdentities();
     const lines: string[] = [];
+    const needsHuman: string[] = [];
     for (const channel of this.deps.channels) {
       const identity = identities.find((item) => item.identity.accountId === channel.accountId);
       const health = identity ? this.deps.stores.control.latestSessionHealth(identity.identity.identityId) : null;
@@ -139,6 +145,10 @@ export class OperatorCommandService {
         item.scopeType === "GLOBAL" || (item.scopeType === "ACCOUNT" && item.scopeKey === channel.accountId) || (item.scopeType === "PLATFORM" && item.scopeKey === channel.platform));
       const label = customerChannelLabel(channel.key, channel.name, scheduleViews);
       lines.push(`${SESSION_BADGE[state] ?? "⚠️"} ${label} (${germanPlatformLabel(channel.platform)}) · ${germanState(state)}${paused ? " · ⏸️ pausiert" : ""}${stopped ? " · 🛑 Kill-Switch" : ""}`);
+      if (health && HUMAN_SESSION_STATES.has(health.state)) needsHuman.push(`${label} (${germanPlatformLabel(channel.platform)})`);
+    }
+    if (needsHuman.length > 0 && this.deps.remoteScreenUrl?.trim()) {
+      lines.push(`🔐 Remote-Browser: ${this.deps.remoteScreenUrl.trim()}`);
     }
     const verified = view.entries.filter((entry) => entry.state === "VERIFIED").length;
     const blocked = view.entries.filter((entry) => entry.state === "BLOCKED").length;
@@ -152,6 +162,27 @@ export class OperatorCommandService {
       lines,
       ...(view.nextSlot ? { nextSlot: view.nextSlot } : {})
     }));
+  }
+
+  private browser(): string {
+    const url = this.deps.remoteScreenUrl?.trim();
+    if (!url) return "⚠️ Remote-Browser ist in dieser Installation nicht konfiguriert.";
+    const scheduleViews = this.scheduleViews();
+    const identities = this.deps.stores.control.listBrowserIdentities();
+    const needsHuman: string[] = [];
+    for (const channel of this.deps.channels) {
+      const identity = identities.find((item) => item.identity.accountId === channel.accountId);
+      const health = identity ? this.deps.stores.control.latestSessionHealth(identity.identity.identityId) : null;
+      if (!health || !HUMAN_SESSION_STATES.has(health.state)) continue;
+      const label = customerChannelLabel(channel.key, channel.name, scheduleViews);
+      needsHuman.push(`${label} (${germanPlatformLabel(channel.platform)}) — ${germanState(health.state)}`);
+    }
+    return [
+      "🔐 Remote-Browser",
+      url,
+      "",
+      ...(needsHuman.length > 0 ? ["Braucht gerade Hilfe:", ...needsHuman.map((line) => `• ${line}`)] : ["Aktuell braucht kein Kanal einen Login oder eine Sicherheitsabfrage."])
+    ].join("\n");
   }
 
   private plan(): string {
