@@ -1,11 +1,11 @@
 import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { BrowserScreencastPort, BrowserScreencastStartOptions } from "../../domain/browser-identity-ports.js";
 import { resolveFfmpegExecutablePath } from "../media/resolve-ffmpeg.js";
 
 /**
- * An optional MP4 of what the browser did during a run leg, written next to the screenshots the
+ * An optional MP4 of the final moments of a browser run leg, written next to the screenshots the
  * same leg already produces. It is evidence for a human, never input to a decision: every path
  * here fails open, so a broken or absent recorder can only cost the recording, never the run.
  */
@@ -18,6 +18,8 @@ export interface ScreencastCdpClient {
 }
 
 export const SCREENCAST_DEFAULTS = { maxWidth: 960, quality: 60, fps: 2 } as const;
+/** Keep only the part a human needs to understand where a run failed. */
+export const SCREENCAST_DIAGNOSTIC_SECONDS = 30;
 /** Chromium feeds the screencast from the compositor; everyNthFrame is a divisor of that rate. */
 export const SCREENCAST_SOURCE_FPS = 30;
 /** ffmpeg must not be able to hang a run leg's teardown; assembly is bounded like every other step. */
@@ -51,7 +53,16 @@ interface ActiveRecording {
   outputPath: string;
   fps: number;
   frames: number;
+  maxFrames: number;
+  framePaths: string[];
   handler: (params: Record<string, unknown>) => void;
+}
+
+function normalizeRetainedFrames(state: ActiveRecording): void {
+  state.framePaths.forEach((path, index) => {
+    const target = join(state.frameDir, `frame-${String(index).padStart(6, "0")}.jpg`);
+    if (path !== target) renameSync(path, target);
+  });
 }
 
 export class CdpScreencastRecorder implements BrowserScreencastPort {
@@ -61,9 +72,9 @@ export class CdpScreencastRecorder implements BrowserScreencastPort {
   constructor(private readonly client: ScreencastCdpClient, private readonly log: (message: string) => void = defaultLog) {}
 
   /**
-   * Starts a jpeg screencast. A nested start (an outer run leg is already recording the same
-   * page while an inner step asks for its own recording) is deliberately a no-op: restarting
-   * would split the outer file, and the outer leg is the one that owns the session.
+   * Starts a jpeg screencast. Frames are kept as a rolling diagnostic tail instead of retaining
+   * the whole browser run. A nested start is deliberately a no-op: restarting would split the
+   * outer file, and the outer leg is the one that owns the session.
    */
   async start(options: BrowserScreencastStartOptions): Promise<void> {
     if (this.active) { this.nested += 1; return; }
@@ -77,14 +88,22 @@ export class CdpScreencastRecorder implements BrowserScreencastPort {
         outputPath: join(options.dir, `${safeSegment(options.name)}.mp4`),
         fps,
         frames: 0,
+        maxFrames: Math.max(1, Math.ceil(fps * SCREENCAST_DIAGNOSTIC_SECONDS)),
+        framePaths: [],
         handler: () => {}
       };
       state.handler = (params) => {
         const data = typeof params.data === "string" ? params.data : "";
         if (data) {
           try {
-            writeFileSync(join(state.frameDir, `frame-${String(state.frames).padStart(6, "0")}.jpg`), data, { encoding: "base64", mode: 0o600 });
+            const framePath = join(state.frameDir, `frame-${String(state.frames).padStart(6, "0")}.jpg`);
+            writeFileSync(framePath, data, { encoding: "base64", mode: 0o600 });
             state.frames += 1;
+            state.framePaths.push(framePath);
+            while (state.framePaths.length > state.maxFrames) {
+              const stale = state.framePaths.shift();
+              if (stale) { try { rmSync(stale, { force: true }); } catch {} }
+            }
           } catch {}
         }
         // Without the acknowledgement Chromium sends exactly one frame and then goes quiet, so
@@ -109,7 +128,7 @@ export class CdpScreencastRecorder implements BrowserScreencastPort {
     }
   }
 
-  /** Stops the screencast and assembles the frames. Returns the MP4 path, or null for any reason. */
+  /** Stops the screencast and assembles only the retained diagnostic tail. */
   async stop(): Promise<string | null> {
     if (this.nested > 0) { this.nested -= 1; return null; }
     const state = this.active;
@@ -118,7 +137,7 @@ export class CdpScreencastRecorder implements BrowserScreencastPort {
     try { this.client.off("Page.screencastFrame", state.handler); } catch {}
     try { await this.client.send("Page.stopScreencast"); } catch {}
     try {
-      if (state.frames === 0) { this.log("screencast: no frames arrived; no recording written"); return null; }
+      if (state.framePaths.length === 0) { this.log("screencast: no frames arrived; no recording written"); return null; }
       let ffmpeg: string;
       try {
         ffmpeg = resolveFfmpegExecutablePath();
@@ -126,6 +145,7 @@ export class CdpScreencastRecorder implements BrowserScreencastPort {
         this.log(`screencast: ${reason(error)} -- ${state.frames} captured frames discarded, the run is unaffected`);
         return null;
       }
+      normalizeRetainedFrames(state);
       const exitCode = await runFfmpeg(ffmpeg, [
         "-y", "-nostdin", "-loglevel", "error",
         "-framerate", String(state.fps),
