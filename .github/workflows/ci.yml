@@ -47,6 +47,12 @@ jobs:
       - name: Build TypeScript
         run: npm run build
 
+      - name: WP3 cross-account isolation regression
+        run: node --test tests/r7-due-worker-isolation.test.mjs
+
+      - name: Existing authorized due-worker regressions
+        run: node --test tests/r7-authorized-due-execution.test.mjs
+
       - name: Run complete test suite
         run: node --test tests/*.test.mjs
 
