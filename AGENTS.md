@@ -3,13 +3,14 @@
 ## Read order
 1. `docs/00-NORTH-STAR.md`
 2. `docs/22-ENGINEERING-EXECUTION-PROTOCOL.md`
-3. **On `rebuild/headless-agentic-v1` while finish issues #4–#7 are open: `docs/FINISH-LINE.md` before choosing or expanding work.** The old audit issue #2 is superseded and is not a current backlog.
-4. `docs/01-ARCHITECTURE-GRAPH.md`
-5. `docs/02-PORTS-AND-ADAPTERS.md`
-6. `docs/03-STATE-MACHINES.md`
-7. relevant ADRs
+3. **On `recovery/operator-product-v1`: `docs/25-PRODUCT-RECOVERY-GRAPH.md` before choosing, expanding or implementing work. It is the binding product/work-package graph for this branch.**
+4. **On `rebuild/headless-agentic-v1` while finish issues #4–#7 are open: `docs/FINISH-LINE.md`.** The old audit issue #2 is superseded and is not a current backlog.
+5. `docs/01-ARCHITECTURE-GRAPH.md`
+6. `docs/02-PORTS-AND-ADAPTERS.md`
+7. `docs/03-STATE-MACHINES.md`
+8. relevant ADRs
 
-During finish mode, architecture documents explain the existing system; they do not authorize reopening completed waves. Current work must stay inside #4 -> #5 -> #6 -> #7 unless a reproduced finish-line blocker requires a minimal repair.
+On the recovery branch, work follows the WP graph and exit gates in `docs/25-PRODUCT-RECOVERY-GRAPH.md`. Do not fall back to the old #4 -> #5 -> #6 -> #7 finish-only prioritization there. Existing architecture and safety invariants remain authoritative unless the recovery graph explicitly changes a non-safety product/process assumption.
 
 ## Non-negotiable invariants
 - Normal user-facing platform UIs are the publishing surface; do not introduce social publishing APIs unless an explicit architecture decision changes this.
@@ -25,35 +26,36 @@ During finish mode, architecture documents explain the existing system; they do 
 - `PUBLISH_UNCERTAIN`, auth/challenge/identity and policy/copyright/account-warning incidents can never be automated into a repair/retry by AI.
 - AI-proposed shell/test commands are never executed; only fixed repository-owned test commands may run.
 - AI repair patches run only in isolated repair branches/worktrees and cannot modify safety/verification/reconciliation/kill-switch/storage/runtime-secret surfaces through the automatic path.
-- W7 can create repair candidates only; production promotion remains false until later real-account gates.
-- W8 final-action authorization is test-only: it requires a short-lived one-shot permit bound to run + intent + account + release SHA and cannot authorize customer accounts.
-- A W8 real final action must operate on the exact retained prepared browser session; do not rebuild the upload after W5 irreversible-boundary entry.
-- W5 `DurableFinalActionService` must persist irreversible-boundary entry before any retained-session final click.
-- A W8 final click is action evidence only and never creates `VerifiedPublication`; W5 verification/reconciliation remains authoritative.
-- Never claim a zero-viewer E2E unless private account + zero approved followers + contacts sync off + cross-posting off + test-only media are explicitly attested.
+- Automatic repair may create gated candidates only; it can never self-promote code directly to Brother Production.
+- Acceptance-only final-action authorization must be bounded to the intended run/intent/account/release and must never become a generic bypass for production safety gates.
+- A real final action must operate on the exact retained prepared browser session; do not rebuild the upload after irreversible-boundary entry.
+- `DurableFinalActionService` must persist irreversible-boundary entry before any retained-session final click.
+- A final click is action evidence only and never creates `VerifiedPublication`; verification/reconciliation remains authoritative.
+- Never claim a zero-viewer/private E2E unless private account + zero approved followers + contacts sync off + cross-posting off + test-only media are explicitly attested.
 - Browser session data, cookies, credentials, customer media and evidence artifacts are never committed to git.
 - One browser profile belongs to exactly one BrowserIdentity; concurrent profile/identity use is forbidden.
 - A platform publisher must pass the exact-account `AccountIdentityGuard`; merely being logged in is insufficient.
-- The W4 PREPARE_ONLY publisher must contain no working final publish action. Any later final action must pass through `DurableFinalActionService`, which persists irreversible-boundary entry before an invoker can act; no real social final-action invoker is wired before W8.
+- PREPARE_ONLY publisher paths must contain no working ungated final publish action. Any final action must pass through `DurableFinalActionService`, which persists irreversible-boundary entry before an invoker can act.
 - Every reversible click must be runtime-checked against the configured final-action boundary.
 - Real platform UI specs must be explicitly CALIBRATED; never promote placeholder/unverified selectors to a live account.
 - Video bytes are immutable in the publishing system unless a future explicit content-processing contract says otherwise.
 - Re-observing the same source object with a changed media fingerprint is a conflict and must fail closed; never silently replace accepted content.
 - `Europe/Vienna` is the business scheduling timezone.
 - Human incident acknowledgement/resolution never counts as publication verification.
-- `PUBLISH_UNCERTAIN` cannot be bypassed by an Ops UI Resume action; only W5 reconciliation can open a retry path.
+- `PUBLISH_UNCERTAIN` cannot be bypassed by an Ops UI Resume action; only reconciliation can open a retry path.
 - Global/account/platform kill switches must gate due-work claim and be re-checked immediately before irreversible-boundary entry.
 - Operations notifications use the durable outbox; do not call a bot transport as the source of truth.
-- Ops UI stays private by default (`127.0.0.1`) and state-changing actions require authentication + CSRF protection.
-- Production customer accounts are forbidden until all gates in `docs/06-GO-LIVE-GATES.md` are satisfied.
-- Each user/workspace owns a physically separate SQLite DB, browser-profile root and evidence root; do not introduce cross-workspace shared social state.
-- Host qualification order is release-SHA strict: `LUCA_MAC -> FABIAN_MAC -> VPS_STAGING -> VPS_PRODUCTION_READY`; do not relabel build-container tests as a real host pass.
+- Any private Ops/remote-browser surface stays private/authenticated by default; state-changing actions require appropriate authentication and request protection.
+- Brother Production/customer accounts are forbidden until the recovery release gates and `docs/06-GO-LIVE-GATES.md` are satisfied on one exact SHA.
+- Each installation/workspace owns a physically separate SQLite DB, browser-profile root and evidence root; do not introduce cross-installation shared social state.
+- Recovery promotion order is release-SHA strict: `CI -> LUCA_ACCEPTANCE -> BROTHER_CANARY -> BROTHER_PRODUCTION`; do not relabel build-container tests as a real-host or real-surface pass.
 - Self-service Test Lab may execute only repository-defined allowlisted commands; never execute a user/AI-provided shell string.
-- macOS/VPS installation keeps `ALLOW_FINAL_PUBLISH=false`; live W8 authorization remains one-shot and test-only.
+- Installation defaults must not silently authorize final publishing. Acceptance/production final publishing requires the explicit runtime gates defined by the product and release process; no generic secret-live bypass exists.
 
 ## Change discipline
 - `docs/22-ENGINEERING-EXECUTION-PROTOCOL.md` is binding for repair/build work in this repository.
-- During finish mode, `docs/FINISH-LINE.md` is additionally binding: reproduce first, one minimal repair, test, read back, rerun the exact live step before any second repair.
+- On `recovery/operator-product-v1`, `docs/25-PRODUCT-RECOVERY-GRAPH.md` is additionally binding: every slice must name its WP, changed forward/reverse graph edges, qualification impact, safety impact and delete impact.
+- On the historical finish branch only, `docs/FINISH-LINE.md` remains the finish-mode prioritization document.
 - New external system => new adapter behind an existing/new port, not domain leakage.
 - New state => update state machine, transition tests, graph docs, and incident semantics together.
 - New irreversible behavior => ADR + tests + canary plan.
