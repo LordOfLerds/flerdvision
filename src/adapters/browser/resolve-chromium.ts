@@ -1,6 +1,6 @@
 import { accessSync, constants } from "node:fs";
 
-// Deployment targets differ: Fabian and Luca run macOS, staging/production run Linux.
+// Deployment targets differ: acceptance may run on macOS while production runs on Linux.
 // A hard-coded executable path silently ties the whole browser subsystem to one of them.
 export const LINUX_CHROMIUM_CANDIDATES: readonly string[] = [
   "/usr/bin/chromium",
@@ -30,15 +30,18 @@ function isExecutable(path: string): boolean {
 }
 
 /**
- * The first browser that actually exists on this host, or undefined.
- * Callers that must degrade gracefully (test skips, preflight) use this.
+ * The browser that this host is actually allowed to use, or undefined.
+ *
+ * An explicit CHROMIUM_EXECUTABLE_PATH is authoritative: when it is configured but not
+ * executable, preflight/doctor must report that misconfiguration instead of silently falling
+ * back to a different host browser. Without an explicit path, normal platform discovery applies.
  */
 export function findChromiumExecutable(
   env: Record<string, string | undefined> = process.env,
   osPlatform: string = process.platform
 ): string | undefined {
   const configured = env.CHROMIUM_EXECUTABLE_PATH;
-  if (configured && isExecutable(configured)) return configured;
+  if (configured) return isExecutable(configured) ? configured : undefined;
   return chromiumCandidates(osPlatform).find(isExecutable);
 }
 
