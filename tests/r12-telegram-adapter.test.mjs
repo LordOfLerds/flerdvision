@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import { writeFileSync, readFileSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { TelegramNotificationAdapter, telegramAdapterFromEnv } from "../dist/adapters/notify/telegram.js";
@@ -35,6 +35,7 @@ test("plain messages go out as sendMessage with severity badge and permalink", a
   assert.equal(body.chat_id, "123");
   assert.match(body.text, /⚠️ Post verifiziert/);
   assert.match(body.text, /https:\/\/example\.invalid\/reel\/x/);
+  assert.ok(calls[0].init.signal instanceof AbortSignal);
 });
 
 test("a message carrying a local screenshot goes out as sendPhoto with caption", async () => {
@@ -49,6 +50,7 @@ test("a message carrying a local screenshot goes out as sendPhoto with caption",
     assert.ok(calls[0].init.body instanceof FormData);
     assert.equal(calls[0].init.body.get("chat_id"), "123");
     assert.ok(calls[0].init.body.get("photo"));
+    assert.ok(calls[0].init.signal instanceof AbortSignal);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -91,6 +93,28 @@ test("a repeated lifecycle edit tolerates Telegram's message-is-not-modified res
   assert.equal(receipt.externalMessageId, "91");
 });
 
+test("a hung Telegram request aborts at the configured hard deadline", async () => {
+  let aborted = false;
+  const fetchImpl = async (_url, init) => await new Promise((_resolve, reject) => {
+    init.signal.addEventListener("abort", () => {
+      aborted = true;
+      reject(new Error("aborted"));
+    }, { once: true });
+  });
+  const adapter = new TelegramNotificationAdapter({
+    channelKey: "telegram", botToken: "tok", chatId: "123", fetchImpl, requestTimeoutMs: 100
+  });
+  await assert.rejects(() => adapter.send(message()), /Telegram request timed out after 100ms/);
+  assert.equal(aborted, true);
+});
+
+test("telegram transport centralizes all network calls behind the bounded request helper", () => {
+  const source = readFileSync(new URL("../src/adapters/notify/telegram.ts", import.meta.url).pathname, "utf8");
+  assert.equal((source.match(/this\.fetchImpl\(/g) ?? []).length, 1);
+  assert.match(source, /new AbortController\(\)/);
+  assert.match(source, /mediaRequestTimeoutMs/);
+});
+
 test("a telegram API error surfaces as a throw so the outbox retries", async () => {
   const fetchImpl = async () => ({ ok: false, status: 403, json: async () => ({ ok: false, description: "bot was blocked" }) });
   const adapter = new TelegramNotificationAdapter({ channelKey: "telegram", botToken: "tok", chatId: "123", fetchImpl });
@@ -106,7 +130,6 @@ test("env factory yields no adapter without both credentials, and never partial"
 });
 
 test("the runtime wires telegram alongside the webhook into one dispatcher", async () => {
-  const { readFileSync } = await import("node:fs");
   const runtime = readFileSync(new URL("../src/adapters/runtime/workspace-distribution-runtime.ts", import.meta.url).pathname, "utf8");
   assert.match(runtime, /telegramAdapterFromEnv\(env\)/);
   assert.match(runtime, /notificationAdapters=\[\.\.\.\(webhook\?\[webhook\]:\[\]\),\.\.\.\(telegram\?\[telegram\]:\[\]\)\]/);
