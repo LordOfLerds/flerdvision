@@ -143,7 +143,7 @@ export class OperatorCommandService {
     if (!this.deps.scheduleCommands) return "⚠️ Zeitplan-Änderungen sind in dieser Installation nicht verbunden.";
     try {
       const views = this.deps.scheduleCommands.show();
-      const lines = views.map((item) => `• ${item.channelName} · ${item.format}: ${item.times.join(", ")} (${item.capacity}/Tag)`);
+      const lines = views.map((item) => `• ${item.customerName} · ${item.channelName} · ${item.format}: ${item.times.join(", ")} (${item.capacity}/Tag)`);
       return ["🗓️ Zeitplan", ...lines, "", "Ändern: /slot <kanal> +|- <HH:mm> · /limit <kanal> <anzahl>"].join("\n");
     } catch (error) {
       return `⚠️ Zeitplan konnte nicht gelesen werden: ${error instanceof Error ? error.message : String(error)}`;
@@ -158,7 +158,7 @@ export class OperatorCommandService {
         ? await this.deps.scheduleCommands.add(args[0]!, args[2]!)
         : await this.deps.scheduleCommands.remove(args[0]!, args[2]!);
       return [
-        `✅ Zeitplan aktualisiert: ${result.channelName} · ${result.format}`,
+        `✅ Zeitplan aktualisiert: ${result.customerName} · ${result.channelName} · ${result.format}`,
         `Slots: ${result.times.join(", ")}`,
         "Bereits materialisierte heutige Posts bleiben bestehen. /pause stoppt fällige Posts sofort."
       ].join("\n");
@@ -175,7 +175,7 @@ export class OperatorCommandService {
     try {
       const result = await this.deps.scheduleCommands.capacity(args[0]!, desired);
       return [
-        `✅ Kapazität aktualisiert: ${result.channelName} · ${result.capacity} Slots/Tag`,
+        `✅ Kapazität aktualisiert: ${result.customerName} · ${result.channelName} · ${result.capacity} Slots/Tag`,
         `Slots: ${result.times.join(", ")}`,
         "Zum Verkleinern Slots bewusst mit /slot ... - ... entfernen."
       ].join("\n");
