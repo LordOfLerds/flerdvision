@@ -9,7 +9,7 @@ function fixture(overrides={}){
     source:{async scan(){calls.push("source");return{observed:2,ready:2,stabilizing:0,blocked:0}}},
     planner:{async ensureDailyPlan(date){calls.push("plan");return{planId:"p",businessDate:date,generatedAt:"2026-08-27T07:00:00Z",deliveries:[],gaps:[],backlog:[]}}},
     intents:{async ensureIntents(){calls.push("intents");return{created:0,existing:0,blocked:0}}},
-    due:{async runDue(){calls.push("due");return{claimed:0,prepared:0,verified:0,uncertain:0,blocked:0}}},
+    due:{async runDue(){calls.push("due");return{claimed:0,prepared:0,verified:0,uncertain:0,blocked:0,waived:0,waivedIntentIds:[]}}},
     reconciliation:{async reconcile(){calls.push("reconcile");return{inspected:0,verified:0,safeToRetry:0,stillUncertain:0}}},
     disposition:{async applyEligible(){calls.push("disposition");return{inspected:0,completed:0,externalMutations:0,manualReview:0}}},
     operations:{async projectAndNotify(){calls.push("ops");return{incidentsCreated:0,notificationsEnqueued:0}}},
@@ -48,8 +48,23 @@ test("cycle lease prevents overlapping supervisor runs",async()=>{
   lease.release();
 });
 
+test("supervisor heartbeats the cycle lease while a long phase is still running",async()=>{
+  let dueActive=false,heartbeatsDuringDue=0;
+  const f=fixture({
+    lease:{acquire(){return{heartbeat(){if(dueActive)heartbeatsDuringDue+=1;},release(){}}}},
+    due:{async runDue(){
+      f.calls.push("due");dueActive=true;
+      await new Promise(resolve=>setTimeout(resolve,35));
+      dueActive=false;
+      return{claimed:0,prepared:0,verified:0,uncertain:0,blocked:0,waived:0,waivedIntentIds:[]};
+    }}
+  });
+  await new RuntimeSupervisor(f.ports,"worker",()=>new Date().toISOString(),5).runCycle("2026-08-27T07:00:00Z","2026-08-27");
+  assert.ok(heartbeatsDuringDue>=2,`expected periodic heartbeats during due execution, got ${heartbeatsDuringDue}`);
+});
+
 test("supervisor has no generic retry-after-uncertain phase",async()=>{
-  const f=fixture({due:{async runDue(){f.calls.push("due");return{claimed:1,prepared:1,verified:0,uncertain:1,blocked:0}}},reconciliation:{async reconcile(){f.calls.push("reconcile");return{inspected:1,verified:0,safeToRetry:0,stillUncertain:1}}}});
+  const f=fixture({due:{async runDue(){f.calls.push("due");return{claimed:1,prepared:1,verified:0,uncertain:1,blocked:0,waived:0,waivedIntentIds:[]}}},reconciliation:{async reconcile(){f.calls.push("reconcile");return{inspected:1,verified:0,safeToRetry:0,stillUncertain:1}}}});
   const report=await new RuntimeSupervisor(f.ports,"worker").runCycle("2026-08-27T07:00:00Z","2026-08-27");
   assert.equal(report.phases.some(p=>p.phase.includes("RETRY")),false);
   assert.deepEqual(f.calls,["source","plan","intents","due","reconcile","disposition","ops"]);
