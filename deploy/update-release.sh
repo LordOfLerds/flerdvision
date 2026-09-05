@@ -17,6 +17,7 @@ SOURCE_DIR="$PREFIX/source"
 RELEASES_DIR="$PREFIX/releases"
 CURRENT_LINK="$PREFIX/current"
 SERVICE=flerdvision-daemon
+NOVNC_SERVICE=flerdvision-novnc
 APP_USER=flerdvision
 RELEASE_ENV=/etc/flerdvision/release.env
 PREVIOUS_ENV=/etc/flerdvision/previous-release.env
@@ -86,13 +87,16 @@ ln -s "$RELEASE_DIR" "$TMP_LINK"
 mv -Tf "$TMP_LINK" "$CURRENT_LINK"
 [[ "$(as_app git -C "$CURRENT_LINK" rev-parse HEAD)" == "$FULL_SHA" ]] || { echo "current readback mismatch" >&2; exit 8; }
 
-echo "[5/6] Pin release + refresh generic unit"
+echo "[5/6] Pin release + refresh generic units"
 printf 'FLERDVISION_RELEASE_SHA=%s\n' "$FULL_SHA" > "$RELEASE_ENV"
 chown root:"$APP_USER" "$RELEASE_ENV"
 chmod 640 "$RELEASE_ENV"
 install -m 644 "$CURRENT_LINK/deploy/flerdvision-daemon.service" /etc/systemd/system/flerdvision-daemon.service
 install -m 644 "$CURRENT_LINK/deploy/flerdvision-xvfb.service" /etc/systemd/system/flerdvision-xvfb.service
+install -m 644 "$CURRENT_LINK/deploy/flerdvision-novnc.service" /etc/systemd/system/flerdvision-novnc.service
 systemctl daemon-reload
+# Remote browser backend is reversible/read-only infrastructure; keep it on the current release.
+systemctl restart "$NOVNC_SERVICE" 2>/dev/null || true
 
 echo "[6/6] Done"
 if [[ "$RESTART" -eq 1 ]]; then
