@@ -60,7 +60,6 @@ export class RuntimeSupervisor {
       const pulse=()=>{try{heartbeat();}catch(error){heartbeatFailure??=error;}};
       pulse();
       const timer=lease.heartbeat?setInterval(pulse,this.heartbeatIntervalMs):undefined;
-      timer?.unref?.();
       try{
         value=await fn();
         if(heartbeatFailure)throw heartbeatFailure;
@@ -69,7 +68,7 @@ export class RuntimeSupervisor {
         phases.push({phase,status:"PASS",summary:summary(value)});
       }
       catch(error){phases.push({phase,status:"FAIL",summary:errorText(error)});}
-      finally{if(timer)clearInterval(timer);}
+      finally{if(timer!==undefined)clearInterval(timer);}
       return value;
     };
     try{
